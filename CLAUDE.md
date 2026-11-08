@@ -15,7 +15,9 @@ public: no absolute paths, no references to folders outside the repository.
 uv sync && uv run poe setup          # once per clone: environment (builds the Rust extension: needs rustup), git hooks, commit template, cargo tools
 uv run pytest tests/test_scale.py -n 0   # the tests near your change, while you work
 cargo test -p bullterrier-scene --test it scale::  # one Rust area (inline: cargo test -p bullterrier-scene --lib scaling::)
-uv run poe check                     # the whole gate, before you report or merge (then `uv run lint-imports`)
+uv run poe fast                      # the inner loop, as often as you like: format, lint, types, quick tests
+uv run poe check                     # the gate, before you report or merge (then `uv run lint-imports`)
+uv run poe full                      # `check` and the gate proofs: before a tag (`poe release` runs it) and in CI
 ```
 
 | To ... | Look at |
@@ -161,6 +163,13 @@ twine, check-wheel-contents); `mypy` and `stubtest`
 (`_native/_core.pyi` against the extension); `rust-test` (under the memory cap); the tests, in random order. Each gate has a test
 proving it fails on a known-bad input (`tests/tools/`; `test_rust_gates.py` `OFFENCES`).
 
+**Three tiers.** `poe fast` is the inner loop (format, lint, types, the quick tests; no build, no Rust tests, no proofs). `poe check` is every
+gate except the *gate proofs*, the tests marked `gate`: each copies the workspace, writes one known-bad input and expects the gate to fail,
+which is slow (a cold build each), so `check` runs them only when the change touches what they test (`[tool.gate-proofs] triggers` in
+`pyproject.toml`; `poe proofs`), or when the base to compare with cannot be read. `poe full` is `check` with the proofs always (`poe gate-tests`);
+CI runs it on `main` and `poe release` before a tag. A new proof edits or anchors on a file: add that file to the triggers. Because a push to
+`main` runs `check`, a proof can fail on `main` for a change outside the triggers; fix forward, as the trunk has no merge queue.
+
 `ruff` wants type hints and a docstring on every public function, class, method and module, and no `print` outside the CLI.
 `mypy` checks `src` and `tests`. Fix findings properly; for a false positive use a targeted `# noqa: CODE  (reason)` or
 `# type: ignore[code]  # reason` (a bare or unused one fails). Tests may not reach private names (`SLF001`, `PLC2701`), except
@@ -217,8 +226,9 @@ Writing a test file:
 - **DAMP, not DRY:** each case and its expectation are visible; helpers build input or name an assertion, never hide what is
   checked; a table replaces loops and branches.
 - **No change-detectors:** test a rule with a known-bad input; never restate configuration.
-- **Slow tests in groups:** a module whose module-scoped fixture spawns tools (ruff, mypy, poe, git) carries
-  `pytestmark = pytest.mark.xdist_group("<module>")`.
+- **Gate proofs are marked `gate`** (`pytestmark = pytest.mark.gate`); `poe test` leaves them out, `poe gate-tests` runs them.
+- **Slow tests in one file:** `--dist=loadfile` runs a test file on one worker, so a module-scoped fixture that spawns tools (ruff,
+  mypy, poe, git) is built once. Do not use `xdist_group`: it does nothing with pytest 9.2 and xdist 3.8.
 - **Running:** one file or folder: `uv run pytest tests/test_cli.py -n 0` (`-p no:randomly` for fixed order); everything:
   `uv run poe test`.
 - **Fast feedback (agents):** while iterating run only the tests covering your change (mirror file or folder, or `-k <name>`). Run
@@ -235,9 +245,9 @@ Writing a test file:
 ## Git conventions
 
 Once per clone: `uv run poe setup` (hooks and commit template). Before every push or merge: `uv run poe check` (`uv run poe fix`
-repairs what it can). Commit hooks run ruff only; the pre-push hook runs the whole gate only for a push to `main` or a tag that
-changes more than documentation, and not again for a push of exactly the tree a passing `uv run poe check` ran on (it must have
-started and ended on a clean working tree; the record is in the git folder, so commit before you run `check`).
+repairs what it can). Commit hooks run ruff only; the pre-push hook runs `poe check` for a push to `main` and `poe full` for a tag, only if
+the push changes more than documentation, and not again for a push of exactly the tree a passing gate of that tier or a higher one ran on
+(it must have started and ended on a clean working tree; the record, with its tier, is in the git folder, so commit before you run `check`).
 - **Trunk-based:** everything integrates on `main`. Short-lived branch `<type>/<short-description>` (`feat/scale-offset`), merged
   into `main` and deleted when done; no worktrees unless the owner asks; rebase on `main` before reporting. Never push.
 - **Conventional Commits 1.0:** `type(scope)!: subject`. Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`,

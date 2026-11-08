@@ -44,3 +44,18 @@ undocumented_unsafe_blocks = "warn"
 [workspace.metadata.tools]
 cargo-shear = "1.14.0"
 cargo-deny = "0.20.2"
+
+# Debug builds keep file and line tables (panics and backtraces still name them) but no variable information, and on
+# macOS the debug info stays in the binary: by default (`unpacked`) cargo leaves every object file of every build behind
+# in target/debug/deps, never cleaned (measured in a sibling project: 1.1 million files, 38 GB after a week). `cargo test`
+# uses the `test` profile, which inherits this one.
+[profile.dev]
+debug = "line-tables-only"
+split-debuginfo = "off"
+
+# Tests run lightly optimised: in a sibling project this took the Rust tests from 13 minutes to 33 seconds with the same
+# assertions, and the default (opt-level 0) compiles code that is slow to run. The cost: a test of stack depth or frame size
+# sees smaller frames (one measured 32-64 KB needed at opt-level 0, at most 8 KB at 1), so it bounds the recursion more loosely.
+# A project with such a test sets `opt-level = 0` here, with its reason.
+[profile.test]
+opt-level = 1

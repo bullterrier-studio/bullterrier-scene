@@ -37,10 +37,17 @@ froze the machine; a timeout limits seconds, not memory. A cap on the group cove
 allocator in one binary covered only that binary, and the crate needs no dev-dependency for it. The runner's own tests kill a
 known-bad allocation. It is not enforced on Windows (no process groups or `ps`); the CI legs there run uncapped.
 
-## A gate that passed is not repeated on the same tree
+## Three tiers; a gate that passed is not repeated on the same tree
 
-`poe check` notes the tree of `HEAD` when it starts and, when every step passed, records it in the git folder if the working tree
-was clean at both ends and `HEAD` was unchanged; the pre-push hook skips the gate for a tip with that tree. *Reason:* the hook
+`fast` (the inner loop), `check` (everything but the gate proofs, which run when the change touches what they test) and `full` (`check` and
+the proofs, for a tag and in CI). *Reason:* the proofs, tests that copy the workspace and build in it to show each gate fails on a known-bad
+input, were most of a gate that took 19 minutes in a sibling project; a library change cannot break a gate's ability to fail, so they need
+running when the gates or their inputs change, and always before a release. *Cost:* a proof broken from outside its triggers shows in CI or at
+the release, not at the push.
+
+`poe check` and `full` note the tree of `HEAD` when they start and, when every step passed, record it with the tier in the git folder if the
+working tree was clean at both ends and `HEAD` was unchanged; the pre-push hook skips the gate for a tip with that tree, if the pass was of
+the tier the push needs or a higher one (`full` covers `check`, never the reverse). *Reason:* the hook
 repeated a minutes-long gate on contents just checked, and a slow loop gets worked around. *Not seen by the record:* state outside
 the tree (installed cargo tools, the advisory database, the built extension); CI checks everything again.
 

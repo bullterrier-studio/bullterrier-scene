@@ -17,7 +17,7 @@ what may differ.
 | `tools/check_release.py`, `tools/release.py` and their tests | the release command and the tag check |
 | `rustfmt.toml`, `.editorconfig`, `.python-version`, `.gitmessage` | formatting and commit template |
 | `Cargo.toml` `[workspace.lints]` and `[workspace.metadata.tools]` blocks, `[workspace.package]` keys | the Rust lint set and the tool pins |
-| `pyproject.toml` poe tasks `rust-fmt`, `rust-lint`, `rust-doc`, `rust-tools`, `rust-shear`, `rust-deny`, `rust-test`, `rust-test-layout`, `check`, `setup`, `fix`; tables `[tool.ruff]`, `[tool.mypy]`, `[tool.pytest.ini_options]`, `[tool.run-capped]`, `[tool.rust-tests.own-binaries]`, `[tool.commit-message]` | the gate |
+| `pyproject.toml` poe tasks `rust-fmt`, `rust-lint`, `rust-doc`, `rust-tools`, `rust-shear`, `rust-deny`, `rust-test`, `rust-test-layout`, `gates`, `fast`, `proofs`, `check`, `full`, `gate-tests`, `setup`, `fix`; tables `[tool.ruff]`, `[tool.mypy]`, `[tool.pytest.ini_options]`, `[tool.run-capped]`, `[tool.rust-tests.own-binaries]`, `[tool.commit-message]` | the gate |
 | `.github/workflows/{ci,lint,test,security,pre-commit,min-deps,release}.yml`, `.github/dependabot.yml` | same action SHAs everywhere; lint and test list the project's own gates only if it has extra ones |
 | `tests/tools/` gate proofs: `test_rust_gates.py` rows for the shared gates, `test_workflow_gate.py`, `test_lint_and_type_gate.py`, `test_security_gate.py`, `test_warning_gate.py`, `test_dead_code_gate.py`, `test_dependency_gate.py`, `test_project_wiring.py`, `test_pre_push.py` | every gate has a known-bad input |
 
