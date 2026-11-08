@@ -30,7 +30,7 @@ uv run poe check                     # the whole gate, before you report or merg
 | keep files identical across projects | `docs/shared-files.md` |
 
 **State:** scaffold only (S0): the template's one feature `scale(value, factor)` stands in end to end (core, extension, package, the
-command `bt-scene scale`, each tested) until batch C1 replaces it. Next: A1 (the code API, `docs/roadmap.md`).
+command `bt-scene scale`, each tested) until batch C1 replaces it. Next: A1 (the code API, `docs/roadmap.md`). No work starts until image E4 and vector V10 are finished, merged and pushed (`docs/roadmap.md`, "When work starts").
 
 ## Responsibility
 

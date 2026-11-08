@@ -79,6 +79,9 @@ A stack of full-size float pictures is the wrong way to render a poster: one 12-
    bands, not a few canvases, and does not grow with the number of layers.
 2. **Each effect declares its footprint:** nothing around a pixel, a radius, or the whole picture. Bands are cut with that
    margin; a whole-picture effect falls back to one full picture, and only that layer pays.
+   A footprint is honest only if the effect's output at a pixel depends on absolute position and canvas size, never on a
+   sequential stream: an effect that draws noise from one seeded stream (grain, dust, scratches) is whole-picture until its
+   noise is position-hashed. Footprint also depends on the parameters (a blur's radius).
 3. **Finished layers are held compact** (8 or 16 bits), not float32; float is for the effect that is running.
 4. **Vector draws a window**, so a band of a drawing never needs the whole raster.
 5. **Design pixels belong to the whole canvas,** not the band, so a banded render equals a whole one.
