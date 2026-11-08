@@ -15,11 +15,29 @@ their later changes cannot break it; a bump of the pin is a reviewed commit, and
 | Batch | Starts when |
 |---|---|
 | A1 | image E4 and vector V10 are merged and pushed (A1 is docs only; it could start earlier, the owner chose not to) |
-| C1 | A1 is reviewed; C1 uses only the public APIs of image and vector as they are then, so it does not wait for image E5 to E7 |
+| C1 | A1 is reviewed by the owner; C1 uses only the public APIs of image and vector as they are then, so it does not wait for image E5 to E7 |
 | C2, C3, C4 | C1 is merged |
-| C5 | image has effect footprints and the owner has decided on a design scale from the caller |
-| M1 | C3, C4 and vector V10b are merged |
-| B1 | image has a banded render (after its E6) and an origin and canvas size for effects, with position-hashed noise, and vector has V10c (window render); until then a layer with a whole-picture effect renders whole |
+| C5 | C1 is merged, image has effect footprints (E4) and the owner has decided on a design scale from the caller (decision 1 below) |
+| C6 | C2, C3 and C4 are merged: the layer model is stable enough to write down as parameters and JSON |
+| C7 | C5 and C6 are merged: the cache is keyed on parameter values and layer chains |
+| M1 | C3, C4 and vector V10b (gradients, blend set, clips) are merged; vector V10d (text runs) too if the piece wants mixed fonts |
+| B1 | image has a banded render (after its E6), an origin and canvas size handed to effects, and position-hashed noise; vector has V10c (window render); the owner has decided the storage precision (decision 2). Until then a layer with a whole-picture effect renders whole |
+| O1 | PNG: with C1. PDF and print colour: when the owner wants a print, after C5 |
+| P1 | C6 is merged (a scene is data); the owner has chosen a Rust or a Python command line (decision 3) |
+| R1 | image and vector are released, B1 is done or the owner defers it, and the owner decides to open the repository |
+
+**Before starting any batch:** the previous batch is merged with the gate green; its row above is met; the pin of image and
+vector points at a revision that has what the batch needs (a bump is its own commit, with the gate run); the batch has its plan
+in `.superpowers/plans/`.
+
+**Decisions the owner still owes**
+
+| # | Decision | Needed by | Where it is recorded |
+|---|---|---|---|
+| 1 | A design scale (and canvas size and origin) handed to effects by the caller, reversing "derived from the picture" | C5, B1 | image's design decisions and roadmap notes |
+| 2 | Storage precision of finished layers: 8 bit, 16 bit or float32 | B1 (and image's E5 kernels) | image's design decisions |
+| 3 | Command line in Rust (a binary in the wheel, as image plans) or Python | P1 | [design.md](design.md), open question 4 |
+| 4 | A browser build of scene | when a page needs it | [design.md](design.md), open question 1 |
 
 ## How we work
 
