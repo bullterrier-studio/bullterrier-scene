@@ -6,7 +6,7 @@
 
 <p align="center">
   <b>Stack pictures, drawings and type into one finished picture.</b><br>
-  Posters, covers and social cards, written as code you can rerun.
+  Posters, covers, collages and any other layered picture, written as code you can rerun.
 </p>
 
 <p align="center">
@@ -57,6 +57,18 @@ poster.render().save("poster.png")
 ```
 
 Change `dancer.jpg` and the headline, run it again: a second poster, same design.
+
+## Beyond posters
+
+A scene is any layered picture: a poster, an album cover, a social card, a collage, a thumbnail, a diagram with photos in it.
+It can also move. A scene has no clock of its own; a value in it (a position, a colour, how far a headline has slid in) is a
+number you set before each render. Set it a little differently for every frame and render again, and the frames make an
+animation. Drawing only what changed keeps that cheap (planned, batch C7), and the video tool is built on exactly this.
+
+## Rust first, Python on top
+
+The engine is a Rust crate, `bullterrier-scene`, with no Python in it. The Python package is a thin layer over the same crate,
+as in the sibling packages, so a Rust program can use scenes without Python and a Python script gets the same results.
 
 ## Why it is its own package
 

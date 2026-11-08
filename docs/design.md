@@ -25,6 +25,14 @@ blends as one.
 the scene at the size asked, and the description of every parameter. **Has no time:** a parameter is a state; whoever animates
 it sets it per frame and renders again.
 
+**Rust core, Python on top.** The engine is the pure-Rust crate `bullterrier-scene` (no PyO3, no numpy); the Python package is a
+thin binding over it, as in image and vector, so a Rust program uses scenes without Python and both give the same picture.
+The browser build is not part of the first plan (open question 1).
+
+**Animation is states, not time.** A scene never knows a frame or a second. A parameter is a state; a caller (a loop, control
+signals through video) sets it per frame and renders again. Per-layer caching (C7) and bands (B1) are therefore also what make
+animation affordable, and video is scene plus the clock.
+
 **Code first, JSON second.** The scene is built in code (Rust, Python); JSON is the same tree written down, never the other
 way round.
 
@@ -119,4 +127,5 @@ that needs a newer one. The first batch to need each is in the roadmap table.
 1. Whether a browser build is wanted for scene, and what it asks of image's crate.
 2. How a scene refers to image looks and vector drawings: embedded data or a file.
 3. Print colour (CMYK, ICC, bleed, PDF) is output and belongs here; when to build it is open.
-4. Stamped brush marks along a path (spray, scribbles) are raster, so a layer type here, with vector giving the path.
+4. Command line in Rust or Python: image plans a Rust binary in its wheel; scene decides at P1 and should follow it.
+5. Stamped brush marks along a path (spray, scribbles) are raster, so a layer type here, with vector giving the path.
