@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/logo.svg" alt="bullterrier-scene logo: a bull terrier head" height="160">
+  <img src="docs/images/banner.svg" alt="Four layers, a photo, a cut-out, a headline and grain, rendered into one poster">
 </p>
 
 <h1 align="center">bullterrier-scene</h1>
@@ -15,10 +15,6 @@
   <img alt="Rust core" src="https://img.shields.io/badge/core-Rust-dea584?logo=rust&logoColor=white">
   <img alt="Private repository" src="https://img.shields.io/badge/repository-private-lightgrey">
   <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue">
-</p>
-
-<p align="center">
-  <img src="docs/images/banner.svg" alt="Four layers, a photo, a cut-out, a headline and grain, rendered into one poster">
 </p>
 
 **A poster is a stack of layers. Write the stack down once, change a photo or a headline, render it again.**
