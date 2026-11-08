@@ -164,11 +164,9 @@ OFFENCES = {
     "unsafe code allowed on a function in the core": (
         "rust-lint",
         CORE,
-        replaced(
-            "pub use scaling::scale;",
-            "/// Probe.\n#[must_use]\n#[allow(unsafe_code)]\npub fn probe(value: &u8) -> u8 {\n"
-            "    // SAFETY: a reference is valid to read.\n    unsafe { *std::ptr::from_ref(value) }\n}\n\n"
-            "pub use scaling::scale;",
+        appended(
+            "\n/// Probe.\n#[must_use]\n#[allow(unsafe_code)]\npub fn probe(value: &u8) -> u8 {\n"
+            "    // SAFETY: a reference is valid to read.\n    unsafe { *std::ptr::from_ref(value) }\n}\n"
         ),
         ["allow(unsafe_code)", "forbid", CORE],
     ),

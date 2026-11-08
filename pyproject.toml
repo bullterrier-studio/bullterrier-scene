@@ -167,7 +167,8 @@ cap-mb = 4000
 
 # Read by tools/pre_push.py (`poe proofs`, the last step of `poe check`): the gate proofs (tests marked `gate`) run in `check` only when the
 # change touches one of these globs, relative to the repository root, or when the base to compare with cannot be read. List every file a proof
-# copies, edits or anchors on; a proof that edits a file nothing here names would go unrun when that file changes. `poe full` runs them always.
+# copies or matches the text of; not one it only appends to (that cannot break it, and the project's own source changes often, which
+# would run the slow proofs every time). `poe full` runs them always.
 [tool.gate-proofs]
 triggers = [
     "pyproject.toml",
@@ -178,7 +179,6 @@ triggers = [
     "Cargo.toml",
     "Cargo.lock",
     "crates/*/Cargo.toml",
-    "crates/core/src/lib.rs",
     "tools/*",
     "tests/tools/*",
     ".github/*",

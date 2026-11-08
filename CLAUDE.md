@@ -167,7 +167,7 @@ proving it fails on a known-bad input (`tests/tools/`; `test_rust_gates.py` `OFF
 gate except the *gate proofs*, the tests marked `gate`: each copies the workspace, writes one known-bad input and expects the gate to fail,
 which is slow (a cold build each), so `check` runs them only when the change touches what they test (`[tool.gate-proofs] triggers` in
 `pyproject.toml`; `poe proofs`), or when the base to compare with cannot be read. `poe full` is `check` with the proofs always (`poe gate-tests`);
-CI runs it on `main` and `poe release` before a tag. A new proof edits or anchors on a file: add that file to the triggers. Because a push to
+CI runs it on `main` and `poe release` before a tag. A new proof copies a file or matches its text: add that file to the triggers (not one it only appends to). Because a push to
 `main` runs `check`, a proof can fail on `main` for a change outside the triggers; fix forward, as the trunk has no merge queue.
 
 `ruff` wants type hints and a docstring on every public function, class, method and module, and no `print` outside the CLI.
