@@ -63,7 +63,7 @@ Real objects over mocks: the sibling crates are real, used through their public 
 | C5 | Effect chains on layers and groups; the design-scale convention; room around a layer | M | image: a design scale from the caller (owner decision pending), effect footprints |
 | C6 | Parameters in the shared description format; the scene as JSON | M | |
 | C7 | Caching per layer: change one value, redo only what depends on it | M | |
-| M1 | First piece: a two-ink geometric poster with a photo clipped into a polygon, type in front of and behind a cut-out, flat shapes and grain | M | vector V10b (gradients, blend set, clips) |
+| M1 | First milestone piece: a two-ink geometric poster with a photo clipped into a polygon, type in front of and behind a cut-out, flat shapes and grain | M | vector V10b (gradients, blend set, clips) |
 | B1 | Bands: compose band by band, finished layers compact, a 15-layer A3 poster measured whole and banded | L | image: footprint, banded render, storage precision, position-hashed noise so seeded effects can band; vector: V10c window render |
 | O1 | Output: PNG, then PDF; print colour (CMYK, ICC, bleed) when wanted | M | |
 | P1 | Command line `bt-scene render`; templates and presets | S | |
@@ -79,9 +79,9 @@ Real objects over mocks: the sibling crates are real, used through their public 
 | C3 | a photo clipped into big letters; type tucked behind a cut-out subject. The first piece that looks like a poster |
 | C4 | a contact sheet of every blend mode on the same two layers, to compare by eye with the same blends in a browser |
 | C5 | grain over the whole poster and a halftone on one photo only; one effect at two layer sizes side by side, equally coarse |
-| C6 | a scene file and a command that swaps the title and the photo: six covers from one scene |
-| C7 | a timing table: the first render against changing one value |
-| M1 | the two-ink geometric poster at three sizes, the same picture each time |
+| C6 | the second milestone piece: a scene file and a command that swaps the title and the photo, six covers from one scene |
+| C7 | the third milestone piece: a timing table (the first render against changing one value) and a 24-frame sequence of a headline sliding in, as a contact sheet; a clip needs ffmpeg and is optional |
+| M1 | the first milestone piece: the two-ink geometric poster at three sizes, the same picture each time |
 | B1 | numbers: peak memory of a 15-layer A3 poster, whole against banded, and a check that the pixels match |
 | O1, P1 | a PNG and a PDF to print; `bt-scene render scene.json out.png` |
 

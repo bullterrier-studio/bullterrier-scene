@@ -17,9 +17,9 @@
   <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue">
 </p>
 
-**A poster is a stack of layers. Write the stack down once, change a photo or a headline, render it again.**
+**A layered picture is a stack. Write the stack down once, change a photo or a headline, render it again.**
 
-A poster in a design app is often a dozen layers: a photo, the same photo cut out around the subject, a huge headline
+Take a poster. In a design app it is often a dozen layers: a photo, the same photo cut out around the subject, a huge headline
 that sits behind the subject's head but in front of the background, a few flat shapes, film grain over the top. It lives
 in one file, and making the next one means opening it and redoing the work by hand.
 
@@ -34,9 +34,9 @@ effects it gets. The scene then draws everything at the size you ask for, from a
     <td width="33%" valign="top"><b>Effects per layer or per group</b><br>Grain on the whole poster, a halftone on one photo, a glow on the headline. The effects come from <code>bullterrier-image</code>.</td>
   </tr>
   <tr>
-    <td width="33%" valign="top"><b>One template, many posters</b><br>Swap the photo, the title or a colour and render again. A hundred covers from one scene is a loop, not a hundred files.</td>
+    <td width="33%" valign="top"><b>One template, many pictures</b><br>Swap the photo, the title or a colour and render again. A hundred covers from one scene is a loop, not a hundred files.</td>
     <td width="33%" valign="top"><b>Any size, same picture</b><br>Draft small, print large. Every layer is drawn at the final size by the package that owns it, so the draft shows what the print will.</td>
-    <td width="33%" valign="top"><b>Big canvases without big memory</b><br>A poster is drawn a strip at a time, so fifteen layers at print size do not need fifteen full-size pictures in memory at once.</td>
+    <td width="33%" valign="top"><b>Big canvases without big memory</b><br>A large picture is drawn a strip at a time, so fifteen layers at print size do not need fifteen full-size pictures in memory at once.</td>
   </tr>
 </table>
 
@@ -56,14 +56,39 @@ poster.add(grain(amount=0.3))  # over everything
 poster.render().save("poster.png")
 ```
 
-Change `dancer.jpg` and the headline, run it again: a second poster, same design.
+Change `dancer.jpg` and the headline, run it again: a second poster, same design. Two more sketches, to show where else the
+same idea goes:
 
-## Beyond posters
+```python
+# illustration only: one design, many pictures
+for episode in episodes:
+    card = cover.with_values(title=episode.title, photo=episode.photo)
+    card.render(size=(1280, 720)).save(f"{episode.id}.png")
 
-A scene is any layered picture: a poster, an album cover, a social card, a collage, a thumbnail, a diagram with photos in it.
-It can also move. A scene has no clock of its own; a value in it (a position, a colour, how far a headline has slid in) is a
-number you set before each render. Set it a little differently for every frame and render again, and the frames make an
-animation. Drawing only what changed keeps that cheap (planned, batch C7), and the video tool is built on exactly this.
+# illustration only: a value you set per frame is an animation
+for frame in range(48):
+    scene.with_values(slide=frame / 47).render().save(f"frame-{frame:02}.png")
+```
+
+## What you can make
+
+Nothing renders yet; this is what the design allows and the [roadmap](docs/roadmap.md) delivers, batch by batch.
+
+- **Stills.** Posters, flyers, tickets and certificates; album, book and podcast covers; social cards, banners and
+  thumbnails; collages and photo grids; before-and-after pairs; product mockups (a photo placed on a tilted surface);
+  infographics and diagrams that contain photos; a magazine spread or a slide, each page a scene.
+- **One design, many pictures.** Swap the photo, the title or a colour and render again: a hundred episode thumbnails,
+  personalised cards, a poster per city. This is the idea of `bullterrier-image` (one look on a thousand photos) one level up.
+- **Motion.** A scene has no clock of its own; a value in it (a position, a colour, how far a headline has slid in) is a
+  number you set before each render. Set it a little differently for every frame and render again, and the frames make an
+  animation: kinetic type, an animated cover, a loop, a frame sequence to lay over footage. Drawing only what changed keeps
+  that cheap (planned, batch C7), and the video tool is built on exactly this.
+- **Generative pieces.** Drawings from `bullterrier-vector` (hatching, flow lines, type) and fields from
+  `bullterrier-image` (noise, light) composed with photos in one picture.
+- **Large and reusable.** Print-size canvases drawn in strips; a finished badge or logo lockup built once as a scene and used
+  inside other scenes. Print colour and PDF come later.
+
+Not for: an editing app or painting tools, 3D, photo retouching, or working with footage (that is video's).
 
 ## Rust first, Python on top
 

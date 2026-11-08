@@ -21,6 +21,20 @@ blends as one.
 | Rendering in bands; caching per layer | |
 | Output: a picture, PNG, later PDF and print colour | |
 
+## What it is for
+
+A poster is the first piece because it is the strictest test of the layer model (cut-outs, type between layers, effects, blends),
+not the only goal. Every use below is the same scene with different layers, values or output.
+
+| Use | What it asks of scene | Batches |
+|---|---|---|
+| Poster, cover, social card, thumbnail | layers, placement, masks, blends, effects | C1 to C5, M1 |
+| Collage, photo grid, mockup on a tilted surface | placement with perspective, masks | C2, C3 |
+| One design, many pictures (a template run) | parameters, the scene as data, a command | C6, P1 |
+| Animation frames, kinetic type | parameters as states, cached re-render | C6, C7 (video adds the clock) |
+| Print-size piece | bands, PDF, print colour | B1, O1 |
+| A reusable component (a badge in many scenes) | a scene as a layer source | C1, C6 |
+
 **Takes** a scene and its inputs (pictures, drawings, fonts, maps, looks, values for its parameters). **Gives** a picture of
 the scene at the size asked, and the description of every parameter. **Has no time:** a parameter is a state; whoever animates
 it sets it per frame and renders again.
