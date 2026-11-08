@@ -1,8 +1,9 @@
 # CLAUDE.md: bullterrier-scene
 
-Template for Rust-first projects with a Python interface (PyO3, maturin): a pure-Rust core, bindings, a Python package, a command
-line, and every gate green on the empty project. `README.md` (use), `docs/design-decisions.md` (why), `docs/shared-files.md` (what
-stays identical across projects), `docs/releasing.md` (CI and releases).
+A Rust library (crate `bullterrier-scene`) with a Python interface that puts layers (pictures, image looks, vector drawings) together
+into one picture: placed, masked, blended, rendered at any size and in bands. **The code API is the product**; JSON is the same scene
+written down. `README.md` (use), `docs/design.md` (what and how), `docs/design-decisions.md` (why), `docs/roadmap.md` (the batches),
+`docs/ecosystem.md` (the sibling packages), `docs/shared-files.md` (what stays identical across projects), `docs/releasing.md`.
 
 **Write docs terse.** This file, the README, `docs/`, docstrings, reports and briefs: state the rule or fact, drop preamble,
 repetition and justification a reader does not need to act. Reasons go in `docs/design-decisions.md`, once. Committed files are
@@ -28,9 +29,24 @@ uv run poe check                     # the whole gate, before you report or merg
 | change a gate | `pyproject.toml` (Python tools, poe tasks), `Cargo.toml` (Rust lints, tool pins); proof in `tests/tools/` |
 | keep files identical across projects | `docs/shared-files.md` |
 
-**State:** one feature end to end: `scale(value, factor)` in the core (`crates/core`), the extension (`crates/python`), the package
-(`src/bullterrier_scene`) and the command `bt-scene scale`, each layer tested. Replace it with the project's own; keep the layout, the gates
-and the tests that prove them.
+**State:** scaffold only (S0): the template's one feature `scale(value, factor)` stands in end to end (core, extension, package, the
+command `bt-scene scale`, each tested) until batch C1 replaces it. Next: A1 (the code API, `docs/roadmap.md`).
+
+## Responsibility
+
+`bullterrier-scene` is the **scene package** of the Bullterrier ecosystem. It composes layers into one picture and has **no concept
+of time** (a parameter is a state; the caller sets it per frame). Image and vector never depend on each other; scene is the one
+package that knows both (each in one adapter file), and video builds on scene. Private until image and vector are released.
+
+| Responsible for | Not responsible for |
+|---|---|
+| The canvas, layers, groups; placement, masks, blend modes, effect chains per layer or group | Effects on one picture → image |
+| Rendering in bands, caching per layer, output (picture, PNG, later PDF) | Shapes, type, booleans → vector |
+| Describing every parameter of the scene | Values over time → control; footage, timeline, sound → video |
+
+Conventions that bind every batch (`docs/design.md`): a `px` value is a pixel of the scene's design canvas; blend in sRGB values;
+straight alpha at the boundary, premultiplied inside; a layer's room follows its effects' footprint. A layer source answers one
+question ("draw this rectangle at this scale"); bands, caching and resampling stay behind `render`.
 
 ## Names
 
