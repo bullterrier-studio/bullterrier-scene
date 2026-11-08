@@ -19,7 +19,7 @@ their later changes cannot break it; a bump of the pin is a reviewed commit, and
 | C2, C3, C4 | C1 is merged |
 | C5 | image has effect footprints and the owner has decided on a design scale from the caller |
 | M1 | C3, C4 and vector V10b are merged |
-| B1 | image has a banded render (after its E6) and position-hashed noise, and vector has V10c (window render); until then seeded-noise layers render whole |
+| B1 | image has a banded render (after its E6) and an origin and canvas size for effects, with position-hashed noise, and vector has V10c (window render); until then a layer with a whole-picture effect renders whole |
 
 ## How we work
 
@@ -64,7 +64,7 @@ Real objects over mocks: the sibling crates are real, used through their public 
 | C6 | Parameters in the shared description format; the scene as JSON | M | |
 | C7 | Caching per layer: change one value, redo only what depends on it | M | |
 | M1 | First milestone piece: a two-ink geometric poster with a photo clipped into a polygon, type in front of and behind a cut-out, flat shapes and grain | M | vector V10b (gradients, blend set, clips) |
-| B1 | Bands: compose band by band, finished layers compact, a 15-layer A3 poster measured whole and banded | L | image: footprint, banded render, storage precision, position-hashed noise so seeded effects can band; vector: V10c window render |
+| B1 | Bands: compose band by band, finished layers compact, a 15-layer A3 poster measured whole and banded | L | image: footprint, banded render, storage precision, position-hashed noise, and an origin plus canvas size handed to effects, so that seeded and position-aware effects can band; vector: V10c window render |
 | O1 | Output: PNG, then PDF; print colour (CMYK, ICC, bleed) when wanted | M | |
 | P1 | Command line `bt-scene render`; templates and presets | S | |
 | R1 | First release | S | image and vector published first; the repository opens up |

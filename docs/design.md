@@ -104,6 +104,11 @@ A stack of full-size float pictures is the wrong way to render a poster: one 12-
    A footprint is honest only if the effect's output at a pixel depends on absolute position and canvas size, never on a
    sequential stream: an effect that draws noise from one seeded stream (grain, dust, scratches) is whole-picture until its
    noise is position-hashed. Footprint also depends on the parameters (a blur's radius).
+   The same holds for any effect that knows where a pixel is: a centre-based warp, a vignette, scanlines, anything that uses
+   the picture's height or a whole-picture statistic. It bands only if the renderer hands it the band's row offset and the
+   full canvas size, not just a margin. Measured in image on 2026-11-08: 22 of 62 Rust effects were less than whole-picture,
+   40 were whole. Until effects take that origin and canvas size, banding saves little, and compact storage of finished
+   layers (item 3) is the saving that does not depend on it.
 3. **Finished layers are held compact** (8 or 16 bits), not float32; float is for the effect that is running.
 4. **Vector draws a window**, so a band of a drawing never needs the whole raster.
 5. **Design pixels belong to the whole canvas,** not the band, so a banded render equals a whole one.
