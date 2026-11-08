@@ -20,8 +20,8 @@ their later changes cannot break it; a bump of the pin is a reviewed commit, and
 | C5 | C1 is merged, image has effect footprints (E4) and the owner has decided on a design scale from the caller (decision 1 below) |
 | C6 | C2, C3 and C4 are merged: the layer model is stable enough to write down as parameters and JSON |
 | C7 | C5 and C6 are merged: the cache is keyed on parameter values and layer chains |
-| M1 | C3, C4 and vector V10b (gradients, blend set, clips) are merged; vector V10d (text runs) too if the piece wants mixed fonts |
-| B1 | image has a banded render (after its E6), an origin and canvas size handed to effects, and position-hashed noise; vector has V10c (window render); the owner has decided the storage precision (decision 2). Until then a layer with a whole-picture effect renders whole |
+| M1 | C3, C4 and vector V10d (gradients, blend set, clips) are merged; vector V10f (text runs) too if the piece wants mixed fonts |
+| B1 | image has a banded render (after its E6), an origin and canvas size handed to effects, and position-hashed noise; vector has V10e (window render); the owner has decided the storage precision (decision 2). Until then a layer with a whole-picture effect renders whole |
 | O1 | PNG: with C1. PDF and print colour: when the owner wants a print, after C5 |
 | P1 | C6 is merged (a scene is data); the owner has chosen a Rust or a Python command line (decision 3) |
 | R1 | image and vector are released, B1 is done or the owner defers it, and the owner decides to open the repository |
@@ -81,8 +81,8 @@ Real objects over mocks: the sibling crates are real, used through their public 
 | C5 | Effect chains on layers and groups; the design-scale convention; room around a layer | M | image: a design scale from the caller (owner decision pending), effect footprints |
 | C6 | Parameters in the shared description format; the scene as JSON | M | |
 | C7 | Caching per layer: change one value, redo only what depends on it | M | |
-| M1 | First milestone piece: a two-ink geometric poster with a photo clipped into a polygon, type in front of and behind a cut-out, flat shapes and grain | M | vector V10b (gradients, blend set, clips) |
-| B1 | Bands: compose band by band, finished layers compact, a 15-layer A3 poster measured whole and banded | L | image: footprint, banded render, storage precision, position-hashed noise, and an origin plus canvas size handed to effects, so that seeded and position-aware effects can band; vector: V10c window render |
+| M1 | First milestone piece: a two-ink geometric poster with a photo clipped into a polygon, type in front of and behind a cut-out, flat shapes and grain | M | vector V10d (gradients, blend set, clips) |
+| B1 | Bands: compose band by band, finished layers compact, a 15-layer A3 poster measured whole and banded | L | image: footprint, banded render, storage precision, position-hashed noise, and an origin plus canvas size handed to effects, so that seeded and position-aware effects can band; vector: V10e window render |
 | O1 | Output: PNG, then PDF; print colour (CMYK, ICC, bleed) when wanted | M | |
 | P1 | Command line `bt-scene render`; templates and presets | S | |
 | R1 | First release | S | image and vector published first; the repository opens up |
@@ -104,7 +104,7 @@ Real objects over mocks: the sibling crates are real, used through their public 
 | O1, P1 | a PNG and a PDF to print; `bt-scene render scene.json out.png` |
 
 Order: C1 is the first batch that uses image and vector. M1 is the milestone that shows whether the layer model is right and
-can start once C4 and vector's V10b exist. B1 waits for image's banded render and vector's window render; until then a scene
+can start once C4 and vector's V10d exist. B1 waits for image's banded render and vector's window render; until then a scene
 renders whole.
 
 ## Later, each when something triggers it
