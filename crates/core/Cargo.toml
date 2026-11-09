@@ -10,7 +10,8 @@ publish.workspace = true
 
 [lib]
 name = "bullterrier_scene"
-# no doctests: each is an executable of its own (a first-launch scan on macOS); the tests of tests/it/ are the examples.
+# no doctests: edition 2024 merges them into one more executable (built and scanned on macOS), and the tests of
+# tests/it/ are the examples.
 # Set it to true only for a public item whose docs need a runnable bullterrier-scene.
 doctest = false
 

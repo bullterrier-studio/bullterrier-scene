@@ -158,9 +158,9 @@ A fix removes the cause, not the symptom.
 pedantic, over the whole workspace; `unwrap`/`expect`/`panic`/print banned; dead code, missing docs, unreachable `pub`);
 `poe lint-workflows` (actionlint, zizmor); `poe dead-code` (vulture on `src`); `rust-doc`; `deptry`; `rust-tools` (cargo-shear and
 cargo-deny at the versions `Cargo.toml` pins; `poe setup` installs them), `rust-test-layout` (the Rust test layout, "Rust tests"),
-`rust-shear` (unused crates), `rust-deny` (bans, licences, sources; `deny.toml`); `poe build-check` (maturin sdist and wheel,
-twine, check-wheel-contents); `mypy` and `stubtest`
-(`_native/_core.pyi` against the extension); `rust-test` (under the memory cap); the tests, in random order. Each gate has a test
+`rust-shear` (unused crates), `rust-deny` (bans, licences, sources; `deny.toml`); `mypy` and `stubtest`
+(`_native/_core.pyi` against the extension); `rust-test` (under the memory cap); the tests, in random order. `poe full` adds
+`poe build-check` (maturin sdist and wheel, twine, check-wheel-contents; CI also builds every platform's wheel). Each gate has a test
 proving it fails on a known-bad input (`tests/tools/`; `test_rust_gates.py` `OFFENCES`).
 
 **Three tiers.** `poe fast` is the inner loop (format, lint, types, the project's own tests; no build, no Rust tests, no proofs). `poe

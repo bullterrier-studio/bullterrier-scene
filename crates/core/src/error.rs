@@ -2,8 +2,9 @@
 
 use std::fmt;
 
-/// Why a call of the core was refused.
+/// Why a call of the core was refused. New variants may come in a minor release, so a `match` needs a `_` arm.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Error {
     /// An argument is NaN or infinite; `name` is the argument.
     NotFinite {
