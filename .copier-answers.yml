@@ -11,3 +11,5 @@ release: true
 rust: true
 short: bt
 wasm: false
+author: Janis Cakstins
+author_email: janis.cakstins@gmail.com
