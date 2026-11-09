@@ -29,9 +29,9 @@ internals, and widening an item to `pub` to move a test out would make the API l
 sides need exists twice. Bindings have `test = false` (the Python suite tests them) and doctests are off (each is an executable
 too).
 
-## Rust tests run under a memory cap, not an allocator in the binary
+## Tests run under a memory cap, not an allocator in the binary
 
-`poe rust-test` runs `cargo test` through `tools/run_capped.py`, which sums the resident memory of the whole process group ten
+Every task that runs tests (`poe rust-test`, `test`, `gate-tests`) goes through `tools/run_capped.py`, which sums the resident memory of the whole process group ten
 times a second and kills it past `cap-mb` (exit 99; a deadline is 98). *Reason:* runaway tests reached 43, 57 and 152 GB and
 froze the machine; a timeout limits seconds, not memory. A cap on the group covers every binary, doctests and children, where an
 allocator in one binary covered only that binary, and the crate needs no dev-dependency for it. The runner's own tests kill a
@@ -39,7 +39,7 @@ known-bad allocation. It is not enforced on Windows (no process groups or `ps`);
 
 ## Three tiers; a gate that passed is not repeated on the same tree
 
-`fast` (the inner loop), `check` (everything but the gate proofs, which run when the change touches what they test) and `full` (`check` and
+`fast` (the inner loop), `check` (everything but the gate proofs, which run when a change since they last passed touches what they test) and `full` (`check` and
 the proofs, for a tag and in CI). *Reason:* the proofs, tests that copy the workspace and build in it to show each gate fails on a known-bad
 input, were most of a gate that took 19 minutes in a sibling project; a library change cannot break a gate's ability to fail, so they need
 running when the gates or their inputs change, and always before a release. *Cost:* a proof broken from outside its triggers shows in CI or at
