@@ -75,13 +75,14 @@ Real objects over mocks: the sibling crates are real, used through their public 
 | S0 | Scaffold, gates, README, design and roadmap | S | |
 | A1 | The code API, designed from example programs first (a poster, a cover, a template run with a photo and a title, a video-frame use), `docs/api.md`, reviewed | M | |
 | C1 | Walking skeleton: `Scene` with a canvas and layers from a picture, a picture with an image look and a vector drawing; normal blend; whole render to RGBA in Rust and Python; replaces the template's `scale` | M | their public APIs as they are; git dependencies pinned |
-| C2 | Placement: position, rotation, scale, skew, perspective, anchor, fit; resampling | L | |
+| C2 | Placement: position, rotation, scale, skew, perspective, anchor, fit (cover and contain produce the delivery crop, such as a 9:16 frame from a taller photo, so no tool crops afterward); resampling | L | |
 | C3 | Masks: from a drawing's shape or text, an alpha, luminance, a given map, a subject cut-out; invert and feather | M | image's subject finder |
 | C4 | Blend modes (the W3C separable and non-separable set) and groups (isolation, group opacity) | L | |
 | C5 | Effect chains on layers and groups; the design-scale convention; room around a layer | M | image: a design scale from the caller (owner decision pending), effect footprints |
-| C6 | Parameters in the shared description format; the scene as JSON | M | |
+| C6 | Parameters in the shared description format; the scene as JSON; named colours (a palette) that layers of every kind, drawings and image effects alike, refer to, so one colour is typed once | M | |
 | C7 | Caching per layer: change one value, redo only what depends on it | M | |
 | M1 | First milestone piece: a two-ink geometric poster with a photo clipped into a polygon, type in front of and behind a cut-out, flat shapes and grain | M | vector V10d (gradients, blend set, clips) |
+| M2 | A composed-world piece: a cut-out subject standing in a generated world (vector sky, sun and receding grid floor), moved and scaled, with a contact shadow, a floor reflection and a glow on one layer only | M | image: `drop_shadow`, `reflection`, `rim_light` and `bloom` as layer effects; vector: gradients, subtract |
 | B1 | Bands: compose band by band, finished layers compact, a 15-layer A3 poster measured whole and banded | L | image: footprint, banded render, storage precision, position-hashed noise, and an origin plus canvas size handed to effects, so that seeded and position-aware effects can band; vector: V10e window render |
 | O1 | Output: PNG, then PDF; print colour (CMYK, ICC, bleed) when wanted | M | |
 | P1 | Command line `bt-scene render`; templates and presets | S | |
@@ -100,6 +101,7 @@ Real objects over mocks: the sibling crates are real, used through their public 
 | C6 | the second milestone piece: a scene file and a command that swaps the title and the photo, six covers from one scene |
 | C7 | the third milestone piece: a timing table (the first render against changing one value) and a 24-frame sequence of a headline sliding in, as a contact sheet; a clip needs ffmpeg and is optional |
 | M1 | the first milestone piece: the two-ink geometric poster at three sizes, the same picture each time |
+| M2 | a composed-world piece: a bull terrier standing on a neon grid floor under a striped sun, with its shadow and reflection on the floor and glow on the sun only; the same layers as a prototype that had to fake each of them with a hand-made frame loop |
 | B1 | numbers: peak memory of a 15-layer A3 poster, whole against banded, and a check that the pixels match |
 | O1, P1 | a PNG and a PDF to print; `bt-scene render scene.json out.png` |
 
