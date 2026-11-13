@@ -3,7 +3,7 @@
 
 use crate::geometry::{MAX_PIXELS, Rect, Scale};
 use crate::placement::Layout;
-use crate::warp::warp;
+use crate::warp::{is_identity, warp_into};
 use crate::{Error, Layer, Raster};
 
 /// The longest side of a picture, in output pixels.
@@ -41,15 +41,20 @@ pub(crate) fn render(width: u32, height: u32, layers: &[Layer], size: i128) -> R
     let mut joined = vec![0.0_f32; columns * rows * 4];
     for (index, layer) in layers.iter().enumerate() {
         let name = layer.name.clone().unwrap_or_else(|| format!("layer{}", index + 1));
-        let drawn = drawn(layer, canvas, scale, (columns, rows)).map_err(|error| error.in_layer(&name))?;
-        over(&mut joined, drawn.pixels(), layer.opacity);
+        lay(layer, canvas, scale, (columns, rows), &mut joined).map_err(|error| error.in_layer(&name))?;
     }
     Ok(Raster::made(columns, rows, straight(joined)))
 }
 
-/// `layer` as a picture of the output's size: its source drawn at the scale it will have, then put where it belongs by one
-/// warp.
-fn drawn(layer: &Layer, canvas: Rect, scale: Scale, (columns, rows): (usize, usize)) -> Result<Raster, Error> {
+/// `layer` laid over `joined`: its source drawn at the scale it will have, then put where it belongs by one warp, each pixel
+/// of which is blended where it lands. A layer that is not moved is blended as it is.
+fn lay(
+    layer: &Layer,
+    canvas: Rect,
+    scale: Scale,
+    (columns, rows): (usize, usize),
+    joined: &mut [f32],
+) -> Result<(), Error> {
     let layout = |own: Rect| Layout::new(layer.fit, layer.placed, own, scale);
     let plan = |own: Rect| {
         let request = layout(own).request();
@@ -58,7 +63,15 @@ fn drawn(layer: &Layer, canvas: Rect, scale: Scale, (columns, rows): (usize, usi
     };
     let drawn = layer.source.draw(canvas, &plan)?;
     let (map, clip) = layout(drawn.own).warp(&drawn);
-    Ok(warp(&drawn.raster, map, clip, columns, rows))
+    if is_identity(&drawn.raster, map, clip, columns, rows) {
+        over(joined, drawn.raster.pixels(), layer.opacity);
+    } else {
+        let opacity = layer.opacity;
+        warp_into(&drawn.raster, map, clip, (columns, rows), &mut |at, above| {
+            over_pixel(&mut joined[at * 4..at * 4 + 4], above, opacity);
+        });
+    }
+    Ok(())
 }
 
 /// `above` (straight RGBA, at `opacity` of its alpha) laid over `joined` (premultiplied): the "over" of Porter and Duff,
@@ -67,12 +80,17 @@ fn over(joined: &mut [f32], above: &[f32], opacity: f32) {
     let (above, _) = above.as_chunks::<4>();
     let (joined, _) = joined.as_chunks_mut::<4>();
     for (below, above) in joined.iter_mut().zip(above) {
-        let alpha = above[3] * opacity;
-        for channel in 0..3 {
-            below[channel] = above[channel] * alpha + below[channel] * (1.0 - alpha);
-        }
-        below[3] = alpha + below[3] * (1.0 - alpha);
+        over_pixel(below, *above, opacity);
     }
+}
+
+/// One pixel of [`over`].
+fn over_pixel(below: &mut [f32], above: [f32; 4], opacity: f32) {
+    let alpha = above[3] * opacity;
+    for channel in 0..3 {
+        below[channel] = above[channel] * alpha + below[channel] * (1.0 - alpha);
+    }
+    below[3] = alpha + below[3] * (1.0 - alpha);
 }
 
 /// `joined` (premultiplied) as straight alpha: the colour over the alpha, nothing where nothing is drawn.

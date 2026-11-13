@@ -149,7 +149,7 @@ distance of the pixel centre to the box edge, transparent outside. *Reason:* the
 whole-pixel move, a 90 degree turn and a flip are exact permutations; a half pixel is the average of two neighbours; the
 area of a layer scales with the square of `scale`) hold by construction only when the arithmetic is ours. *Cost:* a kernel to
 keep, no SIMD and one thread: measured in a release build on an arm64 Mac, a 12 megapixel picture on a 12 megapixel canvas
-takes 0.05 s unplaced, 0.09 s moved or turned by 90 degrees and 0.18 s turned by 17 degrees and scaled, at 580 MB peak, and
+takes 0.04 s moved, 0.11 s scaled and 0.18 s turned by 17 degrees and scaled, at 530 MB peak, and
 cutting it into 720 by 1280 takes 0.03 s (not promised, `api.md` "Limits, measured").
 
 **Convex kernels only** (bilinear, area; no negative lobes). Scene's colours are exactly 0 to 1 with no clamp in the render

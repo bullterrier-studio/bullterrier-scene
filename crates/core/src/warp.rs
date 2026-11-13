@@ -18,6 +18,7 @@
 //!   to the pixels it will cover, so a reduction does not alias and no threshold decides it.
 
 use std::borrow::Cow;
+use std::sync::Arc;
 
 use crate::Raster;
 use crate::geometry::{Rect, whole_up};
@@ -62,18 +63,64 @@ impl Affine {
     }
 }
 
-/// The part of `source` inside `clip` (a rectangle in raster pixels) put on an output of `columns` by `rows` pixels by
-/// `map`; transparent where it does not reach. The map must be invertible and its entries finite.
-pub(crate) fn warp(source: &Raster, map: Affine, clip: Rect, columns: usize, rows: usize) -> Raster {
+/// Whether `map` and `clip` leave `source` exactly as it is on an output of `columns` by `rows` pixels.
+pub(crate) fn is_identity(source: &Raster, map: Affine, clip: Rect, columns: usize, rows: usize) -> bool {
     let whole = Rect {
         x: 0.0,
         y: 0.0,
         width: lossless(source.width()),
         height: lossless(source.height()),
     };
-    if map == Affine::IDENTITY && clip == whole && (source.width(), source.height()) == (columns, rows) {
-        return source.clone();
+    map == Affine::IDENTITY && clip == whole && (source.width(), source.height()) == (columns, rows)
+}
+
+/// The part of `source` inside `clip` (a rectangle in raster pixels) put on an output of `columns` by `rows` pixels by
+/// `map`; transparent where it does not reach. The map must be invertible and its entries finite. A map that changes
+/// nothing hands the source back, not a copy of it.
+pub(crate) fn warp(source: &Arc<Raster>, map: Affine, clip: Rect, columns: usize, rows: usize) -> Arc<Raster> {
+    if is_identity(source, map, clip, columns, rows) {
+        return Arc::clone(source);
     }
+    Arc::new(warp_by(source, map, clip, columns, rows, keeps_axes(map)))
+}
+
+/// Whether `map` keeps the axes of the raster: a move, a scale, a flip or a quarter turn about x and y alone.
+fn keeps_axes(map: Affine) -> bool {
+    map.b == 0.0 && map.d == 0.0
+}
+
+/// [`warp`] as a new raster, by the general kernel (`aligned` false) or by the one for a map that keeps the axes (`aligned`
+/// true).
+fn warp_by(source: &Raster, map: Affine, clip: Rect, columns: usize, rows: usize, aligned: bool) -> Raster {
+    let mut output = vec![0.0_f32; columns * rows * 4];
+    warp_through(source, map, clip, (columns, rows), aligned, &mut |at, pixel| {
+        output[at * 4..at * 4 + 4].copy_from_slice(&pixel);
+    });
+    Raster::made(columns, rows, output)
+}
+
+/// [`warp`] giving each output pixel the picture reaches to `put(index, pixel)` (`index` is `row * columns + column`; a
+/// pixel it does not reach is not given: it is transparent). Both kernels give the same pixels, bit for bit; the one for a
+/// map that keeps the axes finds each column's and row's taps and coverage once instead of for every pixel, and handing
+/// the pixels over lets a caller blend them where they land instead of making a raster of the output first.
+pub(crate) fn warp_into(
+    source: &Raster,
+    map: Affine,
+    clip: Rect,
+    (columns, rows): (usize, usize),
+    put: &mut impl FnMut(usize, [f32; 4]),
+) {
+    warp_through(source, map, clip, (columns, rows), keeps_axes(map), put);
+}
+
+fn warp_through(
+    source: &Raster,
+    map: Affine,
+    clip: Rect,
+    (columns, rows): (usize, usize),
+    aligned: bool,
+    put: &mut impl FnMut(usize, [f32; 4]),
+) {
     let (source, map, clip) = prefiltered(source, map, clip);
     let (width, height) = (source.width(), source.height());
     let pixels = source.pixels();
@@ -83,35 +130,80 @@ pub(crate) fn warp(source: &Raster, map: Affine, clip: Rect, columns: usize, row
     let (low_x, high_x) = (clip.x, clip.x + clip.width);
     let (low_y, high_y) = (clip.y, clip.y + clip.height);
     let (first_row, last_row, first_column, last_column) = reach(map, clip, columns, rows);
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a share from 0 to 1 is held as a 32-bit float"
+    )]
+    let single = |cover: f64| cover as f32;
 
-    let mut output = vec![0.0_f32; columns * rows * 4];
-    for row in first_row..last_row {
-        let centre_y = lossless(row) + 0.5;
-        for column in first_column..last_column {
-            let centre_x = lossless(column) + 0.5;
-            let (x, y) = inverse.at(centre_x, centre_y);
-            let cover = share((x - low_x) / across_x, (high_x - x) / across_x)
-                * share((y - low_y) / across_y, (high_y - y) / across_y);
-            if cover <= 0.0 {
+    if aligned {
+        // each column's position and each row's depend on that column or row alone
+        let lines =
+            |range: std::ops::Range<usize>, scale: f64, shift: f64, across: f64, low: f64, high: f64, count: usize| {
+                range
+                    .map(|index| {
+                        let at = scale * (lossless(index) + 0.5) + shift;
+                        (taps(at - 0.5, count), share((at - low) / across, (high - at) / across))
+                    })
+                    .collect::<Vec<_>>()
+            };
+        let across = lines(
+            first_column..last_column,
+            inverse.a,
+            inverse.c,
+            across_x,
+            low_x,
+            high_x,
+            width,
+        );
+        let down = lines(
+            first_row..last_row,
+            inverse.e,
+            inverse.f,
+            across_y,
+            low_y,
+            high_y,
+            height,
+        );
+        // a one-pixel raster (a flat colour) needs no taps: every pixel is that one with its alpha scaled by the cover
+        let flat = (width == 1 && height == 1).then(|| [pixels[0], pixels[1], pixels[2], pixels[3]]);
+        for (row, (y_taps, share_y)) in (first_row..last_row).zip(down) {
+            if share_y <= 0.0 {
                 continue;
             }
-            let (first, second, toward_second) = taps(x - 0.5, width);
-            let (above, below, toward_below) = taps(y - 0.5, height);
-            let at = (row * columns + column) * 4;
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "a share from 0 to 1 is held as a 32-bit float"
-            )]
-            let cover = cover as f32;
-            output[at..at + 4].copy_from_slice(&sample(
-                pixels,
-                width,
-                [(first, second, toward_second), (above, below, toward_below)],
-                cover,
-            ));
+            for (column, (x_taps, share_x)) in (first_column..last_column).zip(&across) {
+                let cover = share_x * share_y;
+                if cover <= 0.0 {
+                    continue;
+                }
+                let pixel = match flat {
+                    Some([red, green, blue, alpha]) => [red, green, blue, alpha * single(cover)],
+                    None => sample(pixels, width, [*x_taps, y_taps], single(cover)),
+                };
+                put(row * columns + column, pixel);
+            }
+        }
+    } else {
+        for row in first_row..last_row {
+            let centre_y = lossless(row) + 0.5;
+            for column in first_column..last_column {
+                let centre_x = lossless(column) + 0.5;
+                let (x, y) = inverse.at(centre_x, centre_y);
+                let cover = share((x - low_x) / across_x, (high_x - x) / across_x)
+                    * share((y - low_y) / across_y, (high_y - y) / across_y);
+                if cover <= 0.0 {
+                    continue;
+                }
+                let pixel = sample(
+                    pixels,
+                    width,
+                    [taps(x - 0.5, width), taps(y - 0.5, height)],
+                    single(cover),
+                );
+                put(row * columns + column, pixel);
+            }
         }
     }
-    Raster::made(columns, rows, output)
 }
 
 /// A count of pixels as a float: at most 2^27, so exact.
@@ -329,4 +421,92 @@ fn reduce(source: &Raster, columns: usize, rows: usize) -> Raster {
         }
     }
     Raster::made(columns, rows, pixels)
+}
+
+// Inline, because no public route reaches the general kernel for a map that keeps the axes: `warp` takes the other one there,
+// and the two must give the same pixels.
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::{Affine, Rect, warp, warp_by};
+    use crate::Raster;
+
+    /// A `width` by `height` raster whose pixel `(x, y)` is `pixel_of(x, y)`.
+    fn made(width: usize, height: usize, pixel_of: impl Fn(usize, usize) -> [f32; 4]) -> Raster {
+        let pixels = (0..height)
+            .flat_map(|y| (0..width).map(move |x| (x, y)))
+            .flat_map(|(x, y)| pixel_of(x, y));
+        Raster::made(width, height, pixels.collect())
+    }
+
+    fn whole(raster: &Raster) -> Rect {
+        Rect {
+            x: 0.0,
+            y: 0.0,
+            width: f64::from(u32::try_from(raster.width()).unwrap_or(0)),
+            height: f64::from(u32::try_from(raster.height()).unwrap_or(0)),
+        }
+    }
+
+    fn scaled(x: f64, y: f64, move_x: f64, move_y: f64) -> Affine {
+        Affine {
+            a: x,
+            b: 0.0,
+            c: move_x,
+            d: 0.0,
+            e: y,
+            f: move_y,
+        }
+    }
+
+    /// The kernel for a map that keeps the axes and the general one give the same pixels, bit for bit: a one-pixel fill and a
+    /// constant picture (the cases it was made for), and a picture of different pixels under a move, an enlargement, a flip
+    /// and a reduction (which averages first).
+    #[test]
+    fn the_kernel_for_axis_aligned_maps_gives_what_the_general_kernel_gives() {
+        let fill = made(1, 1, |_, _| [0.2, 0.4, 0.6, 0.5]);
+        let constant = made(2, 2, |_, _| [0.7, 0.1, 0.3, 0.8]);
+        let varied = made(5, 4, |x, y| {
+            let level = |number: usize| f32::from(u8::try_from(number).unwrap_or(0)) / 32.0;
+            [level(x + 1), level(y + 3), level(x * y + 2), level(8 + (x + y) % 4 * 6)]
+        });
+        let maps = [
+            ("a move by a fraction", scaled(1.0, 1.0, 0.3, -0.45)),
+            ("an enlargement", scaled(5.0 / 3.0, 2.5, 1.2, 0.25)),
+            ("a flip", scaled(-1.0, 1.0, 5.0, 0.0)),
+            ("a flip of y with an enlargement", scaled(2.0, -2.0, 0.5, 9.0)),
+            ("a reduction", scaled(0.4, 0.7, 0.3, 0.2)),
+            ("a reduction of one axis", scaled(1.0, 0.25, 1.5, 0.5)),
+        ];
+        for (what, raster) in [
+            ("a one-pixel fill", &fill),
+            ("a constant picture", &constant),
+            ("a picture", &varied),
+        ] {
+            for (how, map) in maps {
+                let clip = whole(raster);
+                let general = warp_by(raster, map, clip, 12, 11, false);
+                let aligned = warp_by(raster, map, clip, 12, 11, true);
+                let bits = |raster: &Raster| raster.pixels().iter().map(|value| value.to_bits()).collect::<Vec<_>>();
+                assert_eq!(bits(&aligned), bits(&general), "{what} under {how}");
+                // and `warp` itself takes one of them
+                let given = warp(&Arc::new(raster.clone()), map, clip, 12, 11);
+                assert_eq!(bits(&given), bits(&general), "{what} under {how}, through warp");
+            }
+        }
+    }
+
+    /// A map that changes nothing hands the source back: the same allocation, not a copy.
+    #[test]
+    fn an_identity_map_hands_back_the_source_itself() {
+        let source = Arc::new(made(3, 2, |x, y| {
+            [0.1 * f32::from(u8::try_from(x + y).unwrap_or(0)), 0.0, 0.0, 1.0]
+        }));
+        let clip = whole(&source);
+        let same = warp(&source, scaled(1.0, 1.0, 0.0, 0.0), clip, 3, 2);
+        assert!(Arc::ptr_eq(&same, &source));
+        let moved = warp(&source, scaled(1.0, 1.0, 1.0, 0.0), clip, 3, 2);
+        assert!(!Arc::ptr_eq(&moved, &source));
+    }
 }

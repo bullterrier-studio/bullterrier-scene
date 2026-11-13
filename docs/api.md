@@ -46,12 +46,12 @@ raster and the part of the box it shows, so a fill answers with one pixel and a 
 | Render | Peak |
 |---|---|
 | nothing drawn, 2^27 pixels (16,384 by 8,192) | 2.1 GB |
-| one fill, 2^27 pixels, 1.2 s | 4.3 GB (C1: 2.8 GB; the fill is a pixel warped onto a raster of its own, which `over` then reads) |
-| one canvas-sized picture, 2^26 pixels (8,192 squared), 0.25 s | 3.2 GB; with a look (3.1 s) 4.2 GB (C1, not measured again); turned 17 degrees and scaled 0.9 (1.0 s) 3.2 GB |
-| one canvas-sized picture, 11,585 squared (2^27 pixels), 3.5 s | 5.5 GB (C1, not measured again; an unplaced layer is not warped) |
-| 1,000 fills on 1,024 by 1,024, 5.1 s (C1: 1.9 s; each fill is warped, about 5 ns a pixel) | 36 MB |
-| C2a: one 12 megapixel picture on a 12 megapixel canvas, placed (turned 17 degrees and scaled 0.9: 0.18 s; moved: 0.09 s; unplaced: 0.05 s) | 580 MB |
-| C2a: the same picture cut by `cover` into 720 by 1,280, 0.03 s | 340 MB |
+| one fill, 2^27 pixels, 0.4 s | 2.15 GB (C1: 4.3 GB, measured again by the reviewer; the earlier 2.8 GB was wrong) |
+| one canvas-sized picture, 2^26 pixels (8,192 squared), 0.17 s | 2.15 GB; with a look (3.1 s) 4.2 GB (C1, not measured again); turned 17 degrees and scaled 0.9 (1.1 s) 2.9 GB |
+| one canvas-sized picture, 11,585 squared (2^27 pixels), 1.1 s | 4.0 GB (5.9 GB while an unplaced layer was copied; it is now blended as it is) |
+| 1,000 fills on 1,024 by 1,024, 0.71 s | 20 MB (C1: 0.89 s, 36 MB) |
+| C2a: one 12 megapixel picture on a 12 megapixel canvas, placed: moved 0.04 s, 386 MB; scaled 0.9 and moved by half a pixel 0.11 s; turned 17 degrees and scaled 0.9, 0.18 s | 527 MB |
+| C2a: the same picture cut by `cover` into 720 by 1,280, 0.03 s (not measured again after the fill and copy changes) | 340 MB |
 
 `MAX_LAYERS` (1,000) and the 2^27 pixels stay. The 2^27 applies to the output and to every layer's drawn size (its box at
 the scale it is drawn at, `ceil(width x scale)` by `ceil(height x scale)`, the scale being `output scale x fit factor x

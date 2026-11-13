@@ -877,6 +877,47 @@ fn a_box_that_ends_between_two_pixels_covers_the_pixel_in_part() -> Outcome {
     Ok(())
 }
 
+/// A flat fill is a constant picture: placed by a move, a scale or a flip it gives what a 2 by 2 picture of the same colour
+/// gives (the fill is one pixel and takes no taps, the picture takes them), and what the same placement with a turn too small
+/// to see gives (the general kernel, which the others skip). Edge pixels are covered in part, so alpha differs from 1 there.
+#[test]
+fn a_flat_fill_placed_gives_what_a_constant_picture_and_the_general_kernel_give() -> Outcome {
+    let colour = [0x33, 0x66, 0x99, 0x80].map(|byte: u8| f32::from(byte) / 255.0);
+    let places = [
+        ("a move by a fraction", Place::new().dx(2.25).dy(-1.5)),
+        (
+            "an enlargement about a corner",
+            Place::new().scale(2.5).anchor(0.0, 0.0).dx(1.3),
+        ),
+        (
+            "a flip and a reduction",
+            Place::new().flip_x(true).scale(0.4).dx(7.0).dy(6.0),
+        ),
+        ("a squash", Place::new().aspect(0.3).dy(5.5)),
+    ];
+    for (what, place) in places {
+        let fill = Layer::fill("#33669980")?.fit([1.0, 2.0, 9.0, 6.0], Fit::Stretch, [0.5, 0.5])?;
+        let picture = Layer::picture(solid(2, 2, colour)?).fit([1.0, 2.0, 9.0, 6.0], Fit::Stretch, [0.5, 0.5])?;
+        let flat = render(fill.clone().place(place)?, (16, 12), 16)?;
+        let taps = render(picture.place(place)?, (16, 12), 16)?;
+        let turned = render(fill.place(place.rotate(Deg(1e-9)))?, (16, 12), 16)?;
+        for (x, y) in (0..12).flat_map(|y| (0..16).map(move |x| (x, y))) {
+            let (flat, taps, turned) = (pixel(&flat, x, y), pixel(&taps, x, y), pixel(&turned, x, y));
+            assert!(
+                close(flat, taps, 1e-6),
+                "{what}, ({x}, {y}): {flat:?} against the picture's {taps:?}"
+            );
+            // a turn too small to see leaks an alpha of 1e-12 past an edge, with a colour: compare what the blend sees
+            let seen = |pixel: [f32; 4]| [pixel[0] * pixel[3], pixel[1] * pixel[3], pixel[2] * pixel[3], pixel[3]];
+            assert!(
+                close(seen(flat), seen(turned), 1e-5),
+                "{what}, ({x}, {y}): {flat:?} against the general kernel's {turned:?}"
+            );
+        }
+    }
+    Ok(())
+}
+
 proptest! {
     /// A layer that covers the canvas covers it whole at any size, a size that leaves the short side between two pixels
     /// included (the output is stretched onto whole pixels).

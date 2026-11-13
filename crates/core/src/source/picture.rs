@@ -240,10 +240,10 @@ impl Source for Picture {
         };
         let mut placed = warp(&own, map, window, columns, rows);
         for look in &self.looks {
-            placed = look.apply(&placed)?;
+            placed = Arc::new(look.apply(&placed)?);
         }
         Ok(Drawn {
-            raster: Arc::new(placed),
+            raster: placed,
             own: whole,
             covers: window,
         })
