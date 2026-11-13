@@ -23,13 +23,29 @@ pub(crate) enum Given {
     Hole,
 }
 
+/// A mask by one of a picture's maps, as the layer's `mask` call gave it.
+#[derive(Debug, Clone)]
+pub(crate) struct MapMask {
+    /// The map's name.
+    pub(crate) name: String,
+    /// The mask's place among the layer's `mask` calls, from 1: `mask`, `mask#2`...
+    pub(crate) number: usize,
+    /// The blur of the map's edge, in design pixels as the layer is fitted; 0 is none.
+    pub(crate) feather: f64,
+    /// Whether the mask is 1 minus the map (after the blur).
+    pub(crate) invert: bool,
+}
+
 /// What the renderer asks of a source once it knows the size of the source's box.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Request {
-    /// The part of the box wanted, in design pixels of the box (its top left is `(0, 0)`).
+    /// The part of the box wanted, in design pixels of the box.
     pub(crate) window: Rect,
     /// The output pixels a design pixel of the box should have.
     pub(crate) scale: Scale,
+    /// The design pixels of the canvas a design pixel of the box is once the layer is fitted, along x and y: what a length
+    /// in the layer's own space (a feather) is measured in.
+    pub(crate) factor: (f64, f64),
 }
 
 /// What a source answers.
@@ -97,6 +113,20 @@ pub(crate) trait Source: Send + Sync + fmt::Debug {
         Err(Error::invalid(
             "look",
             "a look runs on a picture layer; looks on other layers arrive with batch C5",
+        ))
+    }
+
+    /// This source with the picture's map `mask.name` multiplied into its alpha, after its looks (stage 4 of a layer).
+    ///
+    /// # Errors
+    /// The refusal of a source that has no such map.
+    fn masked(&self, mask: &MapMask) -> Result<Arc<dyn Source>, Error> {
+        Err(Error::invalid(
+            "mask",
+            format!(
+                "{:?} names a map of this layer's picture, and this layer has no picture",
+                mask.name
+            ),
         ))
     }
 

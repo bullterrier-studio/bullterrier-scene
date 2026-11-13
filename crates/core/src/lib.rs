@@ -8,9 +8,11 @@
 #![forbid(unsafe_code)]
 
 mod error;
+mod feather;
 mod geometry;
 mod layer;
 mod map;
+mod mask;
 mod perspective;
 mod placement;
 mod ranges;
@@ -21,8 +23,9 @@ mod source;
 mod warp;
 
 pub use error::Error;
-pub use layer::Layer;
+pub use layer::{Layer, MAX_DEPTH};
 pub use map::Map;
+pub use mask::{Mask, MaskBy, Use};
 pub use placement::{Deg, Fit, Place};
 pub use raster::Raster;
 pub use scene::{MAX_LAYERS, Scene};

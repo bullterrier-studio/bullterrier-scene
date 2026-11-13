@@ -3,13 +3,20 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::mask::{By, CanvasMask, Mask, Use};
 use crate::perspective::Quad;
 use crate::placement::{Fit, Fitting, Place, Placement};
+use crate::scene::MAX_LAYERS;
 use crate::source::drawing::Drawing;
 use crate::source::fill::Fill;
 use crate::source::picture::{Picture, recipe_file};
-use crate::source::{Given, Source};
+use crate::source::{Given, MapMask, Source};
 use crate::{Error, Map, Raster};
+
+/// The deepest masks nest: a layer's mask layer, that layer's own mask layers, and so on. A layer with no masks has depth 0
+/// and a mask layer's depth counts from the layer it masks; a `mask` call that would make a nest deeper is refused. Scenes
+/// used as layers (batch C4) count in the same depth.
+pub const MAX_DEPTH: usize = 16;
 
 /// One layer of a scene: a source, and how it joins the layers below it. A layer is an immutable value: every call
 /// returns a new one, and a layer can be used in several scenes, or twice in one.
@@ -20,6 +27,13 @@ pub struct Layer {
     pub(crate) source: Arc<dyn Source>,
     pub(crate) fit: Option<Fitting>,
     pub(crate) placement: Placement,
+    /// Masks by layers drawn on the canvas (stage 6), in call order; those by a map are in the source.
+    pub(crate) masks: Vec<CanvasMask>,
+    /// How many `mask` calls this layer has had: the number of the next is one more.
+    mask_calls: usize,
+    /// How deep its masks nest, and how many mask layers there are in all in its tree (a shared layer counted each time).
+    pub(crate) depth: usize,
+    mask_layers: usize,
 }
 
 /// `name` if it is letters, digits and `_`, starting with a letter: the one rule of a layer's name and a map's.
@@ -44,6 +58,10 @@ impl Layer {
             source: Arc::new(source),
             fit: None,
             placement: Placement::default(),
+            masks: Vec::new(),
+            mask_calls: 0,
+            depth: 0,
+            mask_layers: 0,
         }
     }
 
@@ -196,6 +214,68 @@ impl Layer {
     /// are not a strictly convex quadrilateral (a dart, a bowtie, three on a line, a corner twice).
     pub fn perspective(mut self, corners: [[f64; 2]; 4]) -> Result<Self, Error> {
         self.placement = Placement::Perspective(Quad::new(corners)?);
+        Ok(self)
+    }
+
+    /// This layer with its alpha multiplied by `mask`: a layer drawn on the canvas as its own `fit` and `place` say (stage 6),
+    /// or the name of one of this picture layer's maps, cut and fitted with it (stage 4). Calling it again multiplies
+    /// another mask in. A mask layer's own alpha includes its masks, its opacity multiplies the mask, and it has no name;
+    /// a layer used as a mask is drawn on the canvas grid only (with a margin where its blur reaches past it).
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `feather` for a number outside 0 to 1,000,000; `use` for a map read as luminance; `mask`
+    /// for a name that is no map of this layer (it has no picture, or no map of that name yet), for a mask layer that
+    /// has a name, for masks nested more than [`MAX_DEPTH`] deep, and for more than 1,000 mask layers in all.
+    pub fn mask(mut self, mask: impl Into<Mask>) -> Result<Self, Error> {
+        let mask = mask.into();
+        mask.checked()?;
+        let number = self.mask_calls + 1;
+        match &mask.by.0 {
+            By::Map(name) => {
+                if mask.uses == Use::Luminance {
+                    return Err(Error::invalid(
+                        "use",
+                        "a map is its own values: read it as \"alpha\", not \"luminance\"",
+                    ));
+                }
+                self.source = self.source.masked(&MapMask {
+                    name: name.clone(),
+                    number,
+                    feather: mask.feather,
+                    invert: mask.invert,
+                })?;
+            }
+            By::Layer(by) => {
+                if let Some(name) = &by.name {
+                    return Err(Error::invalid(
+                        "mask",
+                        format!("a mask layer has no name (it is owned by the layer it masks), got {name:?}"),
+                    ));
+                }
+                if by.depth + 1 > MAX_DEPTH {
+                    return Err(Error::invalid(
+                        "mask",
+                        format!(
+                            "masks nest at most {MAX_DEPTH} deep, and this mask layer has masks {} deep",
+                            by.depth
+                        ),
+                    ));
+                }
+                let layers = self.mask_layers + 1 + by.mask_layers;
+                if layers > MAX_LAYERS {
+                    return Err(Error::invalid(
+                        "mask",
+                        format!(
+                            "a layer holds at most {MAX_LAYERS} mask layers in all, nested ones counted each time, got {layers}"
+                        ),
+                    ));
+                }
+                self.depth = self.depth.max(by.depth + 1);
+                self.mask_layers = layers;
+                self.masks.push(CanvasMask::new((**by).clone(), &mask, number));
+            }
+        }
+        self.mask_calls = number;
         Ok(self)
     }
 

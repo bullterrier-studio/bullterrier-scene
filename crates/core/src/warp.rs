@@ -82,6 +82,25 @@ pub(crate) enum Map {
     Projective(Projective),
 }
 
+impl Map {
+    /// This map with the output moved by `(x, y)` pixels: a pixel that landed at `(0, 0)` lands at `(x, y)`. The output a
+    /// mask is drawn on reaches that far past the canvas on the top and the left.
+    pub(crate) fn shifted(self, x: f64, y: f64) -> Self {
+        match self {
+            Self::Affine(map) => Self::Affine(Affine {
+                c: map.c + x,
+                f: map.f + y,
+                ..map
+            }),
+            Self::Projective(Projective(m)) => Self::Projective(Projective([
+                std::array::from_fn(|column| m[0][column] + x * m[2][column]),
+                std::array::from_fn(|column| m[1][column] + y * m[2][column]),
+                m[2],
+            ])),
+        }
+    }
+}
+
 /// Whether `map` and `clip` leave `source` exactly as it is on an output of `columns` by `rows` pixels.
 pub(crate) fn is_identity(source: &Raster, map: Affine, clip: Rect, columns: usize, rows: usize) -> bool {
     let whole = Rect {
@@ -269,26 +288,33 @@ fn exact_through(
     }
 }
 
+// The helpers of the kernel (`is_positive`, `lossless`, `edge`, `share`, `taps`) are `#[inline]` because the kernel is generic over
+// its sink and is instantiated where it is called: without it, whether they inline depends on how the compiler splits the
+// crate into codegen units, and adding a module once cost every blended pixel a call (1,000 fills: 0.67 s, then 0.80 s).
 /// Whether `value` is a number above 0: a coverage that puts something on the output, a last coordinate in front of a
 /// horizon. NaN is not, and is not mistaken for one that is.
+#[inline]
 fn is_positive(cover: f64) -> bool {
     matches!(cover.partial_cmp(&0.0), Some(std::cmp::Ordering::Greater))
 }
 
 /// A count of pixels as a float: at most 2^27, so exact.
 #[expect(clippy::cast_precision_loss, reason = "a count of at most 2^27")]
+#[inline]
 fn lossless(count: usize) -> f64 {
     count as f64
 }
 
 /// How much of a pixel one unit wide, whose centre is `inside` units from an edge (negative if it lies outside), is on the
 /// inner side of it: 0 to 1.
+#[inline]
 fn edge(inside: f64) -> f64 {
     (inside + 0.5).clamp(0.0, 1.0)
 }
 
 /// How much of a pixel is between two opposite edges, `low` and `high` units from its centre (each positive inside): the
 /// overlap of its extent with the interval, exact for a pixel across axis-aligned edges.
+#[inline]
 fn share(low: f64, high: f64) -> f64 {
     (edge(low) + edge(high) - 1.0).max(0.0)
 }
@@ -300,6 +326,7 @@ fn share(low: f64, high: f64) -> f64 {
     clippy::cast_sign_loss,
     reason = "a position clamped into the line, and a weight from 0 to 1 held as a 32-bit float"
 )]
+#[inline]
 fn taps(at: f64, count: usize) -> (usize, usize, f32) {
     let first = at.floor();
     let last = lossless(count - 1);

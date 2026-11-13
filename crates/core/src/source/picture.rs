@@ -8,8 +8,10 @@ use std::sync::Arc;
 use bullterrier_image::{Options, Photo, Presets, Recipe};
 use serde_json::Value;
 
-use super::{Drawn, Given, Opened, Source};
+use super::{Drawn, Given, MapMask, Opened, Source};
+use crate::feather;
 use crate::geometry::Rect;
+use crate::mask::label;
 use crate::warp::resize;
 use crate::{Error, Map, Raster};
 
@@ -37,6 +39,7 @@ pub(crate) struct Picture {
     pixels: Pixels,
     maps: BTreeMap<String, Given>,
     looks: Vec<Look>,
+    masks: Vec<MapMask>,
 }
 
 /// A recipe that image has checked, with the presets it was checked against.
@@ -113,7 +116,7 @@ impl Look {
     /// `layer` with the look run on its colour, straight; its alpha stays. `maps` are the picture's maps at the size of
     /// `layer`; the look sees those its recipe can be given (`subject`, `depth`, a `given` region), and image refuses the
     /// render, naming the step and the map, if the recipe needs one that is not there.
-    fn apply(&self, layer: &Raster, maps: &[(&str, Vec<f32>)]) -> Result<Raster, Error> {
+    fn apply(&self, layer: &Raster, maps: &BTreeMap<&str, Vec<f32>>) -> Result<Raster, Error> {
         let colour: Vec<f32> = layer
             .pixels()
             .as_chunks::<4>()
@@ -158,6 +161,7 @@ impl Picture {
             pixels: Pixels::Held(Arc::new(raster)),
             maps: BTreeMap::new(),
             looks: Vec::new(),
+            masks: Vec::new(),
         }
     }
 
@@ -167,6 +171,7 @@ impl Picture {
             pixels: Pixels::File(path),
             maps: BTreeMap::new(),
             looks: Vec::new(),
+            masks: Vec::new(),
         }
     }
 
@@ -200,6 +205,45 @@ impl Picture {
             })
             .collect()
     }
+}
+
+impl Picture {
+    /// What each of the masks multiplies a raster of `size` by: its map's `values` (of that size), blurred by the mask's
+    /// `feather` design pixels of the fitted layer, `density` raster pixels each along x and y, then inverted if it says so.
+    fn factors(
+        &self,
+        size: (usize, usize),
+        density: (f64, f64),
+        values: &BTreeMap<&str, &[f32]>,
+    ) -> Result<Vec<Vec<f32>>, Error> {
+        self.masks
+            .iter()
+            .map(|mask| {
+                let sigma = (mask.feather * density.0, mask.feather * density.1);
+                let reach = (feather::reach(sigma.0), feather::reach(sigma.1));
+                feather::fits(&format!("{}.feather", label(mask.number)), size, reach)?;
+                let mut factor = values[mask.name.as_str()].to_vec();
+                feather::blur(&mut factor, size, sigma);
+                if mask.invert {
+                    for value in &mut factor {
+                        *value = 1.0 - *value;
+                    }
+                }
+                Ok(factor)
+            })
+            .collect()
+    }
+}
+
+/// `raster` with its alpha multiplied by each of `factors` (one value a pixel), colour as it was.
+fn multiplied(raster: &Raster, factors: &[Vec<f32>]) -> Raster {
+    let mut pixels = raster.pixels().to_vec();
+    for factor in factors {
+        for (pixel, value) in pixels.as_chunks_mut::<4>().0.iter_mut().zip(factor) {
+            pixel[3] *= value;
+        }
+    }
+    Raster::made(raster.width(), raster.height(), pixels)
 }
 
 /// The map in the file `path`: a grey picture read as image reads a map (upright, 0 to 1).
@@ -288,21 +332,43 @@ impl Source for Picture {
         let maps = self.resolved((own.width(), own.height()))?;
         Ok(Opened::new(whole, move |request| {
             if self.looks.is_empty() {
-                return Ok(Drawn {
-                    raster: own,
-                    covers: whole,
-                });
+                // the picture's own pixels, for the warp to resample once; a mask multiplies them where they are
+                let raster = if self.masks.is_empty() {
+                    own
+                } else {
+                    let size = (own.width(), own.height());
+                    // source pixels per design pixel of the fitted layer
+                    let density = (1.0 / request.factor.0, 1.0 / request.factor.1);
+                    let values = maps.iter().map(|(name, map)| (*name, map.values())).collect();
+                    let factors = self.factors(size, density, &values)?;
+                    Arc::new(multiplied(&own, &factors))
+                };
+                return Ok(Drawn { raster, covers: whole });
             }
             let window = request.window;
             let (columns, rows) = request.scale.size(window)?;
             let mut placed = resize(&own, window, (columns, rows));
-            let seen: Vec<(&str, Vec<f32>)> = maps
+            let used = |name: &str| {
+                self.masks.iter().any(|mask| mask.name == name)
+                    || self.looks.iter().any(|look| look.recipe.known_maps().contains(&name))
+            };
+            let seen: BTreeMap<&str, Vec<f32>> = maps
                 .iter()
-                .filter(|(name, _)| self.looks.iter().any(|look| look.recipe.known_maps().contains(name)))
+                .filter(|(name, _)| used(name))
                 .map(|(name, map)| (*name, resized(map, window, (columns, rows))))
                 .collect();
             for look in &self.looks {
                 placed = Arc::new(look.apply(&placed, &seen)?);
+            }
+            if !self.masks.is_empty() {
+                // drawn pixels per design pixel of the fitted layer: what the layer is drawn at, less the fit
+                let density = (
+                    request.scale.x.pixels(1.0) / request.factor.0,
+                    request.scale.y.pixels(1.0) / request.factor.1,
+                );
+                let values = seen.iter().map(|(name, values)| (*name, values.as_slice())).collect();
+                let factors = self.factors((columns, rows), density, &values)?;
+                placed = Arc::new(multiplied(&placed, &factors));
             }
             Ok(Drawn {
                 raster: placed,
@@ -315,6 +381,27 @@ impl Source for Picture {
         let mut looks = self.looks.clone();
         looks.push(Look::new(recipe)?);
         Ok(Arc::new(Self { looks, ..self.clone() }))
+    }
+
+    fn masked(&self, mask: &MapMask) -> Result<Arc<dyn Source>, Error> {
+        if !self.maps.contains_key(&mask.name) {
+            let given: Vec<&str> = self.maps.keys().map(String::as_str).collect();
+            return Err(Error::invalid(
+                "mask",
+                format!(
+                    "{:?} is no map of this layer; its maps: {}",
+                    mask.name,
+                    if given.is_empty() {
+                        "none".to_owned()
+                    } else {
+                        given.join(", ")
+                    }
+                ),
+            ));
+        }
+        let mut masks = self.masks.clone();
+        masks.push(mask.clone());
+        Ok(Arc::new(Self { masks, ..self.clone() }))
     }
 
     fn with_map(&self, name: &str, given: Given) -> Result<Arc<dyn Source>, Error> {

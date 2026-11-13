@@ -10,6 +10,7 @@ mod data_boundary;
 mod drawing;
 mod look;
 mod maps;
+mod masks;
 mod perspective;
 mod picture;
 mod placement;

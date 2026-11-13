@@ -284,8 +284,8 @@ fn fitted(own: Rect, fit: Option<Fitting>) -> (Rect, Rect, (f64, f64)) {
                 (area.width / down, own.height, down)
             };
             let window = Rect {
-                x: (own.width - width) * align.0,
-                y: (own.height - height) * align.1,
+                x: own.x + (own.width - width) * align.0,
+                y: own.y + (own.height - height) * align.1,
                 width,
                 height,
             };
@@ -385,6 +385,7 @@ impl Layout {
                 return Request {
                     window: self.window,
                     scale: Scale::exactly(across * fit, down * fit),
+                    factor: self.factor,
                 };
             }
         };
@@ -392,6 +393,7 @@ impl Layout {
         Request {
             window: self.window,
             scale: self.scale.times(self.factor.0 * zoom, self.factor.1 * zoom),
+            factor: self.factor,
         }
     }
 

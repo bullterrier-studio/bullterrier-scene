@@ -30,6 +30,13 @@ pub(crate) const TRAVEL: Range = Range {
     high: 1e6,
     unit: " design pixels",
 };
+/// `feather`: the standard deviation of a mask's blur, in design pixels; as far as a layer may move. What the render can draw
+/// of it is bounded again by the pixels of a plane (`feather::fits`).
+pub(crate) const FEATHER: Range = Range {
+    low: 0.0,
+    high: 1e6,
+    unit: " design pixels",
+};
 /// `anchor` and `align`: a fraction of a box.
 pub(crate) const FRACTION: Range = Range {
     low: 0.0,
