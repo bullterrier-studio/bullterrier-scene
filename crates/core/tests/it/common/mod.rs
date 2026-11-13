@@ -71,3 +71,12 @@ pub(crate) fn varied(width: usize, height: usize) -> Result<Raster, Error> {
     });
     Raster::rgba(width, height, levels.collect())
 }
+
+/// A drawing document, in the form `Drawing.to_json()` writes: a frame of `frame` by `frame` design pixels holding one
+/// rectangle of `color`, from (`x`, `y`) to (`right`, `bottom`).
+pub(crate) fn rectangle(frame: (u32, u32), at: (f64, f64), to: (f64, f64), color: &str) -> String {
+    let ((x, y), (right, bottom), (width, height)) = (at, to, frame);
+    format!(
+        r#"{{"root":[{{"stack":{{"items":[[{{"path":"M{x} {y} L{right} {y} L{right} {bottom} L{x} {bottom} Z"}}]],"size":[{width},{height}]}}}},{{"fill":{{"color":"{color}"}}}}],"version":1}}"#
+    )
+}

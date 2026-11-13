@@ -6,6 +6,7 @@ use std::fmt;
 use crate::geometry::{Rect, Scale};
 use crate::{Error, Raster};
 
+pub(crate) mod drawing;
 pub(crate) mod fill;
 pub(crate) mod picture;
 

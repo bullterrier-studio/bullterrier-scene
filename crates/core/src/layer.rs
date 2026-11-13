@@ -6,6 +6,7 @@ use std::sync::Arc;
 use crate::Error;
 use crate::Raster;
 use crate::source::Source;
+use crate::source::drawing::Drawing;
 use crate::source::fill::Fill;
 use crate::source::picture::Picture;
 
@@ -39,6 +40,17 @@ impl Layer {
     #[must_use]
     pub fn picture_file(path: impl Into<PathBuf>) -> Self {
         Self::of(Picture::File(path.into()))
+    }
+
+    /// A vector drawing, given as its JSON document (what the vector package's `Drawing.to_json()` writes): its box is its
+    /// frame at the canvas origin, one design pixel to a pixel of the frame, rasterised by vector at the output size; what
+    /// lies outside the canvas is cut. The document is checked now.
+    ///
+    /// # Errors
+    /// [`Error::Format`] (pointer under `/drawing`) for a document the linked vector crate cannot read, a version it does
+    /// not read included; [`Error::Invalid`] naming `drawing` for a drawing without a frame.
+    pub fn drawing(json: &str) -> Result<Self, Error> {
+        Ok(Self::of(Drawing::parse(json)?))
     }
 
     /// A flat colour over the whole canvas: `#rrggbb` or `#rrggbbaa`, in sRGB values; the alpha is straight.
