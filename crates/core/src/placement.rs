@@ -45,7 +45,8 @@ impl FromStr for Fit {
 pub struct Deg(pub f64);
 
 /// The fields of a layer's placement that a call sets; the others keep their value. Build one with [`Place::new`] and the
-/// setters, and give it to [`Layer::place`](crate::Layer::place), which checks it.
+/// setters, and give it to [`Layer::place`](crate::Layer::place), which checks each number against its range and says
+/// what they are.
 ///
 /// The finished raster is flipped, scaled by `scale` (and by `aspect` along y), skewed (`skew_x`, then `skew_y`) and
 /// rotated, all about `anchor` (fractions of the fitted box, the centre by default), then moved by `dx`, `dy` design pixels.
@@ -70,25 +71,25 @@ impl Place {
         Self::default()
     }
 
-    /// Move by `value` design pixels along x (-1e6 to 1e6; default 0).
+    /// Move by `value` design pixels along x (default 0).
     pub fn dx(mut self, value: f64) -> Self {
         self.dx = Some(value);
         self
     }
 
-    /// Move by `value` design pixels along y (-1e6 to 1e6; default 0).
+    /// Move by `value` design pixels along y (default 0).
     pub fn dy(mut self, value: f64) -> Self {
         self.dy = Some(value);
         self
     }
 
-    /// Scale by `value` (0.001 to 1000; default 1), along x and y.
+    /// Scale by `value` (default 1), along x and y.
     pub fn scale(mut self, value: f64) -> Self {
         self.scale = Some(value);
         self
     }
 
-    /// Scale along y by `value` times what `scale` gives (0.001 to 1000; default 1): 0.12 is a flat shadow.
+    /// Scale along y by `value` times what `scale` gives (default 1): 0.12 is a flat shadow.
     pub fn aspect(mut self, value: f64) -> Self {
         self.aspect = Some(value);
         self
@@ -100,13 +101,13 @@ impl Place {
         self
     }
 
-    /// Skew along x by `angle`, -89 to 89 degrees (default 0): a point moves along x by its y times the tangent.
+    /// Skew along x by `angle` (default 0): a point moves along x by its y times the tangent.
     pub fn skew_x(mut self, angle: Deg) -> Self {
         self.skew_x = Some(angle.0);
         self
     }
 
-    /// Skew along y by `angle`, -89 to 89 degrees (default 0), after `skew_x`.
+    /// Skew along y by `angle` (default 0), after `skew_x`.
     pub fn skew_y(mut self, angle: Deg) -> Self {
         self.skew_y = Some(angle.0);
         self
@@ -124,11 +125,77 @@ impl Place {
         self
     }
 
-    /// The point the layer is flipped, scaled, skewed and turned about, as fractions of the fitted box from 0 to 1 along x
-    /// and y (default `(0.5, 0.5)`, the centre).
+    /// The point the layer is flipped, scaled, skewed and turned about, as fractions of the fitted box along x and y (default
+    /// `(0.5, 0.5)`, the centre).
     pub fn anchor(mut self, x: f64, y: f64) -> Self {
         self.anchor = Some((x, y));
         self
+    }
+}
+
+/// The values a number of a placement may take: the one place a range is written. `Layer::fit` and `Layer::place` check
+/// against these and their errors name them; C6 serves `parameters()` from them.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Range {
+    low: f64,
+    high: f64,
+    unit: &'static str,
+}
+
+/// `scale` and `aspect`: a ratio.
+const RATIO: Range = Range {
+    low: 0.001,
+    high: 1000.0,
+    unit: "",
+};
+/// `skew_x` and `skew_y`: degrees, short of the 90 where a skew has no end.
+const SKEW: Range = Range {
+    low: -89.0,
+    high: 89.0,
+    unit: " degrees",
+};
+/// `dx` and `dy`: design pixels.
+const TRAVEL: Range = Range {
+    low: -1e6,
+    high: 1e6,
+    unit: " design pixels",
+};
+/// `anchor` and `align`: a fraction of a box.
+const FRACTION: Range = Range {
+    low: 0.0,
+    high: 1.0,
+    unit: "",
+};
+
+impl Range {
+    /// `value` if it is a number within the range.
+    fn check(self, field: &str, value: f64) -> Result<f64, Error> {
+        if (self.low..=self.high).contains(&value) {
+            Ok(value)
+        } else {
+            Err(Error::invalid(
+                field,
+                format!(
+                    "{field} is a number from {} to {}{}, got {value}",
+                    self.low, self.high, self.unit
+                ),
+            ))
+        }
+    }
+
+    /// The two numbers `(x, y)` if each is within the range.
+    fn check_pair(self, field: &str, (x, y): (f64, f64)) -> Result<(f64, f64), Error> {
+        if (self.low..=self.high).contains(&x) && (self.low..=self.high).contains(&y) {
+            Ok((x, y))
+        } else {
+            Err(Error::invalid(
+                field,
+                format!(
+                    "{field} is two numbers from {} to {}{}, got ({x}, {y})",
+                    self.low, self.high, self.unit
+                ),
+            ))
+        }
     }
 }
 
@@ -150,16 +217,10 @@ impl Fitting {
                 format!("box is (x, y, width, height) with a width and a height above 0, got {area:?}"),
             ));
         }
-        if !align.iter().all(|fraction| (0.0..=1.0).contains(fraction)) {
-            return Err(Error::invalid(
-                "align",
-                format!("align is two fractions from 0 to 1, got {align:?}"),
-            ));
-        }
         Ok(Self {
             area: Rect { x, y, width, height },
             how,
-            align: (align[0], align[1]),
+            align: FRACTION.check_pair("align", (align[0], align[1]))?,
         })
     }
 }
@@ -196,36 +257,12 @@ impl Default for Placed {
     }
 }
 
-/// `value` if it is a number within `low` to `high`.
-fn within(field: &str, value: f64, (low, high): (f64, f64), unit: &str) -> Result<f64, Error> {
-    if (low..=high).contains(&value) {
-        Ok(value)
-    } else {
-        Err(Error::invalid(
-            field,
-            format!("{field} is a number from {low} to {high}{unit}, got {value}"),
-        ))
-    }
-}
-
 impl Placed {
     /// This placement with the fields `place` sets, each checked.
     pub(crate) fn with(self, place: Place) -> Result<Self, Error> {
-        let ratio = (0.001, 1000.0);
-        let travel = (-1e6, 1e6);
-        let skew = (-89.0, 89.0);
-        let anchor = match place.anchor {
-            Some((x, y)) => {
-                if !((0.0..=1.0).contains(&x) && (0.0..=1.0).contains(&y)) {
-                    return Err(Error::invalid(
-                        "anchor",
-                        format!("anchor is two fractions from 0 to 1, got ({x}, {y})"),
-                    ));
-                }
-                (x, y)
-            }
-            None => self.anchor,
-        };
+        let anchor = place
+            .anchor
+            .map_or(Ok(self.anchor), |pair| FRACTION.check_pair("anchor", pair))?;
         let rotate = match place.rotate {
             Some(angle) if !angle.is_finite() => {
                 return Err(Error::invalid(
@@ -237,23 +274,13 @@ impl Placed {
             None => self.rotate,
         };
         Ok(Self {
-            dx: place
-                .dx
-                .map_or(Ok(self.dx), |v| within("dx", v, travel, " design pixels"))?,
-            dy: place
-                .dy
-                .map_or(Ok(self.dy), |v| within("dy", v, travel, " design pixels"))?,
-            scale: place.scale.map_or(Ok(self.scale), |v| within("scale", v, ratio, ""))?,
-            aspect: place
-                .aspect
-                .map_or(Ok(self.aspect), |v| within("aspect", v, ratio, ""))?,
+            dx: place.dx.map_or(Ok(self.dx), |v| TRAVEL.check("dx", v))?,
+            dy: place.dy.map_or(Ok(self.dy), |v| TRAVEL.check("dy", v))?,
+            scale: place.scale.map_or(Ok(self.scale), |v| RATIO.check("scale", v))?,
+            aspect: place.aspect.map_or(Ok(self.aspect), |v| RATIO.check("aspect", v))?,
             rotate,
-            skew_x: place
-                .skew_x
-                .map_or(Ok(self.skew_x), |v| within("skew_x", v, skew, " degrees"))?,
-            skew_y: place
-                .skew_y
-                .map_or(Ok(self.skew_y), |v| within("skew_y", v, skew, " degrees"))?,
+            skew_x: place.skew_x.map_or(Ok(self.skew_x), |v| SKEW.check("skew_x", v))?,
+            skew_y: place.skew_y.map_or(Ok(self.skew_y), |v| SKEW.check("skew_y", v))?,
             flip_x: place.flip_x.unwrap_or(self.flip_x),
             flip_y: place.flip_y.unwrap_or(self.flip_y),
             anchor,

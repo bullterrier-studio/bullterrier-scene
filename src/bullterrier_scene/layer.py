@@ -168,9 +168,8 @@ class Layer:
         The finished raster is flipped by `flip` `(x, y)` (booleans), scaled by `scale` and by `aspect` along y (the
         height ratio: y scales by `scale` times `aspect`), skewed by `skew` `(x, y)` degrees (x, then y), and rotated
         by `rotate` (degrees clockwise, any size, wrapping), all about `anchor` (fractions 0 to 1 of the fitted box,
-        default the centre), then moved by `dx`, `dy` design pixels. Defaults: no change. `InvalidError` for a `scale`
-        or `aspect` outside 0.001 to 1000, a skew outside -89 to 89, a `dx` or `dy` outside -1e6 to 1e6, an `anchor`
-        outside 0 to 1, or a number that is not finite.
+        default the centre), then moved by `dx`, `dy` design pixels. Defaults: no change. Each number has a range (the
+        Placement table of `docs/api.md`); one outside it, or not finite, is an `InvalidError` that names the range.
         """
         return type(self)(
             self._core.place(

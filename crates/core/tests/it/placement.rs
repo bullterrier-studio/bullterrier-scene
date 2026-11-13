@@ -1292,6 +1292,29 @@ fn a_place_number_is_refused_outside_its_range_naming_the_field() -> Outcome {
     Ok(())
 }
 
+/// A refusal says the range it checks, so the message and the check cannot disagree: the numbers in it are the limits.
+#[test]
+fn a_refusal_names_the_range_of_the_number() -> Outcome {
+    let rows = [
+        (Place::new().scale(0.0), ["scale", "0.001", "1000"]),
+        (Place::new().aspect(2000.0), ["aspect", "0.001", "1000"]),
+        (Place::new().skew_y(Deg(95.0)), ["skew_y", "-89", "89"]),
+        (Place::new().dx(2e6), ["dx", "-1000000", "1000000"]),
+        (Place::new().anchor(1.5, 0.5), ["anchor", "0", "1"]),
+    ];
+    for (place, words) in rows {
+        let refused = refusal(Layer::fill("#ffffff")?.place(place)).unwrap_or_default();
+        assert!(words.iter().all(|word| refused.contains(word)), "{refused}");
+    }
+    let refused =
+        refusal(Layer::fill("#ffffff")?.fit([0.0, 0.0, 1.0, 1.0], Fit::Cover, [0.5, 1.5])).unwrap_or_default();
+    assert!(
+        ["align", "0", "1"].iter().all(|word| refused.contains(word)),
+        "{refused}"
+    );
+    Ok(())
+}
+
 /// A scale that makes the drawn layer larger than 2^27 pixels is refused at render naming the layer, a fill included.
 #[test]
 fn a_scale_that_draws_more_than_2_pow_27_pixels_is_refused_naming_the_layer() -> Outcome {
