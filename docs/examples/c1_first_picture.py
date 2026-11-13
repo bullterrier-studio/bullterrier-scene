@@ -78,6 +78,11 @@ def build(photo: np.ndarray) -> bts.Scene:
     )
 
 
+def first_picture() -> bts.Scene:
+    """The scene `uv run poe look` draws: `build` of the synthetic photo."""
+    return build(synthetic_photo())
+
+
 if __name__ == "__main__":
     from bullterrier_image import imageio
 
