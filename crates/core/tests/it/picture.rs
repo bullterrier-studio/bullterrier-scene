@@ -312,3 +312,14 @@ fn a_layer_whose_drawn_size_passes_2_pow_27_pixels_is_refused_naming_the_layer_a
     );
     Ok(())
 }
+
+/// A picture is never printed whole: a failed assertion on a render must not build a diff of gigabytes.
+#[test]
+fn a_raster_shows_its_size_and_not_its_pixels_when_printed() -> Outcome {
+    let shown = format!("{:?}", solid(300, 200, [0.5; 4])?);
+    assert!(
+        shown.contains("300") && shown.contains("200") && shown.len() < 100,
+        "{shown}"
+    );
+    Ok(())
+}

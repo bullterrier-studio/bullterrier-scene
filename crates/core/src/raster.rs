@@ -4,11 +4,18 @@ use crate::Error;
 
 /// A picture of straight (not premultiplied) RGBA, 32-bit floats from 0 to 1, row after row from the top, pixel after
 /// pixel from the left, four values a pixel. Colours are sRGB values.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct Raster {
     width: usize,
     height: usize,
     pixels: Vec<f32>,
+}
+
+impl std::fmt::Debug for Raster {
+    /// The size, never the pixels: a printed picture can be gigabytes.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "Raster {{ width: {}, height: {} }}", self.width, self.height)
+    }
 }
 
 impl Raster {
