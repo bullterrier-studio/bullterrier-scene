@@ -268,6 +268,137 @@ fn corners_that_are_not_a_strictly_convex_quadrilateral_or_are_out_of_range_are_
     Ok(())
 }
 
+/// A dart with each corner in turn the reflex one (moved to the other side of the line through its neighbours), clockwise and
+/// counter-clockwise (the same corners in the other order), and a corner out of range in y alone, are refused naming `corners`.
+#[test]
+fn a_dart_with_any_corner_reflex_in_either_direction_and_a_y_out_of_range_are_refused() {
+    let square: Corners = [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]];
+    let refused = |corners: Corners| -> Option<String> {
+        match Layer::fill("#ffffff").and_then(|layer| layer.perspective(corners)) {
+            Err(Error::Invalid { address, .. }) => Some(address),
+            _ => None,
+        }
+    };
+    for reflex in 0..4 {
+        let mut dart = square;
+        // 20% of the way back from the middle: past the line through the two neighbours
+        dart[reflex] = [
+            5.0 - 0.2 * (square[reflex][0] - 5.0),
+            5.0 - 0.2 * (square[reflex][1] - 5.0),
+        ];
+        assert_eq!(
+            refused(dart).as_deref(),
+            Some("corners"),
+            "corner {reflex} reflex, clockwise"
+        );
+        let mirrored = [dart[0], dart[3], dart[2], dart[1]];
+        assert_eq!(
+            refused(mirrored).as_deref(),
+            Some("corners"),
+            "corner {reflex} reflex, counter-clockwise"
+        );
+    }
+    assert_eq!(
+        refused([[0.0, 0.0], [10.0, 0.0], [10.0, 1_000_001.0], [0.0, 10.0]]).as_deref(),
+        Some("corners")
+    );
+    assert_eq!(
+        refused([[0.0, -1_000_001.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]]).as_deref(),
+        Some("corners")
+    );
+    assert_eq!(refused([[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]]), None);
+}
+
+/// `fit` then `perspective`: the fitted box, not the picture's own box, lands on the quadrilateral, for a picture wider than tall
+/// and taller than wide, each contained, stretched and covered into a box, onto a parallelogram (the exact path) and onto a
+/// general quadrilateral (the projective one). The colour at each of 20 or more pixels is the picture's own ramps at the point
+/// of the picture the hand-solved homography says is there, the window of a cover included.
+#[test]
+fn the_fitted_box_lands_on_the_quadrilateral_whatever_the_fit_and_the_shape_of_the_picture() -> Outcome {
+    let parallelogram: Corners = [[10.0, 10.0], [90.0, 20.0], [100.0, 70.0], [20.0, 60.0]];
+    let general: Corners = [[20.0, 8.0], [100.0, 20.0], [110.0, 100.0], [8.0, 90.0]];
+    for (width, height) in [(64_usize, 32_usize), (32, 64)] {
+        // (what, the fit, the box, the window of the picture that is shown: x, y, width, height, and the fitted box's size)
+        let (across_size, down_size) = (f64::from(u32::try_from(width)?), f64::from(u32::try_from(height)?));
+        let fits = [
+            ("contain", Fit::Contain, [0.0, 0.0, 40.0, 40.0]),
+            ("stretch", Fit::Stretch, [0.0, 0.0, 48.0, 24.0]),
+            ("cover", Fit::Cover, [0.0, 0.0, 20.0, 50.0]),
+        ];
+        for (what, how, area) in fits {
+            // the part of the picture that is shown, by the rule of the fit worked out here
+            let (across, down) = (area[2] / across_size, area[3] / down_size);
+            let window = match how {
+                Fit::Cover => {
+                    let factor = across.max(down);
+                    let (shown_w, shown_h) = (area[2] / factor, area[3] / factor);
+                    [
+                        (across_size - shown_w) / 2.0,
+                        (down_size - shown_h) / 2.0,
+                        shown_w,
+                        shown_h,
+                    ]
+                }
+                _ => [0.0, 0.0, across_size, down_size],
+            };
+            for (shape, quad) in [("a parallelogram", parallelogram), ("a quadrilateral", general)] {
+                let layer = Layer::picture(ramps(width, height)?)
+                    .fit(area, how, [0.5, 0.5])?
+                    .perspective(quad)?;
+                let drawn = render(layer, (128, 128), 128)?;
+                let mut checked = 0;
+                for step_x in 1..=8 {
+                    for step_y in 1..=8 {
+                        let (u, v) = (
+                            0.1 + 0.8 * f64::from(step_x - 1) / 7.0,
+                            0.1 + 0.8 * f64::from(step_y - 1) / 7.0,
+                        );
+                        // the pixel the unit square point (u, v) lands on, by bilinear blend of the corners for the guess, then
+                        // its true unit square place by the hand-solved homography
+                        let guess = (
+                            quad[0][0] * (1.0 - u) * (1.0 - v)
+                                + quad[1][0] * u * (1.0 - v)
+                                + quad[2][0] * u * v
+                                + quad[3][0] * (1.0 - u) * v,
+                            quad[0][1] * (1.0 - u) * (1.0 - v)
+                                + quad[1][1] * u * (1.0 - v)
+                                + quad[2][1] * u * v
+                                + quad[3][1] * (1.0 - u) * v,
+                        );
+                        #[expect(
+                            clippy::cast_possible_truncation,
+                            clippy::cast_sign_loss,
+                            reason = "a pixel of the canvas"
+                        )]
+                        let (x, y) = (guess.0 as usize, guess.1 as usize);
+                        let (pu, pv) = unit_square_point(
+                            quad,
+                            (f64::from(u32::try_from(x)?) + 0.5, f64::from(u32::try_from(y)?) + 0.5),
+                        );
+                        if (0.05..0.95).contains(&pu) && (0.05..0.95).contains(&pv) {
+                            checked += 1;
+                            #[expect(clippy::cast_possible_truncation, reason = "a level")]
+                            let expected = [
+                                ((window[0] + pu * window[2]) / across_size) as f32,
+                                ((window[1] + pv * window[3]) / down_size) as f32,
+                                0.0,
+                                1.0,
+                            ];
+                            let got = pixel(&drawn, x, y);
+                            assert!(
+                                close(got, expected, 0.01),
+                                "{width}x{height} {what} on {shape}, ({x}, {y}): {got:?} is not {expected:?}"
+                            );
+                        }
+                    }
+                }
+                assert!(checked >= 20, "{width}x{height} {what} on {shape}: {checked} points");
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The last of `place` and `perspective` wins, in either order; `fit` comes first.
 #[test]
 fn the_last_of_place_and_perspective_wins_and_fit_comes_first() -> Outcome {

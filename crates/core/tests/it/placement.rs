@@ -573,6 +573,58 @@ fn noise_turned_and_reduced_is_averaged_across_the_footprint_as_well_as_along_it
     Ok(())
 }
 
+/// A turn by 17 degrees at scale 1 shrinks nothing (the footprint is a pixel, to rounding), so it is plain bilinear: at three
+/// pixels near the middle the colour of a ramp picture is the ramp at the point the inverse turn names, exactly (bilinear of a
+/// ramp is the ramp). The picture is 6 by 6, red the position across over 6 and green the position down; it is moved to the
+/// middle of a 16 pixel canvas (8, 8) and turned about it; the pixel (X, Y) is the point (3, 3) + R(-17 degrees) ((X + 1/2, Y + 1/2)
+/// - (8, 8)) of the picture.
+#[test]
+fn a_turn_at_scale_one_is_plain_bilinear_not_a_blur() -> Outcome {
+    let ramps = made(6, 6, |x, y| {
+        #[expect(clippy::cast_precision_loss, reason = "a small column")]
+        [(x as f32 + 0.5) / 6.0, (y as f32 + 0.5) / 6.0, 0.0, 1.0]
+    })?;
+    let drawn = render(
+        Layer::picture(ramps).place(Place::new().rotate(Deg(17.0)).dx(5.0).dy(5.0))?,
+        (16, 16),
+        16,
+    )?;
+    let (sine, cosine) = 17.0_f64.to_radians().sin_cos();
+    for (x, y) in [(8_u32, 8_u32), (9, 7), (6, 9), (7, 8)] {
+        let (relative_x, relative_y) = (f64::from(x) + 0.5 - 8.0, f64::from(y) + 0.5 - 8.0);
+        let (at_x, at_y) = (
+            3.0 + cosine * relative_x + sine * relative_y,
+            3.0 - sine * relative_x + cosine * relative_y,
+        );
+        #[expect(clippy::cast_possible_truncation, reason = "a level")]
+        let expected = [(at_x / 6.0) as f32, (at_y / 6.0) as f32, 0.0, 1.0];
+        let got = pixel(&drawn, usize::try_from(x)?, usize::try_from(y)?);
+        assert!(close(got, expected, 1e-6), "({x}, {y}): {got:?} is not {expected:?}");
+    }
+    Ok(())
+}
+
+/// A footprint is averaged along the axis it is long, not along the one it is a pixel across: 1-pixel vertical stripes (every
+/// other column white) at a turn too small to see and `aspect` 0.5 have a footprint 2 pixels long up and down and 1 across, so
+/// the stripes stay (the contrast is kept), where a footprint over-blurred across as well would turn them grey.
+#[test]
+fn a_footprint_one_pixel_across_does_not_blur_across() -> Outcome {
+    let stripes = made(64, 64, |x, _| {
+        let level = if x % 2 == 0 { 1.0 } else { 0.0 };
+        [level, level, level, 1.0]
+    })?;
+    let drawn = render(
+        Layer::picture(stripes).place(Place::new().aspect(0.5).rotate(Deg(0.001)))?,
+        (64, 64),
+        64,
+    )?;
+    let contrast = (28..36)
+        .map(|x| (pixel(&drawn, x, 32)[0] - 0.5).abs())
+        .fold(0.0, f32::max);
+    assert!(contrast > 0.35, "the stripes have lost their contrast: {contrast}");
+    Ok(())
+}
+
 /// The rows and columns of `raster` where alpha is at least `at_least`, as `(first column, last column, first row, last
 /// row)`; `None` for none.
 fn extent(raster: &Raster, at_least: f32) -> Option<(usize, usize, usize, usize)> {

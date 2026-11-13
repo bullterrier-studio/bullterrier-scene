@@ -547,7 +547,7 @@ fn capped(part: Rect, (across, down): (f64, f64)) -> f64 {
 // Inline, because no public route reaches these: a render shows the scale a source is asked for only through its pixels.
 #[cfg(test)]
 mod tests {
-    use super::{Layout, Placement, capped};
+    use super::{Fit, Fitting, Layout, Placement, capped};
     use crate::geometry::{MAX_PIXELS, Rect, Scale};
     use crate::perspective::Quad;
 
@@ -611,6 +611,68 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    /// The cut is the root of the bound, not near it: at the factor it gives, `(w a k + 1)(h d k + 1)` is the limit, to the
+    /// rounding of the sum, and a hair more factor passes it. (With the bound off by one pixel the product is the limit plus
+    /// one, which a source that allocates a pixel a side more than it asked would pass.)
+    #[test]
+    fn the_cut_is_tight_to_the_bound_of_the_ceilings() {
+        #[expect(clippy::cast_precision_loss, reason = "a power of two")]
+        let limit = MAX_PIXELS as f64;
+        for (width, height, across, down) in [
+            (1000.0, 1000.0, 100.0, 100.0),
+            (3.0, 7.0, 1e7, 1e6),
+            (4000.0, 3000.0, 40.0, 10.0),
+            (20.0, 12.0, 5000.0, 7000.0),
+        ] {
+            let factor = capped(rect(width, height), (across, down));
+            let bound = |k: f64| (width * across * k + 1.0) * (height * down * k + 1.0);
+            assert!(
+                (bound(factor) - limit).abs() <= limit * 1e-12,
+                "{width} x {height}: the bound is {}",
+                bound(factor)
+            );
+            assert!(bound(factor * 1.000_001) > limit);
+        }
+    }
+
+    /// The scale along each axis of the box is the length of the column of the output's derivative by that axis: here by a
+    /// central difference of the position of a point of the box on the output, with a fit that stretches the two axes by
+    /// different factors (2 along x, 1 along y), so that an axis taking the other's factor is seen.
+    #[test]
+    fn the_scales_of_a_perspective_are_the_derivatives_of_the_position_of_a_point_of_the_box() {
+        let quad = Quad::new([[11.0, 7.0], [50.0, 15.0], [58.0, 55.0], [5.0, 44.0]]).unwrap_or_else(|_| unreachable!());
+        let fit = Fitting::new([0.0, 0.0, 40.0, 10.0], Fit::Stretch, [0.5, 0.5]).ok();
+        let layout = Layout::new(
+            fit,
+            Placement::Perspective(quad),
+            rect(20.0, 10.0),
+            Scale::of_canvas(64, 64, 64, 64),
+        );
+        let m = quad.matrix();
+        // the output position of the point (x, y) of the box, whose own size is 20 by 10 and fitted size 40 by 10
+        let position = |x: f64, y: f64| {
+            let (u, v) = (x * 2.0 / 40.0, y / 10.0);
+            let w = m[2][0] * u + m[2][1] * v + m[2][2];
+            (
+                (m[0][0] * u + m[0][1] * v + m[0][2]) / w,
+                (m[1][0] * u + m[1][1] * v + m[1][2]) / w,
+            )
+        };
+        let step = 1e-5;
+        for (x, y) in [(0.0, 0.0), (20.0, 0.0), (20.0, 10.0), (0.0, 10.0), (7.0, 4.0)] {
+            let (right, left) = (position(x + step, y), position(x - step, y));
+            let (below, above) = (position(x, y + step), position(x, y - step));
+            let along_x = ((right.0 - left.0) / (2.0 * step)).hypot((right.1 - left.1) / (2.0 * step));
+            let along_y = ((below.0 - above.0) / (2.0 * step)).hypot((below.1 - above.1) / (2.0 * step));
+            let (u, v) = (x * 2.0 / 40.0, y / 10.0);
+            let (got_x, got_y) = layout.scales_at(&quad, (u, v));
+            assert!(
+                (got_x - along_x).abs() <= 1e-4 * along_x && (got_y - along_y).abs() <= 1e-4 * along_y,
+                "({x}, {y}): ({got_x}, {got_y}) is not ({along_x}, {along_y})"
+            );
         }
     }
 }

@@ -302,7 +302,7 @@ impl Footprint {
 // Inline, because no public route reaches the inverse of a homography on its own: a render shows it only through the pixels.
 #[cfg(test)]
 mod tests {
-    use super::{Back, ProjectiveBack};
+    use super::{Back, Footprint, ProjectiveBack};
     use crate::geometry::Rect;
     use crate::perspective::Quad;
     use crate::warp::Projective;
@@ -352,5 +352,29 @@ mod tests {
             placed > 0 && placed < 200,
             "{placed} of 200 points above the quadrilateral are placed"
         );
+    }
+
+    /// A footprint longer than the raster in either direction takes the taps that cover the raster and no more: the lengths and
+    /// the taps are bounded by `reach`, the diagonal, along the minor axis as along the major one.
+    #[test]
+    fn the_taps_of_a_footprint_are_bounded_by_the_raster_along_both_axes() {
+        // the inverse Jacobian of a map that shrinks a lot: axes of 5000 and 3000 raster pixels, turned a little
+        let (cosine, sine) = (0.96_f64, 0.28_f64);
+        let jacobian = [[5000.0 * cosine, -3000.0 * sine], [5000.0 * sine, 3000.0 * cosine]];
+        let footprint = Footprint::of(jacobian, 100.0);
+        assert!(!footprint.plain);
+        assert!(
+            footprint.lengths.0 <= 100.0 && footprint.lengths.1 <= 100.0,
+            "{:?}",
+            footprint.lengths
+        );
+        assert!(
+            footprint.taps.0 <= 100 && footprint.taps.1 <= 100,
+            "{:?}",
+            footprint.taps
+        );
+        // and one that is long and thin keeps its minor axis under a pixel: one tap across
+        let thin = Footprint::of([[400.0, 0.0], [0.0, 0.25]], 1000.0);
+        assert_eq!(thin.taps, (400, 1));
     }
 }
