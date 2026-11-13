@@ -48,3 +48,28 @@ impl Scale {
         }
     }
 }
+
+// Inline, because no public route reaches this: a scene asks for the whole canvas from its origin, so a position other
+// than 0 is for the bands and placements of later batches; the lengths are also reached by the size tests of `render`.
+#[cfg(test)]
+mod tests {
+    use super::Scale;
+
+    #[test]
+    fn a_length_is_rounded_up_and_a_position_down() {
+        // 3 design pixels at 5 output pixels over a long side of 3: 5 whole; 1 at 5 over 3 is 1.67
+        let scale = Scale::new(5, 3);
+        assert_eq!((scale.len(3.0), scale.len(1.0), scale.len(0.0)), (5, 2, 0));
+        assert_eq!(
+            (scale.at(0.0), scale.at(1.0), scale.at(2.0), scale.at(-0.5)),
+            (0, 1, 3, -1)
+        );
+    }
+
+    #[test]
+    fn a_length_of_whole_design_pixels_that_makes_whole_output_pixels_is_exact() {
+        // 1280 over 1280 at 640: halves exactly, never 641
+        let scale = Scale::new(640, 1280);
+        assert_eq!((scale.len(1280.0), scale.len(720.0), scale.len(1.0)), (640, 360, 1));
+    }
+}
