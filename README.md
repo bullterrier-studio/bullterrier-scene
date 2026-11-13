@@ -51,7 +51,9 @@ from bullterrier_image import Recipe, fx, imageio, subject_matte
 W, H = 1800, 2400
 photo = imageio.load("dancer.jpg")
 matte = subject_matte(photo)  # the dancer, found by image
-dancer = bts.Layer.picture(photo, maps={"subject": matte}).fit((0, 0, W, H), "cover").look(Recipe([fx.grade(contrast=1.4)]))
+dancer = (
+    bts.Layer.picture(photo, maps={"subject": matte}).fit((0, 0, W, H), "cover").look(Recipe([fx.grade(contrast=1.4)]))
+)
 
 poster = bts.Scene(W, H).add(
     dancer.named("photo"),

@@ -112,7 +112,9 @@ opacity and blend; the named layer's are not used. It has no source, no `fit` an
 
 ```python
 logo_glow = bts.Layer.of("logo").named("logo_glow").look(halo).alpha("light").blend("screen")
-shadow = bts.Layer.fill("#000000").mask(bts.Layer.of("dog").place(scale=0.12, aspect=8.3, anchor=(0.5, 1.0)), feather=12)
+shadow = bts.Layer.fill("#000000").mask(
+    bts.Layer.of("dog").place(scale=0.12, aspect=8.3, anchor=(0.5, 1.0)), feather=12
+)
 ```
 
 A reference names a layer of its own scene that is already added or is in the same `add` call; it may name another reference.
