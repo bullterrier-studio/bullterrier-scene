@@ -195,22 +195,30 @@ beat). C2b replaces the rule for every map that is not of the **exact class**, a
   the cover crops that reduce) hold to 1e-5 and 1e-6 against a pixel-by-pixel box average. *A pyramid for these would break
   them*: its levels are 2, 4, 8... pixels, and a reduction by 3 or 1.56 is a blend of two levels, not the box average.
 - **Every other map** (a turn by another angle, a skew, a perspective) gets the footprint of the inverse Jacobian, per pixel
-  for a perspective: singular values `s1 >= s2` (raster pixels per output pixel along the major and minor axes) and the
-  major axis. `s1` at most 1 (up to `ROUNDING`, the one tolerance of the geometry: a 17 degree turn computes 1.0000000000000002):
-  plain bilinear, so a turn at scale 1 is as sharp as in C2a. Otherwise `n = ceil(s1 / max(s2, 1))` taps along the major axis,
-  each trilinear between the two levels around `log2(max(s2, 1))` of a pyramid of 2 by 2 area averages (made when first
-  asked for), equal weights, so the filter stays convex. The minor axis is filtered to its length and the major one is covered
-  by taps no more than a level pixel apart.
-- **No tap cap.** The only bound on `n` is the raster: a footprint longer than its diagonal reads the edge past it. The taps of
-  a layer total about its pixels over `s2`; a 12 megapixel picture under a skew of 89 degrees needs 57 taps a pixel and
-  the sheared picture is mostly outside the canvas.
-- **Isotropic level** (`log2(s1)`, no taps) was weighed: it needs no taps but blurs a skewed or tilted picture by `s1 / s2`
-  along its minor axis, which is the far side of every perspective floor.
+  for a perspective: singular values `s1 >= s2` (raster pixels per output pixel along the major and minor axes) and the major
+  axis. `s1` at most 1 (up to `ROUNDING`, the one tolerance of the geometry: a 17 degree turn computes 1.0000000000000002):
+  plain bilinear, so a turn at scale 1 is as sharp as in C2a. Otherwise the mean of a lattice of `ceil(s1)` by
+  `ceil(max(s2, 1))` bilinear taps over the rectangle `s1` by `s2` along the footprint's axes, equal weights, so the filter
+  stays convex. The taps are never more than a raster pixel apart, so the mean is the raster's average over the footprint
+  whatever its direction.
+- **No tap cap.** The only bound is the raster: a footprint longer than its diagonal reads the edge past it. The footprints of
+  the pixels of a row tile the raster, so the taps of a layer total about its pixels (a skew of 89 degrees needs 57 taps a pixel,
+  and the sheared picture is mostly off the canvas).
+- **Pyramid weighed and not taken.** The first build of C2b was a pyramid of 2 by 2 averages, trilinear at `log2(s2)`, with taps
+  along the major axis only. Measured on the receding checker floor of `c2b_perspective.py` against a brute-force 8 by 8
+  supersample of the continuous checker (mean absolute error per channel, the far rows near the horizon, then the middle): the
+  pyramid 0.0297 and 0.0091; the pyramid one level coarser (`ceil`) 0.0411 and 0.0114; half a level coarser 0.0401 and 0.0109;
+  the lattice 0.0271 and 0.0088. A coarser level blurs without removing the beat (the 99th percentile of the far error is 0.45
+  for all four: the orange lines, one pixel thin, which no filter can both keep and average), and a pyramid's level is a
+  box of 2, 4, 8 pixels that leaves part of a pattern whose period is not a power of two. The lattice needs no pyramid, so its
+  peak memory is the picture's alone.
+- **Isotropic level** (`log2(s1)`, no taps) was weighed on paper: it blurs a skewed or tilted picture by `s1 / s2` along its
+  minor axis, which is the far side of every perspective floor.
 - **Measured** (release, arm64 Mac, 12 megapixel picture on a 12 megapixel canvas; C2a, then C2b): turned 17 degrees and
-  scaled 0.9, 0.19 s then 0.32 s; turned 17 and scaled 0.5, 0.08 s then 0.10 s; skewed 80 degrees, 0.07 s then 0.23 s; skewed 89,
-  0.05 s then 0.20 s; peak memory 386 to 530 MB in both (the pyramid adds a third of the raster, made only where a
-  footprint is larger than a pixel). A turn that shrinks is slower because each pixel is a trilinear sample of two levels,
-  where C2a averaged the raster once first.
+  scaled 0.9, 0.19 s and 530 MB then 0.46 s and 386 MB (every pixel is four taps where C2a averaged the raster once first);
+  turned 17 and scaled 0.5, 0.08 s then 0.16 s; skewed 80 degrees, 0.07 s then 0.23 s; skewed 89, 0.05 s then 0.22 s (57 taps a
+  pixel; the sheared picture covers little of the canvas); under a perspective a tenth as wide at the far side, 0.50 s and
+  386 MB.
 
 ## Text options are vector's, passed as data (2026-11-13)
 
