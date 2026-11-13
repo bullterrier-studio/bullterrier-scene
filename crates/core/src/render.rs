@@ -55,14 +55,13 @@ fn lay(
     (columns, rows): (usize, usize),
     joined: &mut [f32],
 ) -> Result<(), Error> {
-    let layout = |own: Rect| Layout::new(layer.fit, layer.placed, own, scale);
-    let plan = |own: Rect| {
-        let request = layout(own).request();
-        request.scale.size(request.window)?;
-        Ok(request)
-    };
-    let drawn = layer.source.draw(canvas, &plan)?;
-    let (map, clip) = layout(drawn.own).warp(&drawn);
+    let opened = layer.source.open(canvas)?;
+    let layout = Layout::new(layer.fit, layer.placed, opened.own, scale);
+    let request = layout.request();
+    // the one place the drawn-size limit is checked, before any source draws
+    request.scale.size(request.window)?;
+    let drawn = opened.draw(request)?;
+    let (map, clip) = layout.warp(&drawn);
     if is_identity(&drawn.raster, map, clip, columns, rows) {
         over(joined, drawn.raster.pixels(), layer.opacity);
     } else {

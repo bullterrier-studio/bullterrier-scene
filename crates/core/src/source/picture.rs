@@ -7,9 +7,9 @@ use std::sync::Arc;
 use bullterrier_image::{Options, Photo, Presets, Recipe};
 use serde_json::Value;
 
-use super::{Drawn, Request, Source};
+use super::{Drawn, Opened, Source};
 use crate::geometry::Rect;
-use crate::warp::{Affine, warp};
+use crate::warp::resize;
 use crate::{Error, Raster};
 
 /// The formats of a recipe the linked image crate reads. A recipe document written by a recipe file carries one; image
@@ -200,14 +200,10 @@ fn read(path: &Path) -> Result<Raster, Error> {
 impl Source for Picture {
     /// Without a look, the picture's own pixels, for the warp to resample once; with one, the window at the asked scale (a
     /// part of the picture, or all of it), so that the look runs on the raster the layer will have.
-    fn draw(&self, _canvas: Rect, plan: &dyn Fn(Rect) -> Result<Request, Error>) -> Result<Drawn, Error> {
-        let read_now;
+    fn open(&self, _canvas: Rect) -> Result<Opened<'_>, Error> {
         let own = match &self.pixels {
             Pixels::Held(raster) => Arc::clone(raster),
-            Pixels::File(path) => {
-                read_now = Arc::new(read(path)?);
-                Arc::clone(&read_now)
-            }
+            Pixels::File(path) => Arc::new(read(path)?),
         };
         // a pixel count below 2^53: whole design pixels
         #[expect(clippy::cast_precision_loss, reason = "a pixel count below 2^53")]
@@ -217,36 +213,24 @@ impl Source for Picture {
             width: own.width() as f64,
             height: own.height() as f64,
         };
-        let request = plan(whole)?;
-        if self.looks.is_empty() {
-            return Ok(Drawn {
-                raster: own,
-                own: whole,
-                covers: whole,
-            });
-        }
-        let window = request.window;
-        let (columns, rows) = request.scale.size(window)?;
-        // a design pixel is a pixel of the picture; the window's pixels are `columns` by `rows`
-        #[expect(clippy::cast_precision_loss, reason = "a side of at most 2^27 pixels")]
-        let (to_columns, to_rows) = (columns as f64 / window.width, rows as f64 / window.height);
-        let map = Affine {
-            a: to_columns,
-            b: 0.0,
-            c: -window.x * to_columns,
-            d: 0.0,
-            e: to_rows,
-            f: -window.y * to_rows,
-        };
-        let mut placed = warp(&own, map, window, columns, rows);
-        for look in &self.looks {
-            placed = Arc::new(look.apply(&placed)?);
-        }
-        Ok(Drawn {
-            raster: placed,
-            own: whole,
-            covers: window,
-        })
+        Ok(Opened::new(whole, move |request| {
+            if self.looks.is_empty() {
+                return Ok(Drawn {
+                    raster: own,
+                    covers: whole,
+                });
+            }
+            let window = request.window;
+            let (columns, rows) = request.scale.size(window)?;
+            let mut placed = resize(&own, window, (columns, rows));
+            for look in &self.looks {
+                placed = Arc::new(look.apply(&placed)?);
+            }
+            Ok(Drawn {
+                raster: placed,
+                covers: window,
+            })
+        }))
     }
 
     fn looked(&self, recipe: &Value) -> Result<Arc<dyn Source>, Error> {

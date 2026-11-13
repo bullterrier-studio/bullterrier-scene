@@ -87,6 +87,23 @@ pub(crate) fn warp(source: &Arc<Raster>, map: Affine, clip: Rect, columns: usize
     Arc::new(warp_by(source, map, clip, columns, rows, keeps_axes(map)))
 }
 
+/// The part `window` (design pixels of the picture, one to a pixel) of `source` as a raster of `columns` by `rows` pixels that
+/// divide it evenly: the rule of `geometry` for a rectangle drawn at a scale, made by the warp.
+pub(crate) fn resize(source: &Arc<Raster>, window: Rect, (columns, rows): (usize, usize)) -> Arc<Raster> {
+    // a side of at most 2^27 pixels
+    #[expect(clippy::cast_precision_loss, reason = "a side of at most 2^27 pixels")]
+    let (to_columns, to_rows) = (columns as f64 / window.width, rows as f64 / window.height);
+    let map = Affine {
+        a: to_columns,
+        b: 0.0,
+        c: -window.x * to_columns,
+        d: 0.0,
+        e: to_rows,
+        f: -window.y * to_rows,
+    };
+    warp(source, map, window, columns, rows)
+}
+
 /// Whether `map` keeps the axes of the raster: a move, a scale, a flip or a quarter turn about x and y alone.
 fn keeps_axes(map: Affine) -> bool {
     map.b == 0.0 && map.d == 0.0

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use bullterrier_vector::{Inputs, Size, Values};
 
-use super::{Drawn, Request, Source};
+use super::{Drawn, Opened, Source};
 use crate::geometry::Rect;
 use crate::{Error, Raster};
 
@@ -48,25 +48,26 @@ impl Drawing {
 
 impl Source for Drawing {
     /// The whole frame at the asked scale: vector draws no part of a frame yet.
-    fn draw(&self, _canvas: Rect, plan: &dyn Fn(Rect) -> Result<Request, Error>) -> Result<Drawn, Error> {
+    fn open(&self, _canvas: Rect) -> Result<Opened<'_>, Error> {
         let own = Rect {
             x: 0.0,
             y: 0.0,
             width: self.width,
             height: self.height,
         };
-        let (width, height) = plan(own)?.scale.size(own)?;
-        #[expect(clippy::cast_precision_loss, reason = "a side of at most 65,000 pixels")]
-        let size = Size::px(width as f64, height as f64);
-        let bytes = self
-            .document
-            .to_rgba(size, &Values::new())
-            .map_err(|error| Error::invalid("drawing", error.to_string()))?;
-        let pixels = bytes.iter().map(|&byte| f32::from(byte) / 255.0).collect();
-        Ok(Drawn {
-            raster: Arc::new(Raster::made(width, height, pixels)),
-            own,
-            covers: own,
-        })
+        Ok(Opened::new(own, move |request| {
+            let (width, height) = request.scale.size(own)?;
+            #[expect(clippy::cast_precision_loss, reason = "a side of at most 65,000 pixels")]
+            let size = Size::px(width as f64, height as f64);
+            let bytes = self
+                .document
+                .to_rgba(size, &Values::new())
+                .map_err(|error| Error::invalid("drawing", error.to_string()))?;
+            let pixels = bytes.iter().map(|&byte| f32::from(byte) / 255.0).collect();
+            Ok(Drawn {
+                raster: Arc::new(Raster::made(width, height, pixels)),
+                covers: own,
+            })
+        }))
     }
 }

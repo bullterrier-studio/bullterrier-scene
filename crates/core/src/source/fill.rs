@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use super::{Drawn, Request, Source};
+use super::{Drawn, Opened, Source};
 use crate::geometry::Rect;
 use crate::{Error, Raster};
 
@@ -37,12 +37,12 @@ impl Fill {
 
 impl Source for Fill {
     /// One pixel: a flat colour is the same at any scale, so it is the one place that draws less than it was asked.
-    fn draw(&self, canvas: Rect, plan: &dyn Fn(Rect) -> Result<Request, Error>) -> Result<Drawn, Error> {
-        plan(canvas)?;
-        Ok(Drawn {
-            raster: Arc::new(Raster::made(1, 1, self.rgba.to_vec())),
-            own: canvas,
-            covers: canvas,
-        })
+    fn open(&self, canvas: Rect) -> Result<Opened<'_>, Error> {
+        Ok(Opened::new(canvas, move |_| {
+            Ok(Drawn {
+                raster: Arc::new(Raster::made(1, 1, self.rgba.to_vec())),
+                covers: canvas,
+            })
+        }))
     }
 }
