@@ -1,14 +1,15 @@
 # Design
 
 What bullterrier-scene is and how it is built. Reasons for single choices: [design-decisions.md](design-decisions.md).
-The batches, in order: [roadmap.md](roadmap.md). The calls: [api.md](api.md). Status: draft for review, 2026-11-08; module shape and open questions updated 2026-11-13 (A1).
+The batches, in order: [roadmap.md](roadmap.md). The calls: [api.md](api.md).
+Status: draft for review, 2026-11-08; module shape and open questions updated 2026-11-13 (A1).
 
 ## What it is
 
 A scene is a canvas and a stack of layers, drawn into one picture at any size. A layer is a source (a picture, a vector
-drawing, a flat colour or gradient, another scene, a picture the caller hands in each time) plus how it sits on the layers
-below it: its place, its mask, its blend mode, its opacity and the effects it gets. Layers can be grouped, and a group
-blends as one.
+drawing, type, a flat colour, another scene, another layer of the same scene, a picture the caller hands in each time) plus
+how it sits on the layers below it: its place, its mask, its blend mode, its opacity and the effects it gets. Layers can be
+grouped (a scene used as a layer), and a group blends as one.
 
 | Responsible for | Not responsible for |
 |---|---|
@@ -61,9 +62,9 @@ One deep module, `Scene`, with a small interface, and one value, `Layer`. Both a
 
 ```
 Scene::new(width, height)                 the design canvas: what a design pixel means
-scene.add(layers)                         a layer is a value: source, placement, mask, blend, opacity, look
+scene.add(layers)                         a layer is a value: source, placement, mask, blend, opacity, alpha, look
 scene.with_values({address: value})       the only way to set a value (a number, colour, text or picture)
-scene.render(size) -> Image               the whole picture, size the long side in output pixels
+scene.render(size) -> array               the whole picture, float32 (height, width, 4), size the long side in pixels
 scene.parameters()                        the description of every parameter, by address
 ```
 
@@ -95,7 +96,7 @@ Image and vector each made sensible choices alone; a scene puts their output sid
    in a scene. Linear-light blending is a later option, never a silent default.
 3. **Straight alpha at every boundary**, premultiplied inside. Open: a look on an already transparent layer moves the colour
    but not the alpha until image carries alpha through effects that move pixels; until then a layer's look runs before its
-   cut-out, or on a group with an opaque ground.
+   cut-out, and light a look adds past the shape shows only on a layer whose `alpha` is `light` ([api.md](api.md), "Looks").
 4. **Room around a layer.** A shadow, glow or bloom reaches past the layer's box. The footprint an effect declares (how much
    neighbourhood it reads) also says how much room a layer needs, so nothing is clipped at its edge.
 

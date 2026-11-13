@@ -58,7 +58,7 @@ look that holds a `Picture` or `Lut` object cannot be saved (a path form can); a
 
 Every call returns a new scene or layer, as vector's `Drawing` and image's `Recipe` do. *Reason:* a cache key per layer (C7) is
 its value, a layer used in two places cannot alias, and a scene saves and renders the same wherever it is held. *Consequence:*
-a layer used twice has its parameters twice (see `docs/api.md`, Open questions).
+a layer drawn twice (a logo and its glow) is a reference (`Layer.of`), not a copy, so its parameters exist once.
 
 ## One way to set a value: `with_values` (2026-11-13)
 
@@ -74,3 +74,58 @@ command line crate that the Python console script runs, as image does) and the f
 vector's V10e (not built) and image effects that take an origin and a canvas size, and the render interface does not change
 when it arrives, so the API is final without it. The peak memory of a 15-layer A3 poster is still measured whole in C7 and
 recorded. R1 (the release and the first push) is the owner's. Storage precision of finished layers is settled at B1.
+
+## A layer drawn again is a reference, not a copy (2026-11-13)
+
+`Layer.of("logo")` draws the named layer of the same scene again with its own looks, masks, place, opacity, blend and alpha
+choice; the source and placement parameters stay at the named layer's address. *Reason:* a copy (`logo.look(bloom)`) has its
+own addresses, so a caller sets every moving value twice and a forgotten one makes the glow drift from the logo; a reference
+cannot. A shadow, a reflection, a glow and a mask by the subject are the same move. *Consequence:* references are resolved at
+`add` (unknown names and cycles refused by an iterative walk, so no recursion depth is promised); a reference has no source and
+no `fit`; things that must move together as one rig are an inner scene used with `Layer.scene`.
+
+## Alpha is an explicit choice, not a rule on the blend name (2026-11-13)
+
+A layer's alpha is `source` (default) or `light`: with `light` it is the brightness of the look's colour over black, so a bloom
+shows past the shape. *Reason:* tying spill to `screen` made masks and the alpha of the source disappear for one blend name and
+hid why a halo showed; a named choice is one parameter (`<layer>.alpha`) that a slider can switch. *Consequence:* dark light
+past a shape (a drop shadow) still needs image to carry alpha through effects; a shadow is a fill masked by the shape.
+
+## A mask is a layer or a named map of the layer's own picture (2026-11-13)
+
+`mask(by)`: `by` is a `Layer` (canvas space, possibly `Layer.of`) or the name of one of the layer's own `maps` (picture space,
+cut with the picture). *Reason:* a raw array in a mask could belong to another layer's picture and moves with the wrong
+layer; passing the matte once, with the picture, keeps it aligned and in the saved form. A mask that is a layer needs no new
+kind: anything that can be drawn can mask. *Consequence:* a mask layer is owned by its layer and outside the scene's names.
+
+## Placement is fixed fields with valid ranges (2026-11-13)
+
+`place` sets `dx`, `dy`, `scale`, `aspect`, `rotate`, `skew`, `flip` and `anchor`; the order of application is fixed. *Reason:*
+every placement number has an address (a chain of verbs cannot), and every range holds only valid values, so a slider built
+from `parameters()` cannot ask for an error (a zero or negative scale, a flip as a negative number). `fit`'s slack is `align`,
+the pivot of `place` is `anchor`: one name per concept. `scale` is one number because it is what an animation drives.
+
+## Text options are vector's, passed as data (2026-11-13)
+
+`Layer.text(content, *, font, color, **options)`: scene owns the content (a text parameter), the font and the colour; the rest
+is `btvec.text`'s, validated by the linked vector crate. *Reason:* restating vector's arguments and defaults in scene would
+copy them and let them drift; the layer exists so a title can be a parameter. *Consequence:* only plain data crosses (no
+expressions, no `anchor`, no `inside`); anything richer is built with vector and used as a `Layer.drawing`.
+
+## One in-process cache, shared by derived scenes (2026-11-13)
+
+Scenes derived by `add` and `with_values` share a bounded cache of what each layer drew; the result depends only on the scene,
+its values, the size and the content of the files. *Reason:* a frame loop changes one value and must redo only what depends
+on it (C7); the cache cannot belong to a scene value, which is immutable, nor to the caller. *Consequence:* a file is keyed by
+path, size and modification time and its digest is computed at `to_json`; the cache is tested through a plugin layer that
+counts its `draw` calls (`Layer.make`, arrives with C7).
+
+## Smaller choices of the API (2026-11-13)
+
+- **A group is a scene, a mask is a layer.** No group type and no mask type; one `Layer` does both.
+- **One `Layer.picture`.** A picture of `None` is a hole the caller fills, so footage needs no second kind of layer.
+- **Gradients are vector's.** A rectangle filled with `btvec.linear_gradient`; scene has no second gradient.
+- **`Path` is a file, `str` is text or a name.** A mistaken `str` is a `TypeError` naming the fix, not a guess.
+- **A look that sets `size` or `frame` is refused.** Scene owns a layer's size and fit; regions are fine.
+- **Equality is structural.** Two scenes are equal when they hold the same data; equal scenes with equal values render equal
+  pictures.
