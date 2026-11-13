@@ -46,7 +46,7 @@ impl Drawing {
 
 impl Source for Drawing {
     fn draw(&self, rect: Rect, scale: Scale) -> Result<Raster, Error> {
-        let (width, height) = (scale.len(self.width), scale.len(self.height));
+        let (width, height) = scale.layer_size(self.width, self.height)?;
         #[expect(clippy::cast_precision_loss, reason = "a side of at most 65,000 pixels")]
         let size = Size::px(width as f64, height as f64);
         let bytes = self

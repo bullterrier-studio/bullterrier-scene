@@ -297,3 +297,18 @@ fn a_picture_alone_on_a_matching_canvas_at_its_size_is_exactly_opaque_where_it_i
     assert!(all_exactly(&drawn, [0.25, 0.5, 0.75, 1.0]));
     Ok(())
 }
+
+/// A layer is drawn at its own size times the scale, whatever the canvas: 60 by 60 design pixels at 200 output pixels each is
+/// 12,000 by 12,000, more than the 2^27 pixels a picture may have. It is refused naming the layer and the sizes, before the
+/// picture is resampled.
+#[test]
+fn a_layer_whose_drawn_size_passes_2_pow_27_pixels_is_refused_naming_the_layer_and_its_size() -> Outcome {
+    let layer = Layer::picture(solid(60, 60, [0.5, 0.5, 0.5, 1.0])?).named("photo")?;
+    let refused = scene(6, 6, [layer])?.render(1200);
+    assert!(
+        matches!(&refused, Err(Error::Invalid { address, message })
+            if address.starts_with("photo") && message.contains("12000 x 12000") && message.contains("134217728")),
+        "{refused:?}"
+    );
+    Ok(())
+}

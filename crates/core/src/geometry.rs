@@ -1,5 +1,10 @@
 //! Design pixels and output pixels: what a layer is asked to draw, and how big that is.
 
+use crate::Error;
+
+/// The most pixels a picture has, the render and every layer drawn for it: 2^27 (a float32 RGBA picture of that size is 2 GiB).
+pub(crate) const MAX_PIXELS: usize = 1 << 27;
+
 /// A rectangle of the canvas, in design pixels.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Rect {
@@ -37,6 +42,24 @@ impl Scale {
         {
             output.max(0.0) as usize
         }
+    }
+
+    /// The size in output pixels of a layer `width` by `height` design pixels, as `(columns, rows)`.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `size` if it has more than [`MAX_PIXELS`] pixels, so that a layer large on a small canvas is
+    /// refused before anything of its size is allocated.
+    pub(crate) fn layer_size(self, width: f64, height: f64) -> Result<(usize, usize), Error> {
+        let (columns, rows) = (self.len(width), self.len(height));
+        if columns.saturating_mul(rows) > MAX_PIXELS {
+            return Err(Error::invalid(
+                "size",
+                format!(
+                    "the layer is drawn {columns} x {rows} pixels; at most {MAX_PIXELS} pixels (2^27) are drawn: lower `size` or make the layer smaller"
+                ),
+            ));
+        }
+        Ok((columns, rows))
     }
 
     /// The output pixel a position of `design` design pixels falls on, rounded down.

@@ -154,3 +154,17 @@ fn a_drawing_over_a_fill_follows_the_normal_blend() -> Outcome {
     }
     Ok(())
 }
+
+/// A frame of 60 by 60 design pixels on a canvas of 6 at size 1200 is drawn 12,000 by 12,000: refused, naming the layer
+/// and the size, as a picture is.
+#[test]
+fn a_drawing_whose_drawn_size_passes_2_pow_27_pixels_is_refused_naming_the_layer_and_its_size() -> Outcome {
+    let layer = Layer::drawing(&rectangle((60, 60), (0.0, 0.0), (60.0, 60.0), "#ff0000"))?.named("mark")?;
+    let refused = scene(6, 6, [layer])?.render(1200);
+    assert!(
+        matches!(&refused, Err(Error::Invalid { address, message })
+            if address.starts_with("mark") && message.contains("12000 x 12000") && message.contains("134217728")),
+        "{refused:?}"
+    );
+    Ok(())
+}

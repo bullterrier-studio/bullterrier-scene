@@ -1,14 +1,11 @@
 //! Drawing a scene: the size of the picture, each layer drawn at it, joined by normal blend in premultiplied floats, and
 //! given back as straight alpha.
 
-use crate::geometry::{Rect, Scale};
+use crate::geometry::{MAX_PIXELS, Rect, Scale};
 use crate::{Error, Layer, Raster};
 
 /// The longest side of a picture, in output pixels.
 const MAX_SIZE: u32 = 65_000;
-
-/// The most pixels a picture has.
-const MAX_PIXELS: usize = 1 << 27;
 
 /// `layers` drawn on a canvas of `width` by `height` design pixels at `size` output pixels on the long side.
 pub(crate) fn render(width: u32, height: u32, layers: &[Layer], size: u32) -> Result<Raster, Error> {

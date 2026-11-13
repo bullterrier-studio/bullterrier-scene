@@ -40,8 +40,10 @@ yet. Each call is as written below, except:
 | one canvas-sized picture, 11,585 squared (2^27 pixels), 3.5 s | 5.5 GB |
 | 1,000 fills on 1,024 by 1,024, 1.9 s | 63 MB |
 
-`MAX_LAYERS` (1,000) and the 2^27 pixels stay: a render holds the picture, the layer being drawn and its working copies, not
-one picture per layer, so peak memory does not grow with the layers. A picture at the limit takes 5.5 GB; there is no promise
+`MAX_LAYERS` (1,000) and the 2^27 pixels stay. The 2^27 applies to the output and to every layer's drawn size (its own size
+times the scale, rounded up: a layer that is large on a small canvas is `InvalidError` naming the layer and the size, before it
+is drawn). A render holds the picture, the one layer being drawn and its working copies, not one picture per layer, so peak
+memory does not grow with the layers. A picture at the limit takes 5.5 GB; there is no promise
 that a machine has it, and bands (B1) are what lift it. `MAX_DEPTH` waits for scenes as layers (C4).
 
 ## Examples

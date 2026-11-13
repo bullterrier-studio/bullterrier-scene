@@ -187,7 +187,8 @@ impl Source for Picture {
         // a pixel count below 2^53: whole design pixels
         #[expect(clippy::cast_precision_loss, reason = "a pixel count below 2^53")]
         let (design_width, design_height) = (own.width() as f64, own.height() as f64);
-        let mut placed = resample(own, scale.len(design_width), scale.len(design_height));
+        let (columns, rows) = scale.layer_size(design_width, design_height)?;
+        let mut placed = resample(own, columns, rows);
         for look in &self.looks {
             placed = look.apply(&placed)?;
         }
