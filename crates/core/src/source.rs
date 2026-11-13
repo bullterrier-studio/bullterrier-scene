@@ -2,16 +2,26 @@
 //! `picture` and `drawing` are the two adapters that know a sibling crate; the renderer knows neither.
 
 use std::fmt;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde_json::Value;
 
 use crate::geometry::{Rect, Scale};
-use crate::{Error, Raster};
+use crate::{Error, Map, Raster};
 
 pub(crate) mod drawing;
 pub(crate) mod fill;
 pub(crate) mod picture;
+
+/// A map a picture layer is given, as it was given: held, a file read when the scene renders, or a hole (a map the caller
+/// has not given yet, which a render refuses until parameters fill holes).
+#[derive(Debug, Clone)]
+pub(crate) enum Given {
+    Held(Arc<Map>),
+    File(PathBuf),
+    Hole,
+}
 
 /// What the renderer asks of a source once it knows the size of the source's box.
 #[derive(Debug, Clone, Copy)]
@@ -87,6 +97,17 @@ pub(crate) trait Source: Send + Sync + fmt::Debug {
         Err(Error::invalid(
             "look",
             "a look runs on a picture layer; looks on other layers arrive with batch C5",
+        ))
+    }
+
+    /// This source with the map `name` (of the picture's size when the scene renders), replacing a map of that name.
+    ///
+    /// # Errors
+    /// The refusal of a source that has no picture.
+    fn with_map(&self, _name: &str, _given: Given) -> Result<Arc<dyn Source>, Error> {
+        Err(Error::invalid(
+            "map",
+            "a map belongs to a picture layer, and this layer has no picture",
         ))
     }
 }

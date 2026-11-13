@@ -3,7 +3,7 @@
 //! sibling's form fails here, naming it, before it fails in a layer.
 
 use bullterrier_image::{Options, Photo, Picture, Presets, Recipe};
-use bullterrier_scene::{Layer, Raster};
+use bullterrier_scene::{Layer, Map, Raster};
 use bullterrier_vector::{Drawing, Inputs, Size, Values};
 
 use crate::common::{close, pixels, scene};
@@ -213,4 +213,31 @@ fn the_formats_scene_reads_are_the_ones_the_pinned_image_reader_reads() {
         let read = Recipe::from_toml(&format!("format = {format}\n[[step]]\neffect = \"grade\"\n")).is_ok();
         assert_eq!(read, (1..=3).contains(&format), "format {format}");
     }
+}
+
+/// A recipe that works only where the given map `here` says (`grade` +1 stop, masked by a region of kind `given`), as
+/// `Recipe.to_dict()` writes it at the pinned revision.
+const GIVEN_REGION: &str = r#"{"steps": [{"effect": "grade", "params": {"exposure": 1.0}, "opacity": 1.0, "blend_mode": "normal", "mask": "here"}], "regions": {"here": {"kind": "given"}}}"#;
+
+/// Scene's look on a picture with a map is image's own render of the same picture handed the same map (`Photo::with_map`),
+/// bit for bit, at the picture's own size (nothing is resampled).
+#[test]
+fn a_look_on_a_picture_with_a_map_equals_the_image_crates_own_render_with_that_map() -> Outcome {
+    let (height, width) = (12, 20);
+    let values = synthetic(height, width);
+    let weights: Vec<f32> = (0..height * width)
+        .map(|index| f32::from(u8::try_from(index * 13 % 17).unwrap_or(0)) / 16.0)
+        .collect();
+    let presets = Presets::shipped()?;
+    let recipe = Recipe::from_json(GIVEN_REGION)?.checked(&presets)?;
+    let map = bullterrier_image::Layer::new(height, width, weights.clone())?;
+    let own = Photo::new(Picture::new(height, width, &values)?)
+        .with_map("here", map)?
+        .render(&recipe, &presets, Options::default())?;
+    let layer = Layer::picture(opaque(height, width, &values)?)
+        .map("here", Map::new(width, height, weights)?)?
+        .look(GIVEN_REGION)?;
+    let drawn = scene(20, 12, [layer])?.render(20)?;
+    same_bits(&colour(&drawn), &own.into_values(), "a given region");
+    Ok(())
 }

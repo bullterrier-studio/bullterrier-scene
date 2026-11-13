@@ -3,14 +3,13 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::Error;
-use crate::Raster;
 use crate::perspective::Quad;
 use crate::placement::{Fit, Fitting, Place, Placement};
-use crate::source::Source;
 use crate::source::drawing::Drawing;
 use crate::source::fill::Fill;
 use crate::source::picture::{Picture, recipe_file};
+use crate::source::{Given, Source};
+use crate::{Error, Map, Raster};
 
 /// One layer of a scene: a source, and how it joins the layers below it. A layer is an immutable value: every call
 /// returns a new one, and a layer can be used in several scenes, or twice in one.
@@ -21,6 +20,20 @@ pub struct Layer {
     pub(crate) source: Arc<dyn Source>,
     pub(crate) fit: Option<Fitting>,
     pub(crate) placement: Placement,
+}
+
+/// `name` if it is letters, digits and `_`, starting with a letter: the one rule of a layer's name and a map's.
+fn check_name(field: &str, name: &str) -> Result<(), Error> {
+    let mut characters = name.chars();
+    let starts = characters.next().is_some_and(|first| first.is_ascii_alphabetic());
+    if starts && characters.all(|next| next.is_ascii_alphanumeric() || next == '_') {
+        Ok(())
+    } else {
+        Err(Error::invalid(
+            field,
+            format!("a name is letters, digits and `_`, starting with a letter, got {name:?}"),
+        ))
+    }
 }
 
 impl Layer {
@@ -100,15 +113,46 @@ impl Layer {
     /// # Errors
     /// [`Error::Invalid`] naming `name` for any other text.
     pub fn named(mut self, name: &str) -> Result<Self, Error> {
-        let mut characters = name.chars();
-        let starts = characters.next().is_some_and(|first| first.is_ascii_alphabetic());
-        if !(starts && characters.all(|next| next.is_ascii_alphanumeric() || next == '_')) {
-            return Err(Error::invalid(
-                "name",
-                format!("a name is letters, digits and `_`, starting with a letter, got {name:?}"),
-            ));
-        }
+        check_name("name", name)?;
         self.name = Some(name.to_owned());
+        Ok(self)
+    }
+
+    /// This picture layer with `map` under `name`: a value from 0 to 1 for each pixel of the picture (white = the part a
+    /// matte keeps), cut and fitted with the picture. A look sees the maps its recipe uses (`subject`, `depth`, a `given`
+    /// region), and `mask(name)` multiplies by it. A map of the same name given before is replaced. The map must be
+    /// the picture's size when the scene renders (`Error::Invalid` naming the layer and `map.<name>`, with both sizes,
+    /// then).
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `map` for a name that is not letters, digits and `_` starting with a letter, and for a
+    /// layer that is no picture.
+    pub fn map(self, name: &str, map: Map) -> Result<Self, Error> {
+        self.given(name, Given::Held(Arc::new(map)))
+    }
+
+    /// This picture layer with the grey picture in the file `path` as its map `name`, read when the scene renders (as
+    /// [`Layer::picture_file`] is): upright, 8 or 16 bits, white = 1. A file that cannot be read is an [`Error::Read`] at
+    /// `render`, naming the layer.
+    ///
+    /// # Errors
+    /// As [`Layer::map`].
+    pub fn map_file(self, name: &str, path: impl Into<PathBuf>) -> Result<Self, Error> {
+        self.given(name, Given::File(path.into()))
+    }
+
+    /// This picture layer with a hole under the map `name`: a map to be given later. Until parameters fill holes (batch
+    /// C6) a render refuses it, naming the layer and `map.<name>`.
+    ///
+    /// # Errors
+    /// As [`Layer::map`].
+    pub fn map_hole(self, name: &str) -> Result<Self, Error> {
+        self.given(name, Given::Hole)
+    }
+
+    fn given(mut self, name: &str, given: Given) -> Result<Self, Error> {
+        check_name("map", name)?;
+        self.source = self.source.with_map(name, given)?;
         Ok(self)
     }
 

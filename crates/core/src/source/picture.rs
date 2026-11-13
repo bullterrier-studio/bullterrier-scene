@@ -1,16 +1,17 @@
 //! A picture as a layer, with the looks run on it: the one place that knows how the image crate reads a picture file, a
 //! recipe, and renders one.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bullterrier_image::{Options, Photo, Presets, Recipe};
 use serde_json::Value;
 
-use super::{Drawn, Opened, Source};
+use super::{Drawn, Given, Opened, Source};
 use crate::geometry::Rect;
 use crate::warp::resize;
-use crate::{Error, Raster};
+use crate::{Error, Map, Raster};
 
 /// The formats of a recipe the linked image crate reads. A recipe document written by a recipe file carries one; image
 /// reads a recipe without it, and refuses a top-level `format`, so a recipe given here has the key checked against this list
@@ -29,10 +30,12 @@ enum Pixels {
     File(PathBuf),
 }
 
-/// A picture, and the looks run on it once it is resampled to the output size, in the order they were given.
+/// A picture, the maps it was given by name, and the looks run on it once it is resampled to the output size, in the order
+/// they were given.
 #[derive(Debug, Clone)]
 pub(crate) struct Picture {
     pixels: Pixels,
+    maps: BTreeMap<String, Given>,
     looks: Vec<Look>,
 }
 
@@ -107,8 +110,10 @@ impl Look {
         })
     }
 
-    /// `layer` with the look run on its colour, straight; its alpha stays.
-    fn apply(&self, layer: &Raster) -> Result<Raster, Error> {
+    /// `layer` with the look run on its colour, straight; its alpha stays. `maps` are the picture's maps at the size of
+    /// `layer`; the look sees those its recipe can be given (`subject`, `depth`, a `given` region), and image refuses the
+    /// render, naming the step and the map, if the recipe needs one that is not there.
+    fn apply(&self, layer: &Raster, maps: &[(&str, Vec<f32>)]) -> Result<Raster, Error> {
         let colour: Vec<f32> = layer
             .pixels()
             .as_chunks::<4>()
@@ -118,7 +123,14 @@ impl Look {
             .collect();
         let picture =
             bullterrier_image::Picture::new(layer.height(), layer.width(), &colour).map_err(|error| refused(&error))?;
-        let image = Photo::new(picture)
+        let known = self.recipe.known_maps();
+        let mut photo = Photo::new(picture);
+        for (name, values) in maps.iter().filter(|(name, _)| known.contains(name)) {
+            let map = bullterrier_image::Layer::new(layer.height(), layer.width(), values.clone())
+                .map_err(|error| refused(&error))?;
+            photo = photo.with_map(*name, map).map_err(|error| refused(&error))?;
+        }
+        let image = photo
             .render(&self.recipe, &self.presets, Options::default())
             .map_err(|error| refused(&error))?;
         let mut graded = image.into_values();
@@ -144,6 +156,7 @@ impl Picture {
     pub(crate) fn held(raster: Raster) -> Self {
         Self {
             pixels: Pixels::Held(Arc::new(raster)),
+            maps: BTreeMap::new(),
             looks: Vec::new(),
         }
     }
@@ -152,9 +165,68 @@ impl Picture {
     pub(crate) fn file(path: PathBuf) -> Self {
         Self {
             pixels: Pixels::File(path),
+            maps: BTreeMap::new(),
             looks: Vec::new(),
         }
     }
+
+    /// The maps as maps of a picture of `size` = (columns, rows): files read, holes and maps of another size refused.
+    fn resolved(&self, (columns, rows): (usize, usize)) -> Result<Vec<(&str, Arc<Map>)>, Error> {
+        self.maps
+            .iter()
+            .map(|(name, given)| {
+                let at = format!("map.{name}");
+                let map = match given {
+                    Given::Held(map) => Arc::clone(map),
+                    Given::File(path) => Arc::new(read_map(path)?),
+                    Given::Hole => {
+                        return Err(Error::invalid(
+                            &at,
+                            "the map is a hole: nothing was given for it, and a hole is filled by a parameter (batch C6)",
+                        ));
+                    }
+                };
+                if (map.width(), map.height()) != (columns, rows) {
+                    return Err(Error::invalid(
+                        &at,
+                        format!(
+                            "the map is {} x {} pixels, but its picture is {columns} x {rows}",
+                            map.width(),
+                            map.height()
+                        ),
+                    ));
+                }
+                Ok((name.as_str(), map))
+            })
+            .collect()
+    }
+}
+
+/// The map in the file `path`: a grey picture read as image reads a map (upright, 0 to 1).
+fn read_map(path: &Path) -> Result<Map, Error> {
+    let layer = bullterrier_image::read_map(path).map_err(|error| Error::Read {
+        path: path.display().to_string(),
+        message: error.to_string(),
+    })?;
+    Ok(Map::made(layer.width(), layer.height(), layer.values().to_vec()))
+}
+
+/// `map` as the part `window` of its picture drawn at `columns` by `rows` pixels: resampled as the picture is, by the same
+/// window and kernel.
+fn resized(map: &Map, window: Rect, size: (usize, usize)) -> Vec<f32> {
+    let levels = map
+        .values()
+        .iter()
+        .flat_map(|&value| [value, value, value, 1.0])
+        .collect();
+    let raster = Arc::new(Raster::made(map.width(), map.height(), levels));
+    resize(&raster, window, size)
+        .pixels()
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|pixel| pixel[0])
+        .collect()
 }
 
 /// The recipe in the recipe file `path`, as the JSON document `Layer::look` takes, read now.
@@ -213,6 +285,7 @@ impl Source for Picture {
             width: own.width() as f64,
             height: own.height() as f64,
         };
+        let maps = self.resolved((own.width(), own.height()))?;
         Ok(Opened::new(whole, move |request| {
             if self.looks.is_empty() {
                 return Ok(Drawn {
@@ -223,8 +296,13 @@ impl Source for Picture {
             let window = request.window;
             let (columns, rows) = request.scale.size(window)?;
             let mut placed = resize(&own, window, (columns, rows));
+            let seen: Vec<(&str, Vec<f32>)> = maps
+                .iter()
+                .filter(|(name, _)| self.looks.iter().any(|look| look.recipe.known_maps().contains(name)))
+                .map(|(name, map)| (*name, resized(map, window, (columns, rows))))
+                .collect();
             for look in &self.looks {
-                placed = Arc::new(look.apply(&placed)?);
+                placed = Arc::new(look.apply(&placed, &seen)?);
             }
             Ok(Drawn {
                 raster: placed,
@@ -236,10 +314,13 @@ impl Source for Picture {
     fn looked(&self, recipe: &Value) -> Result<Arc<dyn Source>, Error> {
         let mut looks = self.looks.clone();
         looks.push(Look::new(recipe)?);
-        Ok(Arc::new(Self {
-            pixels: self.pixels.clone(),
-            looks,
-        }))
+        Ok(Arc::new(Self { looks, ..self.clone() }))
+    }
+
+    fn with_map(&self, name: &str, given: Given) -> Result<Arc<dyn Source>, Error> {
+        let mut maps = self.maps.clone();
+        maps.insert(name.to_owned(), given);
+        Ok(Arc::new(Self { maps, ..self.clone() }))
     }
 }
 
