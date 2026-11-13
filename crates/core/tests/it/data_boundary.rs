@@ -13,13 +13,15 @@ type Outcome = Result<(), Box<dyn std::error::Error>>;
 /// one, a recipe does not).
 ///
 /// `Recipe([fx.grade(exposure=1.0)])`
-const PLAIN_STEP: &str = r#"{"steps": [{"effect": "grade", "params": {"exposure": 1.0}, "opacity": 1.0, "blend_mode": "normal"}]}"#;
+const PLAIN_STEP: &str =
+    r#"{"steps": [{"effect": "grade", "params": {"exposure": 1.0}, "opacity": 1.0, "blend_mode": "normal"}]}"#;
 
 /// `Recipe([fx.gradient_map(preset="sepia")])`
 const PRESET_EXPANDED: &str = r##"{"steps": [{"effect": "gradient_map", "params": {"stops": ["#1c1008", "#8a5a30", "#f1dfb8"]}, "opacity": 1.0, "blend_mode": "normal"}]}"##;
 
 /// A step that names its preset, which only a recipe file read into data writes (`to_dict()` never does).
-const PRESET_BY_NAME: &str = r#"{"steps": [{"effect": "gradient_map", "preset": "sepia", "opacity": 1.0, "blend_mode": "normal"}]}"#;
+const PRESET_BY_NAME: &str =
+    r#"{"steps": [{"effect": "gradient_map", "preset": "sepia", "opacity": 1.0, "blend_mode": "normal"}]}"#;
 
 /// `Recipe([fx.grade(exposure=1.0, mask="here")], regions={"here": LinearGradient(angle=30)})`
 const WITH_REGIONS: &str = r#"{"steps": [{"effect": "grade", "params": {"exposure": 1.0}, "opacity": 1.0, "blend_mode": "normal", "mask": "here"}], "regions": {"here": {"kind": "linear_gradient", "angle": 30.0}}}"#;
@@ -94,8 +96,13 @@ fn the_pinned_vector_reader_gives_the_frame_and_draws_the_rectangle_exactly() ->
     assert_eq!(drawing.size(), Some((40.0, 20.0)));
     for scale in [1_u32, 2, 4] {
         let rgba = drawn(40 * scale, 20 * scale)?;
-        let red = rgba.chunks_exact(4).filter(|pixel| *pixel == [255, 0, 0, 255]).count();
-        let clear = rgba.chunks_exact(4).filter(|pixel| pixel[3] == 0).count();
+        let red = rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|pixel| **pixel == [255, 0, 0, 255])
+            .count();
+        let clear = rgba.as_chunks::<4>().0.iter().filter(|pixel| pixel[3] == 0).count();
         let covered = usize::try_from(20 * 10 * scale * scale)?;
         assert_eq!(red, covered, "red at {scale}x");
         assert_eq!(clear, rgba.len() / 4 - covered, "everything else is clear at {scale}x");
