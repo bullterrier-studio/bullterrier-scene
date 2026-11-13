@@ -66,9 +66,27 @@ fn raster_of(py: Python<'_>, array: &Bound<'_, PyAny>) -> PyResult<Raster> {
         )]
         return levels(py, &found, |value| value as f32);
     }
-    Err(pyo3::exceptions::PyTypeError::new_err(
-        "a picture array holds uint8, uint16, float32 or float64 values, shaped (height, width, 3 or 4)",
-    ))
+    let dtype = array.getattr("dtype").ok();
+    let text = |name: &str| {
+        dtype
+            .as_ref()
+            .and_then(|dtype| dtype.getattr(name).ok())
+            .and_then(|value| value.str().ok())
+    };
+    // `byteorder` is `>` or `<` only for an order that is not the machine's
+    if text("byteorder").is_some_and(|order| matches!(order.to_string().as_str(), ">" | "<")) {
+        return Err(pyo3::exceptions::PyTypeError::new_err(
+            "a picture array is in the other byte order than this machine's: convert it with \
+             array.astype(array.dtype.newbyteorder(\"=\"))",
+        ));
+    }
+    let got = text("name").map_or_else(
+        || "something that is no numpy array".to_owned(),
+        |name| format!("dtype {name}"),
+    );
+    Err(pyo3::exceptions::PyTypeError::new_err(format!(
+        "a picture array holds uint8, uint16, float32 or float64 values, shaped (height, width, 3 or 4), got {got}"
+    )))
 }
 
 /// One layer of a scene: a source, and how it joins the layers below it. It never changes; a call returns a new one.

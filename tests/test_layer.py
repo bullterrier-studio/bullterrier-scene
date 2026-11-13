@@ -149,6 +149,18 @@ def test_a_picture_of_another_type_is_a_type_error_and_a_text_names_the_fix(sour
         Layer.picture(source)
 
 
+@pytest.mark.parametrize("dtype", [">f4", ">u2", ">f8"])
+def test_an_array_of_the_other_byte_order_is_refused_naming_the_byte_order_and_the_fix(dtype):
+    with pytest.raises(TypeError, match=r"byte order.*astype\(array\.dtype\.newbyteorder\(\"=\"\)\)"):
+        Layer.picture(np.zeros((1, 1, 3), dtype))
+
+
+@pytest.mark.parametrize("dtype", [np.int64, np.bool_, np.float16, np.complex64])
+def test_an_array_of_an_unsupported_type_is_refused_listing_the_supported_ones(dtype):
+    with pytest.raises(TypeError, match=r"uint8, uint16, float32 or float64.*got"):
+        Layer.picture(np.zeros((1, 1, 3), dtype))
+
+
 def test_a_picture_file_draws_what_the_same_array_draws(tmp_path):
     pixels = np.array([[[255, 0, 0, 255], [0, 255, 0, 255]], [[0, 0, 255, 255], [255, 255, 255, 128]]], np.uint8)
     from_file = Scene(2, 2).add(Layer.picture(png(tmp_path / "photo.png", pixels))).render(4)
