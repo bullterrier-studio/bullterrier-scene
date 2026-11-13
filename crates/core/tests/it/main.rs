@@ -5,4 +5,5 @@
 mod common;
 
 mod architecture;
+mod data_boundary;
 mod scale;
