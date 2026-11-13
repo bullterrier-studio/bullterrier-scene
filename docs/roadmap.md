@@ -19,7 +19,7 @@ their later changes cannot break it; a bump of the pin is a reviewed commit, and
 |---|---|
 | A1 | now (image E4 and vector V10 are merged; A1 is docs only). Review delegated by the owner on 2026-11-13 to the advisor and one independent read-only reviewer |
 | C1 | Done 2026-11-13 (image `f319f13`, vector `05debff`) |
-| C2, C3, C4 | C1 is merged |
+| C2, C3, C4 | C1 is merged (C3: done 2026-11-13, vector `5442066`) |
 | C5 | C1 is merged; image has effect footprints (done, E4); image's frame of reference is settled (decision 1 below), and `Options::with_canvas` exists once C5 needs a layer on a larger canvas |
 | C6 | C2, C3 and C4 are merged: the layer model is stable enough to write down as parameters and JSON |
 | C7 | C5 and C6 are merged: the cache is keyed on parameter values and layer chains |
@@ -105,7 +105,7 @@ Real objects over mocks: the sibling crates are real, used through their public 
 | A1 | The code API, designed from example programs first (a poster, a cover, a template run with a photo and a title, a video-frame use), `docs/api.md` and `docs/examples/`; review delegated to the advisor and one independent reader | M | |
 | C1 | **Done 2026-11-13.** Walking skeleton: `Scene` with a canvas and layers from a picture, a picture with an image look and a vector drawing; normal blend; whole render to RGBA in Rust and Python; replaces the template's `scale`. What is built and where it differs from the contract: [api.md](api.md), "What is built" | M | their public APIs as they are; git dependencies pinned |
 | C2 | Placement: `dx`, `dy`, `scale`, `aspect`, `rotate`, `skew`, `flip`, `anchor`, perspective, `fit` (cover and contain produce the delivery crop, such as a 9:16 frame from a taller photo, so no tool crops afterward); references (`Layer.of`); resampling. **C2a done 2026-11-13** (`fit`, the affine `place`, the one warp, the delivery crop; what is built: [api.md](api.md), "What is built"); **C2b done 2026-11-13** (`perspective`: a homography to a convex quadrilateral, mirrored accepted; one footprint rule for every warp: [design-decisions.md](design-decisions.md)); references (`Layer.of`) are not in C2 so far and wait for a plan | L | |
-| C3 | Masks: from a drawing's shape or text, an alpha, luminance, a given map, a subject cut-out; invert and feather | M | image's subject finder |
+| C3 | **Done 2026-11-13.** Masks: from a drawing's shape or text, an alpha, luminance, a given map, a subject cut-out; invert and feather (three box passes, a margin so an edge feathers right); maps on a picture, handed to its looks; text layers. What is built: [api.md](api.md), "What is built"; what was settled: [design-decisions.md](design-decisions.md) | M | image's subject finder (not used: maps are handed in) |
 | C4 | Blend modes (the W3C separable and non-separable set) and groups (isolation, group opacity) | L | |
 | C5 | Effect chains on layers and groups; light layers (`as_light`); the design-scale convention; room around a layer | M | image: effect footprints, and `Options::with_canvas` (the design scale is settled by image, decision 1) |
 | C6 | Parameters in the shared description format; the scene as JSON; named colours (a palette) that layers, drawings and image effects alike refer to, so one colour is typed once: only for scene's own colours until image and vector take a colour reference | M | image and vector: a colour reference |

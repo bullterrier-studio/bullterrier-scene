@@ -1,8 +1,8 @@
 # The code API
 
 Status: A1, designed from the example programs in [examples/](examples/); C1 (the walking skeleton), C2a (`fit` and the
-affine `place`) and C2b (`perspective`) are built, the rest is not. What they make real, and where they differ from the contract below, is "What is
-built". Every other signature is what batches C3 to C7 make real, and each example is the acceptance material of the batch
+affine `place`), C2b (`perspective`) and C3 (masks, maps and text) are built, the rest is not. What they make real, and where they differ from the contract below, is "What is
+built". Every other signature is what batches C4 to C7 make real, and each example is the acceptance material of the batch
 that makes it run. Reasons:
 [design-decisions.md](design-decisions.md). The JSON form of a scene is "Saved scene" below.
 
@@ -23,9 +23,14 @@ look_file}` (`look` and `drawing` take the document as text), `Raster::rgba`, `E
 height], Fit::Cover, [0.5, 0.5])?` takes all three, `layer.place(Place::new().dx(100.0).rotate(Deg(-4.0)))?` sets the fields
 named).
 
-**C2b** adds `Layer.perspective(corners)` (Python, four (x, y) pairs) and `Layer::perspective([[f64; 2]; 4])` (Rust). References
-(`Layer.of`) are not built. Nothing else below exists yet. Each call is as written
-below, except:
+**C2b** adds `Layer.perspective(corners)` (Python, four (x, y) pairs) and `Layer::perspective([[f64; 2]; 4])` (Rust).
+
+**C3** adds `Layer.picture(source, maps=)`, `Layer.mask(by, use=, feather=, invert=)`, `Layer.text(content, font=, color=,
+**text_options)` and `MAX_DEPTH` (Python), and in Rust `Map::new(width, height, values)`, `Layer::{map, map_file, map_hole, mask,
+text}`, `Mask::new(by).using(Use::Luminance).feather(8.0).invert()` (`using`, because `use` is a keyword; `layer.mask(by)` takes
+a `Layer` or a `&str` alone), `MaskBy`, `Use`, `Text::new(font).color(c).option("size", 84.0)` (`Text::from_file(path)` for a font
+file), `Layer::text(content, &text)` and `MAX_DEPTH`. References (`Layer.of`), blends and groups are not built. Nothing else below
+exists yet. Each call is as written below, except:
 
 | Where | Built | Changes with |
 |---|---|---|
@@ -39,6 +44,14 @@ below, except:
 | Errors | The address of an error of a layer in a scene starts with its name (`photo.look`), a layer without one `layer1`; at the call that made it, before the layer has a place, it is the field (`look`) | |
 | Python paths | `Layer.picture(Path)` is read at `render`; `Layer.drawing(Path)` and `Layer.look(Path)` at the call | |
 | Equality | Not built: `==` on a scene or layer is identity in Python, and the Rust types have no `PartialEq` | C6 |
+| Maps | A map is a float32 (height, width) array of 0 to 1 (`uint8`, `uint16` and `float64` too), a `Path` to a grey picture read at `render`, or `None`, a hole. Maps are given with the picture (`maps=`; Rust `Layer::map` and `map_file` after the constructor) and are not parameters (C6 makes them so). A hole is `InvalidError` at `render` naming `<layer>.map.<name>` until parameters fill holes; a map of another size than its picture is `InvalidError` there, with both sizes. A name is letters, digits and `_` starting with a letter. A look is handed the maps its recipe can be given (`subject`, `depth`, a `given` region) through image's `Photo::with_map`, resampled to the size the look runs at; a map the recipe does not know (`matte`) is kept for masks and not given | C6 |
+| Masks | Stages 4 and 6 as "How a layer is drawn" says. A mask by a map name is checked at the call (`mask` is `InvalidError` for a name the layer does not have yet: give the map first) | |
+| Mask layers | A mask layer is drawn as any layer is, on the canvas grid, and only its alpha, or its brightness times its alpha, is kept. Its opacity multiplies the mask. A name (`named`), a non-normal blend and `as_light` on a mask layer are each `InvalidError` at the `mask` call: a name would collide with the lookup of a reference (C4), and a blend and a light have no meaning in a mask. Only the name and the opacity exist in C3; C4 and C5 add the other two checks where they add the calls. Its own masks and looks apply; `Layer.of` as a mask waits for C4 | C4 |
+| Feather | `feather` is 0 to 1,000,000 design pixels (`ranges.rs`, as far as a layer moves), the standard deviation of three box passes within 0.0099 of the Gaussian's distribution function, reaching about 3 sigma and no further ("The feather" in [design-decisions.md](design-decisions.md)); 0 is no blur, exactly. It is in design pixels of the canvas for a mask layer, and in design pixels of the layer as it is fitted, before `place`, for a map (so `place`'s `scale` scales it, as it scales a look's halo). A blur whose plane (the picture or canvas and the reach of the blur on every side) would pass 2^27 pixels is `InvalidError` at `render` naming `<layer>.mask.feather` and the limit: a sigma of about 1,900 output pixels at most on a canvas of 100 by 100 pixels, and less as the canvas grows, whatever its call-time range. The blur is of the values the mask reads, then `invert` takes 1 minus them: the two commute (the kernel is linear and sums to 1), so the order is the reader's, not the render's | |
+| Mask edge | A canvas mask is drawn on a plane larger than the canvas by the reach of its blur (and of the blurs of the masks that nest in it), so a shape that crosses the canvas edge feathers as on a larger canvas; a shape that ends at the canvas edge is 0.5 there. A fill covers the margin, so a feathered fill mask stays 1 to the edge. A map is blurred on its own raster with its edge replicated (a matte that touches the picture's edge goes on past it): on the look path the raster is the part of the picture that shows, so a `cover` cut replicates at the cut | |
+| Text | `Layer.text(content, font=, color=, **options)`: a bundled font by name or a `Path` to a font file, read at the call (the box needs the font, so a font file is not read at `render` as pictures and maps are). Vector's `text` options pass as plain data and vector's reader checks them at the call, naming the option; `anchor`, `inside`, `runs`, expressions and Params are `InvalidError`. The box is the glyphs' bounds rounded out to whole design pixels, and its origin the text's anchor, so `place(dx, dy)` puts the first baseline's left end, middle or right end (by `align`) at `(dx, dy)`; with `fit` the box is what is fitted. A text with no glyph (empty, or only spaces) is `InvalidError` naming `content`. The text is vector's own picture of the text, and equals vector's drawing of the same text with the anchor there, to one 8-bit level in a few edge pixels | |
+| Depth | `MAX_DEPTH` is 16: masks nest at most 16 deep (a layer's mask layer, its mask layers' mask layers...), and a layer holds at most 1,000 mask layers in all, a layer used twice counted twice (`MAX_LAYERS`): both are refused at the `mask` call, naming the bound. Scenes as layers (C4) will count in the same depth. Drawing, `Debug` and dropping a nest of 16 deep take no more than 64 KB of stack in an unoptimised build (32 KB overflows) and are tested in a thread of 256 KB. A mask's `Debug` shows its settings and its depth, not the layers it nests | C4 |
+| A drawing and `stretch` | **Limit, found in C3, from C2:** a drawing (and so a text) `fit` with `stretch` is not stretched along the axis that has the larger scale: vector draws a frame at one scale, centred, so the drawing is letterboxed in its raster, which scene then stretches as a whole. Use `contain` or `cover` for a drawing or a text, or a picture or a fill, which `stretch` does stretch | vector: a frame drawn at two scales |
 
 **For C5 and later** (what the C1 review found): a look lives in the picture source, so C5, which gives every layer looks,
 moves it to the layer and needs a third adapter file for image; the `Source` trait and the `Layer` fields are `pub(crate)`, and
@@ -66,14 +79,17 @@ or a quarter turn) it may be 1 - 1e-7, because the weights of a span in 32-bit f
 | C2a: one 12 megapixel picture on a 12 megapixel canvas: unplaced 0.03 s, 386 MB; moved 0.05 s, 386 MB; scaled 0.9 and moved by half a pixel 0.12 s, 520 MB; turned 17 degrees and scaled 0.9, 0.19 s, 527 MB | |
 | C2a: the same picture cut by `cover` into 720 by 1,280, 0.03 s | 326 MB |
 | C2b: the same picture turned 17 degrees and scaled 0.9, 0.46 s (C2a: 0.19 s, 530 MB); skewed 89 degrees, 0.22 s; in perspective with a far side a tenth as wide, 0.50 s | 386 MB each |
+| C3 regression, the mask-free path, on the same machine and load before and after (three runs each): 1,000 fills on 1,024 by 1,024, 0.667 to 0.690 s then 0.670 to 0.680 s | 19 MB both; one fill of 2^27 pixels, 0.32 to 0.33 s then 0.33 s, 2.15 GB both |
+| C3: a fill masked by a fill, feathered, on a 2,400 by 3,200 poster (3,200 pixels on the long side): feather 3 design pixels 0.16 s, 30 0.22 s, 300 0.80 s | 190, 190 and 240 MB |
+| C3: a nest of 15 mask layers each feathered by 30 design pixels on that poster, 8.6 s (without a feather, 0.13 s) | 630 MB (186 MB with none; each level's plane is larger than the one it serves by the reach of its blur) |
 
-`MAX_LAYERS` (1,000) and the 2^27 pixels stay. The 2^27 applies to the output and to every layer's drawn size (its box at
+`MAX_LAYERS` (1,000) and the 2^27 pixels stay. A mask is one `f32` plane, 4 bytes a pixel, and a layer with masks holds the product of its masks and, one at a time down a nest, the planes of the masks being drawn. The 2^27 applies to the output and to every layer's drawn size (its box at
 the scale it is drawn at, `ceil(width x scale)` by `ceil(height x scale)`, the scale being `output scale x fit factor x
 scale`: a layer that is large on a small canvas is `InvalidError` naming the layer and the size, before it is drawn). A large
 `scale` on a big layer meets it even where only a part of the layer shows: drawing a window (B1) lifts that, and it is not
 worked around. A render holds the picture, the one layer being drawn and its working copies, not one picture per layer, so peak
 memory does not grow with the layers. A picture at the limit takes 5.5 GB; there is no promise
-that a machine has it, and bands (B1) are what lift it. `MAX_DEPTH` waits for scenes as layers (C4).
+that a machine has it, and bands (B1) are what lift it. Masks nest to `MAX_DEPTH`.
 
 ## Examples
 
@@ -85,6 +101,7 @@ Each program is a `build(...)` function that returns a `Scene` from its inputs (
 | [c1_first_picture.py](examples/c1_first_picture.py) | C1 (runs now: `uv run poe look`): a synthetic photo with one image look and a vector headline over it, rendered at two sizes |
 | [c2_prints.py](examples/c2_prints.py) | C2a (runs now: `uv run poe look`): a pile of synthetic snapshots, each `fit` (cover, contain, stretch) and placed (turned, skewed, mirrored, scaled), and one tall photo cut three ways into a 9:16 frame |
 | [c2b_perspective.py](examples/c2b_perspective.py) | C2b (runs now: `uv run poe look`): a checker road receding to a horizon, where its checks are smaller than a pixel and fade to grey, and two billboards on quadrilaterals, one mirrored |
+| [c3_clip.py](examples/c3_clip.py) | C3 (runs now: `uv run poe look`): a landscape clipped into the letters of a text layer, type behind a cut-out figure (an inverted mask by its matte), a glow, a shadow and a vignette with feathered masks |
 | [poster_two_ink.py](examples/poster_two_ink.py) | M1: a photo in two inks clipped into a polygon, type behind a cut-out subject, flat shapes, grain, three sizes |
 | [cover_template.py](examples/cover_template.py), [.rs](examples/cover_template.rs) | C6: one scene, a photo, a title and a colour set by `with_values`; saved as JSON and read back; six covers |
 | [frame_sequence.py](examples/frame_sequence.py) | C7: a headline sliding in over 24 frames, one value set per frame |
@@ -162,6 +179,22 @@ raster, the canvas is the scene's.
 
 A `Layer.of` inherits stages 1 to 5 of the layer it names and owns stages 6 to 9 ("Reference").
 
+**Stages 4 and 6 in the one-warp paths** (built in C3; every mask is a factor on the alpha, so a mask-free layer takes exactly
+the path it did before):
+
+- **Stage 4, a map's mask.** With no look the source hands over the picture's own pixels, and the map (same size as the picture,
+  blurred by `feather` at the picture's resolution in design pixels of the fitted layer, then inverted) is multiplied into
+  their alpha there: one copy of the picture, then the one warp cuts, fits and places both. With a look the picture is
+  resampled to the size the look runs at and the map with it (the same window and kernel), the look runs, and the map,
+  blurred at that size and inverted, is multiplied into the look's alpha after it. A no-op look and no look agree to the bit
+  in alpha at one output pixel to the design pixel, with or without a feather, and to 1e-6 where the picture is reduced and
+  there is no feather (with a feather, to 0.0218 across an edge: the blur at the picture's size and at the drawn size are two
+  kernels).
+- **Stage 6, a layer mask.** The mask layer is drawn, read, blurred and inverted on a plane the size of the canvas plus its
+  margin, and the product of a layer's masks enters the render as a factor at the pixel each warped pixel lands on, as opacity
+  does (and, later, light): no canvas-sized raster of the layer itself is made for it. A mask layer is drawn by the same code
+  as a layer of the scene: its own `fit`, `place`, `perspective`, looks and masks apply, at the scale of the output.
+
 **The scale a layer is drawn at.** A source draws the part of its box that `fit` shows (all of it without `fit`, the cut part
 for cover) at `output scale x fit factor x place.scale`, in output pixels per design pixel along each axis: a vector headline
 at `scale=3` is sharp, not an enlarged raster, and its look runs at the size the layer has. `aspect`, flip, skew, rotate,
@@ -193,7 +226,7 @@ pixels, so source, `fit` and `place` are one warp with no resample between them.
 |---|---|---|
 | picture | `Layer.picture(source=None, *, maps=None)` | `source`: an array (height, width, 3 or 4; `uint8`, `uint16` or floats 0..1; 4 channels are straight alpha), a `pathlib.Path` (read as `imageio.load_picture` reads: upright, sRGB, alpha kept), or `None`: a hole the caller fills with `with_values` before `render`. `maps`: the picture's named maps, each `None` (a hole), a float32 (height, width) array 0..1, or a `Path` to a grey image (read as `imageio.load_map` reads). A map is a parameter of kind `picture`, `<layer>.map.<name>`, set by `with_values` like the picture: a footage frame with its matte, or a template with a cut-out, is driven by `with_values`. A map of another size than its picture is `InvalidError` at render naming both sizes. A look sees the maps its recipe uses (`subject`, `depth`, a `given` region); the others serve `mask("name")`. A `str` source is `TypeError` (pass `Path(...)`). Its box is its pixels, one design pixel each, at the canvas origin. An array from `imageio.load` has no alpha (image puts it over white): give a transparent PNG as a `Path` or `imageio.load_picture` |
 | drawing | `Layer.drawing(source, *, inputs=None)` | `source`: a vector `Drawing` (anything with `to_json()`), its JSON text (a `str`) or dict, or a `Path` to a drawing file. Its box is the drawing's frame (`size`) at the canvas origin: a drawing without a frame is refused. `inputs`: the bytes or `Path` of each font or map file the drawing names, by name (vector's `Drawing.from_json(inputs=)`); a bundled font needs none |
-| text | `Layer.text(content, *, font, color="#000000", **text_options)` | scene owns `content`, `font` and `color`. `font`: a bundled font's name (a `str`) or a `Path` to a font file. `text_options` are `btvec.text`'s (`size`, `axes`, `tracking`, `leading`, `align`, `width`, `fit`, `features`...) as plain data, validated by the linked vector crate at the call; scene restates none of vector's defaults. `width` and `fit` mean vector's: the width the text wraps or fits to, not a placement (`fit(...)` on the layer is the placement). `anchor` and `inside` are refused, and so are expressions and Params: scene places the text, and per-letter numbers are a `Layer.drawing`. Its origin is the text's anchor, the left end, middle or right end of the first baseline by `align`: `place(dx=100, dy=420)` puts it there. Its box is the glyphs' bounds |
+| text | `Layer.text(content, *, font, color="#000000", **text_options)` | scene owns `content`, `font` and `color`. `font`: a bundled font's name (a `str`) or a `Path` to a font file. `text_options` are `btvec.text`'s (`size`, `axes`, `tracking`, `leading`, `align`, `width`, `fit`, `features`) as plain data, validated by the linked vector crate at the call; scene restates none of vector's defaults. `width` and `fit` mean vector's: the width the text wraps or fits to, not a placement (`fit(...)` on the layer is the placement). `anchor`, `inside` and `runs` are refused, and so are expressions and Params: scene places the text, and per-letter numbers are a `Layer.drawing`. Its origin is the text's anchor, the left end, middle or right end of the first baseline by `align`: `place(dx=100, dy=420)` puts it there. Its box is the glyphs' bounds, rounded out to whole design pixels |
 | fill | `Layer.fill(color)` | a flat `"#rrggbb"` or `"#rrggbbaa"` over the canvas box; `fit` makes it a band, a mask makes it a shape. Gradients are vector's: a rectangle filled with `btvec.linear_gradient` |
 | scene | `Layer.scene(inner)` | another scene as a group: its canvas is its box; it blends, fades, masks and takes a look as one picture. `inner`'s parameters are addressed under the layer: `badge.scene.label.text` |
 | reference | `Layer.of(name)` | see "Reference" |
@@ -257,15 +290,19 @@ another mask in.
 |---|---|
 | `by` | a `Layer`: drawn on the canvas as its own place says (stage 6), read as `use` says; it may be `Layer.of("subject")`, which follows `subject`'s parameters. Or a `str` naming one of this layer's own `maps`: a map of its picture, cut and fitted with it (stage 4). A reference reads the `maps` of the layer it names |
 | `use` | `"alpha"` or `"luminance"` (0.2126 R + 0.7152 G + 0.0722 B of the sRGB values, times the alpha: white keeps, black hides), for a `Layer`, read from the mask layer's colour as drawn (a `Layer.of` mask: the named layer's picture with the reference's own looks); a map is its own values |
-| `feather` | the standard deviation, in design pixels, of a Gaussian blur of the mask's edge; 0 is hard |
+| `feather` | the standard deviation, in design pixels, of a Gaussian blur of the mask's edge (0 to 1,000,000; 0 is hard) |
 | `invert` | 1 minus the mask (after the feather): type that passes behind a subject is masked by the inverted subject |
 
 A mask layer is owned by the layer it masks and is outside the scene's names: it is addressed `<layer>.mask.<field>`, the
-second `mask#2` (the only thing that depends on the order of the calls). A mask layer's alpha includes its own masks, not
-its looks. A `Layer.of` mask has the fields of a reference only. Errors: `InvalidError` for a name that is no map of the
-layer (at the call for a picture layer, at `add` for a reference), a map that is a hole when the layer renders (naming the
-layer and the map), a `str` mask on a layer that has no picture, `use="luminance"` with a `str` map, `use` another word,
-`feather` below 0 or not finite.
+second `mask#2` (the only thing that depends on the order of the calls; an error of a mask layer that cannot be drawn is
+addressed under it: `photo.mask.map.subject`). A mask layer's alpha includes its own masks, and its looks apply to its
+colour, which `use="luminance"` reads; its opacity multiplies the mask. A mask layer with a name, and (when they exist) a
+blend other than normal or `as_light`, are `InvalidError` at the call. A `Layer.of` mask has the fields of a reference only.
+Errors: `InvalidError` for a name that is no map of the layer (at the call for a picture layer; at `add` for a reference),
+a map that is a hole when the layer renders (naming the layer and the map), a `str` mask on a layer that has no picture,
+`use="luminance"` with a `str` map, `use` another word, `feather` below 0, past 1,000,000 or not finite, a nest deeper than
+`MAX_DEPTH`, and at render a feather whose plane would pass 2^27 pixels. What is decided where ("What is built", Masks,
+Mask layers, Feather, Mask edge) is written there once.
 
 ### Looks
 
@@ -424,8 +461,8 @@ carries the JSON Pointer of the value and what is wrong; it is also a `ValueErro
 
 A wrong type in the calling code (`Layer.drawing(path)`, `Layer.picture("a.jpg")`, `add(scene)`) is a plain `TypeError`
 naming the fix. Plain numbers are checked when a call is made; a hole, a map's size and files when the scene renders. Depth
-is bounded (`MAX_DEPTH`, `MAX_LAYERS`) and every walk (references, nesting) is iterative, so none needs more than a 256 KB
-thread stack.
+is bounded (`MAX_DEPTH`, `MAX_LAYERS`); the walks over references are iterative, and the walks over masks (drawing, `Clone`,
+`Drop`) recurse no deeper than `MAX_DEPTH`, so none needs more than a 256 KB thread stack (tested at that size).
 
 ## Conventions
 
@@ -452,7 +489,7 @@ The same names in each language's case: `snake_case` in Python and Rust.
 |---|---|---|
 | Constructors | `bts.Scene(1800, 2400)`, `bts.Layer.picture(photo)` | `Scene::new(1800, 2400)?`, `Layer::picture(Raster::rgba(w, h, pixels)?)`, `Layer::picture_file(path)`, `.map("subject", Map::new(w, h, values)?)`, `Layer::drawing(json)?`, `Layer::fill("#f2ece0")?`, `Layer::scene(inner)`, `Layer::of("logo")` |
 | Data in | a look or drawing object by its `to_dict()` or `to_json()`; an array | a `&str` or `serde_json::Value` of the document; a scene-owned `Raster` (width, height, `f32` RGBA) and `Map`. The pinned image and vector crates' types never appear in scene's public API: they stay inside two adapter files and out of its semver |
-| Options | keyword arguments | a value named after the call, built with `new` and setters: `Place::new().dx(100.0).rotate(Deg(-4.0))`, `Mask::new(by).feather(8.0).invert()`; the required argument alone converts into it: `layer.mask(by)`. Text: `Text::new("bricolage_grotesque").color("#ffffff").option("size", 84.0)`, each option plain data (`Into<serde_json::Value>`) |
+| Options | keyword arguments | a value named after the call, built with `new` and setters: `Place::new().dx(100.0).rotate(Deg(-4.0))`, `Mask::new(by).using(Use::Luminance).feather(8.0).invert()` (`use` is a keyword); the required argument alone converts into it: `layer.mask(by)`. Text: `Text::new("bricolage_grotesque").color("#ffffff").option("size", 84.0)` and `Layer::text(content, &text)?`, each option plain data (`Into<serde_json::Value>`) |
 | Modes | strings: `"cover"`, `"screen"`, `"light"` | enums: `Fit::Cover`, `Blend::Screen`, `Use::Luminance` |
 | Values | `scene.with_values({"title.text": "Pilot"})` | `scene.with_values(&Values::new().set("title.text", "Pilot"))?` |
 | Output | a numpy array | a `Raster` of the output size; a caller encodes it (PNG is O1) |
@@ -507,8 +544,9 @@ ends.
 |---|---|---|
 | image | `Recipe.to_dict()` writes `format`, a public list of the formats it reads, and a public crate version for the messages. **Not met at the pin** (its `to_dict()` writes none, the list is private): C1 keeps a copy of the list and omits the version | C6 |
 | vector | a public list of the document versions it reads and a public crate version, for the version-skew message | C6 |
-| image | a look refused for its picture's size says "`frame` makes a picture of ..." when no frame is set, and a missing map's message names image's Rust API (`Photo::with_map`); scene passes both through | C3 |
-| image | a public call that returns a region of a look as a map (today `mill.py` matches a `trace` stage by its label) | before C3 |
+| image | a look refused for its picture's size says "`frame` makes a picture of ..." when no frame is set, and a missing map's message names image's Rust API (`Photo::with_map`); scene passes both through (the plan said `Options::with_map`: at the pin it is `Photo::with_map`, a method of the photo, which is what scene calls) | C3 |
+| image | a public call that returns a region of a look as a map (today `mill.py` matches a `trace` stage by its label): not met, and C3 did not need it (maps are handed in) | M3 |
+| vector | a frame drawn at two scales (a drawing under `stretch`, or at a canvas whose design pixel is not square, is letterboxed: "What is built", A drawing and `stretch`) | C5 |
 | image | alpha carried through looks (a drop shadow outside a shape) | later |
 | image | a `Parameter` spelled as the format (`meaning`, `min`, `max`), and `Picture` and `Lut` parameters that `to_dict()` can write as data | later |
 | image, vector | a colour reference, so one colour is typed once across a scene, its looks and its drawings | C6 |
@@ -521,5 +559,5 @@ ends.
    push a name into them. See "Needs from others". Until then a colour is a Python constant.
 2. **Dark light past a shape.** A light layer makes alpha from brightness, so a dark halo (image's `drop_shadow`) is
    invisible; a shadow is a fill masked by the shape. Lifts when image carries alpha through its effects.
-3. **`MAX_DEPTH` (16) is a placeholder** until scenes can be layers (C4). `MAX_LAYERS` and 2^27 pixels are measured ("What is built").
+3. **`MAX_DEPTH` (16)** is measured for masks in C3 ("What is built", Depth) and stays until scenes can be layers (C4), which join its count. `MAX_LAYERS` and 2^27 pixels are measured ("What is built").
 4. **The cache's bound** (entries or bytes) is set when C7 measures a 15-layer A3 poster.

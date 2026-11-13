@@ -81,7 +81,7 @@ class Layer:
     """One layer of a scene: a source, and how it joins the layers below it.
 
     A layer never changes: every call returns a new one, and a layer can be used in several scenes. Make one with
-    `Layer.picture`, `Layer.drawing` or `Layer.fill`.
+    `Layer.picture`, `Layer.drawing`, `Layer.text` or `Layer.fill`.
     """
 
     __slots__ = ("_core",)

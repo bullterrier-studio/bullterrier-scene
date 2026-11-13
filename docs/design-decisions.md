@@ -229,6 +229,58 @@ beat). C2b replaces the rule for every map that is not of the **exact class**, a
   pixel; the sheared picture covers little of the canvas); under a perspective a tenth as wide at the far side, 0.50 s and
   386 MB.
 
+## Masks, maps and type: what C3 settled (2026-11-13)
+
+- **A map is the picture's, and a look is handed it.** A picture layer holds its maps (held, a file, or a hole) and checks them
+  against the picture when the scene renders (size, hole). A look gets the maps its recipe can be given (`Recipe::known_maps`:
+  image refuses a photo handed a map that is no map of the recipe), resampled with the picture's window and kernel through
+  image's `Photo::with_map` (the plan said `Options::with_map`; at the pin that is a method of the photo). A scene never runs
+  a finder, so a look that needs a map the layer lacks fails in image's words, naming the layer, the step and the map.
+- **Stage 4 acts where the raster is.** With no look the map is multiplied into the picture's own pixels (one copy of the
+  picture), then the one warp cuts, fits and places both; with a look it is resampled to the look's size and multiplied after
+  the look. *Reason:* the picture and its map move together by the same warp, so C2's "source, fit and place are one resample"
+  holds, and a no-op look and no look agree (to the bit at one pixel to the design pixel; "What is built"). *Cost:* one copy of
+  the picture where a mask by a map is used, and a feather blurred at the picture's resolution (cheap: its cost does not grow
+  with sigma).
+- **Stage 6 is a factor at the landing pixel.** The product of a layer's masks is one `f32` plane of the canvas plus margin;
+  the warp multiplies each pixel it lands by the plane's value there, as it does opacity. No canvas-sized raster of the layer is
+  made, and a layer with no masks runs the code it ran before (measured: 1,000 fills 0.67 s before and after, "What is built").
+- **A mask layer is drawn on a target with a margin.** The plane a mask is drawn on is the canvas plus the reach of its blur on
+  each side, so a shape that crosses the canvas edge feathers right. *Alternative weighed and not taken:* replicate the
+  mask's edge (cheap, and wrong for a shape that crosses the edge). The margin costs a plane up to `(1 + 6 sigma / canvas)^2`
+  times the canvas, `(1 + 6 sigma / width) (1 + 6 sigma / height)` (a poster with sigma 300: 2.7 times), and is bounded by 2^27
+  pixels. Two things make it work: the warp's
+  output may start before the canvas (`Map::shifted`, additive), and the box a mask layer's source is asked for is the canvas
+  grown by the margin, so a fill covers it (`mask(fill)` stays 1 to the edge, and a shape that ends at the canvas edge is 0.5
+  there). A map has no margin: it is blurred on its own raster with the edge replicated, because a matte that touches the
+  picture's edge goes on past it.
+- **A source's box may start away from the origin.** A text's box is its glyphs' bounds, which start left of and above the
+  anchor, and a fill's box is the margin canvas. `fitted`'s `cover` window had assumed an origin of 0 (`window.x = (width -
+  w) x align`); it adds the box's `x` and `y`. The rest of `Layout` already read the box's own rectangle.
+- **Mask layer rules are refusals.** A name, and when they exist a blend and `as_light`, are `InvalidError` at the `mask` call;
+  the opacity multiplies. *Reason:* a name would collide with C4's lookup of a reference, and a silent ignore of a blend or a
+  light would hide that a mask has none.
+- **Nesting is counted at construction.** `MAX_DEPTH` (16) and a count of mask layers (at most `MAX_LAYERS`, a layer used twice
+  counted twice, since a layer that masks by two copies of the one below it would draw it 2^16 times) are checked at the `mask`
+  call, so a structure that is too deep or too wide cannot be built. The walks over a nest recurse to its depth and no
+  further (L2 of the shared lessons): measured, a nest of 16 is drawn, printed, cloned and dropped in 64 KB of stack unoptimised
+  (32 KB overflows) and the test runs in 256 KB. A mask's `Debug` prints its depth, not the layers it nests (a layer shared
+  between masks would print once per path).
+- **Type is vector's text, as vector writes it.** The text layer asks vector for a text drawing with no options, takes the
+  document vector writes for it, puts the options in as the plain data they are and has vector read it back: vector checks
+  its own arguments in its own words, and scene restates none. *Why not vector's typed `Text` builder:* it would name each of
+  vector's options in scene. *Why not a document written here:* a bundled font's bytes are not public, and its entry in a
+  document is named by a digest scene cannot compute. The text is measured (its glyph bounds with the anchor at the origin),
+  then set again with its anchor where the bounds start, in a frame of the bounds rounded out to whole design pixels, so that
+  the layer's box is the bounds and its origin the anchor. A font file is read at the call, not at `render`: the box needs the font.
+- **Codegen units.** The kernel of the warp is generic over its sink and is instantiated at its caller, but its small helpers
+  (`share`, `taps`, `edge`) were plain functions: adding modules to the crate moved them into another codegen unit and every
+  blended pixel paid a call (1,000 fills 0.67 s then 0.80 s, found by the regression measurement). They are `#[inline]` now.
+- **Found in C3, not fixed:** a drawing drawn at two scales (`stretch`, or a canvas whose design pixel is not square) is
+  letterboxed by vector's one-scale view ("What is built", A drawing and `stretch`).
+- **"Invert before feather" is not a mutant that can be killed:** the kernel is linear and its weights sum to 1, so blurring
+  `1 - v` is `1 - blur(v)` to rounding, margin and replicated edge included.
+
 ## The feather is three box passes, not an exact Gaussian (2026-11-13)
 
 A mask's `feather` is the standard deviation of a Gaussian blur, in design pixels, and a poster asks for a large one (300 design

@@ -40,7 +40,8 @@ class Scene:
         for layer in layers:
             if not isinstance(layer, Layer):
                 raise TypeError(
-                    f"add takes layers (Layer.picture, Layer.drawing, Layer.fill), got {type(layer).__name__}"
+                    "add takes layers (Layer.picture, Layer.drawing, Layer.text, Layer.fill), "
+                    f"got {type(layer).__name__}"
                 )
         return self._of(self._core.add([layer._core for layer in layers]))  # noqa: SLF001  (the layers' own module)
 
