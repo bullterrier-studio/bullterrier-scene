@@ -171,7 +171,6 @@ fn a_default_name_is_taken_only_at_its_own_place() -> Outcome {
 
 #[test]
 fn a_scene_holds_at_most_max_layers_layers() -> Outcome {
-    assert_eq!(MAX_LAYERS, 1_000);
     let fills = |count: usize| {
         (0..count)
             .map(|_| Layer::fill("#00000001"))

@@ -30,6 +30,11 @@ yet. Each call is as written below, except:
 | Python paths | `Layer.picture(Path)` is read at `render`; `Layer.drawing(Path)` and `Layer.look(Path)` at the call | |
 | Equality | Not built: `==` on a scene or layer is identity in Python, and the Rust types have no `PartialEq` | C6 |
 
+**For C2 and later** (what the C1 review found about fit; none is built): a look lives in the picture source, so C5, which gives
+every layer looks, moves it to the layer and needs a third adapter file for image; the `Source` trait and the `Layer` fields are
+`pub(crate)`, and a plugin layer (C7) needs a public trait; `Scale::at` (floor) with `Scale::len` (ceil) cannot say a rectangle
+whose edge falls between output pixels, so `place` and `fit` must hand a source fractional rectangles.
+
 **Limits, measured** (release build, 2026-11-13, arm64 Mac, peak resident memory of a whole render):
 
 | Render | Peak |

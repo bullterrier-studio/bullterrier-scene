@@ -72,7 +72,7 @@ impl Layer {
     pub fn look(mut self, json: &str) -> Result<Self, Error> {
         let recipe = serde_json::from_str(json).map_err(|error| Error::Format {
             pointer: "/look".to_owned(),
-            message: format!("a look is a JSON object: {error}"),
+            message: format!("not JSON: {error}"),
         })?;
         self.source = self.source.looked(&recipe)?;
         Ok(self)

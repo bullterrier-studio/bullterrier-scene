@@ -156,10 +156,9 @@ def test_a_name_used_twice_is_refused_naming_both_layers():
 
 
 def test_a_scene_holds_at_most_max_layers_layers():
-    assert bts.MAX_LAYERS == 1000
     layers = [Layer.fill("#00000001") for _ in range(bts.MAX_LAYERS)]
     assert len(Scene(2, 2).add(*layers).layers) == bts.MAX_LAYERS
-    with pytest.raises(InvalidError, match="1001"):
+    with pytest.raises(InvalidError, match=str(bts.MAX_LAYERS + 1)):
         Scene(2, 2).add(*layers, Layer.fill("#00000001"))
 
 

@@ -9,9 +9,9 @@ from types import ModuleType
 import numpy as np
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
+import bullterrier_scene as bts
 
-INK = np.array([0xF4, 0xEF, 0xE6, 0xFF]) / 255
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def load(name: str, path: Path) -> ModuleType:
@@ -50,13 +50,17 @@ def decode(png: bytes) -> np.ndarray:
     return rows[:, 1:].reshape(height, width, 4)
 
 
-def test_the_example_draws_the_headline_in_ink_over_the_graded_photo(example):
-    picture = example.build(example.synthetic_photo()).render(1280)
-    assert picture.shape == (720, 1280, 4)
-    # the first block of the S: column 1, row 0 of the 5 by 7 grid, 24 pixels a block, from (96, 456); column 0 is empty
-    assert np.allclose(picture[460, 130], INK, atol=1e-6)
-    assert not np.allclose(picture[460, 100], INK, atol=0.1)
-    assert (picture[..., 3] == 1).all()
+def test_the_headline_changes_only_the_pixels_it_covers_and_draws_them_in_ink(example):
+    photo = example.synthetic_photo()
+    with_headline = example.build(photo).render(example.W)
+    without = bts.Scene(example.W, example.H).add(bts.Layer.picture(photo).look(example.NIGHT)).render(example.W)
+    assert with_headline.shape == (example.H, example.W, 4)
+    changed = (with_headline != without).any(axis=-1)
+    assert changed.any()
+    assert 0 < changed.mean() < 0.2  # lettering, not the picture
+    ink = np.array([int(example.INK[at : at + 2], 16) for at in (1, 3, 5)] + [255]) / 255
+    assert np.allclose(with_headline[changed], ink, atol=1e-6)
+    assert (with_headline[..., 3] == 1).all()
 
 
 def test_the_example_renders_the_same_array_twice_and_at_other_sizes(example):
