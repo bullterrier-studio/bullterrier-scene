@@ -1,6 +1,6 @@
 //! A layer: a source and how it joins what is below it.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::Error;
@@ -8,7 +8,7 @@ use crate::Raster;
 use crate::source::Source;
 use crate::source::drawing::Drawing;
 use crate::source::fill::Fill;
-use crate::source::picture::Picture;
+use crate::source::picture::{Picture, recipe_file};
 
 /// One layer of a scene: a source, and how it joins the layers below it. A layer is an immutable value: every call
 /// returns a new one, and a layer can be used in several scenes, or twice in one.
@@ -32,14 +32,14 @@ impl Layer {
     /// It is resampled once to the output size, by bilinear interpolation of premultiplied colour.
     #[must_use]
     pub fn picture(raster: Raster) -> Self {
-        Self::of(Picture::Held(raster))
+        Self::of(Picture::held(raster))
     }
 
     /// A picture read from a file when the scene renders: as [`Layer::picture`] draws it, upright, in sRGB values, with its
     /// alpha if it has one. A file that cannot be read is an [`Error::Read`] at `render`, naming the layer.
     #[must_use]
     pub fn picture_file(path: impl Into<PathBuf>) -> Self {
-        Self::of(Picture::File(path.into()))
+        Self::of(Picture::file(path.into()))
     }
 
     /// A vector drawing, given as its JSON document (what the vector package's `Drawing.to_json()` writes): its box is its
@@ -59,6 +59,32 @@ impl Layer {
     /// [`Error::Invalid`] naming `fill` for any other text.
     pub fn fill(color: &str) -> Result<Self, Error> {
         Ok(Self::of(Fill::parse(color)?))
+    }
+
+    /// This layer with an image look run on it, after the looks it has: `json` is the recipe document that the image package's
+    /// `Recipe.to_dict()` writes, checked now by the linked image crate. The look runs on the picture at the output size, on
+    /// its colour with the alpha left as it is, and its `px` values are image's own (a picture whose long side is 480); a
+    /// look that sets `size` or `frame` is refused. Only a picture layer takes a look in this release.
+    ///
+    /// # Errors
+    /// [`Error::Format`] if `json` is not a JSON object or carries a recipe `format` the linked image crate does not read;
+    /// [`Error::Invalid`] naming `look` for anything image refuses, in its words, and for a layer that is no picture.
+    pub fn look(mut self, json: &str) -> Result<Self, Error> {
+        let recipe = serde_json::from_str(json).map_err(|error| Error::Format {
+            pointer: "/look".to_owned(),
+            message: format!("a look is a JSON object: {error}"),
+        })?;
+        self.source = self.source.looked(&recipe)?;
+        Ok(self)
+    }
+
+    /// This layer with the look of the recipe file `path` (TOML, as the image package writes it), read now.
+    ///
+    /// # Errors
+    /// [`Error::Read`] if the file cannot be read; otherwise as [`Layer::look`].
+    pub fn look_file(mut self, path: impl AsRef<Path>) -> Result<Self, Error> {
+        self.source = self.source.looked(&recipe_file(path.as_ref())?)?;
+        Ok(self)
     }
 
     /// This layer called `name`: letters, digits and `_`, starting with a letter; unique in its scene. A layer without a
