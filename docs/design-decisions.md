@@ -155,3 +155,12 @@ counts its `draw` calls (`Layer.make`, arrives with C7).
 - **A look that sets `size` or `frame` is refused.** Scene owns a layer's size and fit; regions are fine.
 - **Equality is structural.** Two scenes are equal when they hold the same data; equal scenes with equal values render equal
   pictures.
+
+## Needs from the template: two template-owned edits (2026-11-13)
+
+C1 edited two things the template owns, so `copier update` will conflict there until the template takes them. (1) `[tool.run-capped]
+cap-mb` went from 4000 to 8000: the cold gate proofs peak at 5.1 GB of summed RSS (261 tests, a cold build of image and vector in
+each copy; the Rust tests alone 2.7 GB), and the cap is that plus half again. A per-project value in a project-owned table would
+need no conflict. (2) The stub proof rows in `tests/tools/test_rust_gates.py` named the removed `scale`; they now edit `MAX_LAYERS: int`
+(a module-level ghost function) and `Layer.fill` (an extra parameter with a default, so that mypy passes and stubtest fails). The
+template could name a seed line the project owns, as for `check_installed.py`.
