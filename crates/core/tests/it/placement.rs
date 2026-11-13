@@ -521,6 +521,31 @@ fn extent(raster: &Raster, at_least: f32) -> Option<(usize, usize, usize, usize)
     found
 }
 
+/// A turn by an angle that is not a quarter puts a point where the rotation matrix says (clockwise, y down: (x, y) goes to
+/// (x cos - y sin, x sin + y cos) about the anchor). A 20 by 10 rectangle turned 30 degrees about its top left corner and
+/// moved by (20, 10): the box point (15, 3) goes to (11.49, 10.10) + (20, 10), the point (2, 8) to (-2.27, 7.93) + (20, 10),
+/// and a point 2 past the right edge, (22, 5), to (16.55, 15.33) + (20, 10), outside; the sign of the angle reversed would put
+/// the first at (34.49, 5.10), where nothing is.
+#[test]
+fn a_turn_by_another_angle_puts_points_where_the_rotation_matrix_says() -> Outcome {
+    let drawn = render(
+        Layer::picture(solid(20, 10, [1.0; 4])?)
+            .place(Place::new().rotate(Deg(30.0)).anchor(0.0, 0.0).dx(20.0).dy(10.0))?,
+        (60, 40),
+        60,
+    )?;
+    let alpha = |x: usize, y: usize| pixel(&drawn, x, y)[3];
+    assert!(alpha(31, 20) > 0.999, "inside (15, 3): {}", alpha(31, 20));
+    assert!(alpha(17, 17) > 0.999, "inside (2, 8): {}", alpha(17, 17));
+    assert!(alpha(36, 25) < 0.001, "outside (22, 5): {}", alpha(36, 25));
+    assert!(
+        alpha(34, 5) < 0.001,
+        "where a turn the other way would put (15, 3): {}",
+        alpha(34, 5)
+    );
+    Ok(())
+}
+
 /// Scale and aspect, then the turn: a 8 by 4 rectangle squashed to half its height is 8 by 2, and a quarter turn makes it 2
 /// wide and 8 tall about its middle; had the aspect been applied to x (or after the turn) it would be 4 wide and 4 tall, or
 /// 4 wide and 8 tall.

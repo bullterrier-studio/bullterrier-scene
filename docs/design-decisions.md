@@ -138,7 +138,7 @@ transparent outside the source, a stated pixel-centre convention, sub-pixel accu
 
 | Crate | Finding | Verdict |
 |---|---|---|
-| `imageproc` 0.27.0 (MIT, 2026-06) | `warp` takes affine and projective maps over `f32` pixels, bilinear and bicubic, a constant border. But a pixel's value sits at its integer index (scene's centres are at +0.5), the map is evaluated in `f32` (a 90 degree turn is not an exact permutation), there is no prefilter (a reduction aliases), a border fades over one source pixel (a blur at `scale` 3, not coverage), and it brings 51 crates (nalgebra, rand, simba, wide) | not adopted; a dev-dependency oracle only if the gate takes it |
+| `imageproc` 0.27.0 (MIT, 2026-06) | `warp` takes affine and projective maps over `f32` pixels, bilinear and bicubic, a constant border. But a pixel's value sits at its integer index (scene's centres are at +0.5), the map is evaluated in `f32` (a 90 degree turn is not an exact permutation), there is no prefilter (a reduction aliases), a border fades over one source pixel (a blur at `scale` 3, not coverage), and it brings 51 crates (nalgebra, rand, simba, wide) | not adopted, and not a dev-dependency either (51 crates in every gate-proof copy): the tests use hand-derived oracles (permutations, the rotation matrix, areas, area averages) |
 | `fast_image_resize` 6.1.0 (MIT or Apache-2.0, 2026-07) | `f32` RGBA with alpha handling and fractional crops, SIMD; it scales and crops, with no rotation, skew or translation by a fraction | dropped: sources draw at the placed density, so scene never scales a finished picture up |
 | `tiny-skia` 0.12.0 (BSD-3-Clause, 2026-02) | affine and bilinear draws, but a `Pixmap` is premultiplied 8-bit | fails the first criterion |
 
