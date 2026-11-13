@@ -307,14 +307,14 @@ def test_the_stub_as_it_is_matches_the_extension(project_copy, copy_env):
     ("old", "new", "named"),
     [
         pytest.param(
-            "def fill(color: str) -> Layer: ...\n",
-            "def fill(color: str) -> Layer: ...\ndef ghost() -> int: ...\n",
+            "MAX_LAYERS: int\n",
+            "MAX_LAYERS: int\ndef ghost() -> int: ...\n",
             f"{EXTENSION}.ghost",
             id="a function the extension lacks",
         ),
         pytest.param(
-            "def fill(color: str) -> Layer: ...\n",
-            "def fill(color: str, extra: int) -> Layer: ...\n",
+            "    def fill(color: str) -> Layer: ...\n",
+            "    def fill(color: str, extra: int = ...) -> Layer: ...\n",
             f"{EXTENSION}.Layer.fill",
             id="a parameter the extension lacks",
         ),
