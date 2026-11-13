@@ -157,3 +157,46 @@ def test_the_delivery_crop_keeps_the_top_the_middle_or_the_bottom_of_the_tall_ph
         window = photo[round((first_row + 100) / 0.8) : round((first_row + 140) / 0.8)].mean(axis=(0, 1))
         assert np.allclose(crop[100:140].mean(axis=(0, 1)), window, atol=0.03), column
     assert np.allclose(sheet[:, 720:780, :3], np.array([0x1A, 0x1A, 0x22]) / 255, atol=1e-6)  # the gap shows the wall
+
+
+# --- C2b: the receding road and the billboards ------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def perspective() -> ModuleType:
+    return load("c2b_perspective", ROOT / "docs" / "examples" / "c2b_perspective.py")
+
+
+def test_the_receding_floor_is_the_same_picture_twice_and_at_two_sizes(perspective):
+    scene = perspective.receding_floor()
+    first = scene.render(480)
+    assert first.shape == (300, 480, 4)
+    assert np.array_equal(first, scene.render(480))
+    assert (first[..., 3] == 1).all()  # the sky and the ground are opaque everywhere
+    assert scene.render(240).shape == (150, 240, 4)
+
+
+def test_the_road_fades_to_grey_toward_the_horizon_where_its_checks_are_smaller_than_a_pixel(perspective):
+    drawn = perspective.receding_floor().render(perspective.W)
+    middle = slice(450, 510)
+    far = drawn[240:250, middle, 0]  # just under the horizon: the checks are a tenth of a pixel
+    near = drawn[560:570, middle, 0]  # a check is several pixels
+    assert far.std() < 0.05
+    assert near.std() > 0.15
+    # and the far road is the mean of the two inks, not one of them
+    inks = [perspective.rgb("#e8e2d0")[0], perspective.rgb("#4b4a58")[0]]
+    assert abs(far.mean() - np.mean(inks)) < 0.1
+
+
+def test_the_billboard_seen_from_behind_is_the_poster_mirrored(perspective):
+    # a flat quadrilateral each way, so that the mirror is exact: the poster, and the poster on the mirrored corners
+    poster = perspective.poster()
+    height, width = poster.shape[:2]
+    front = bts.Scene(width, height).add(
+        bts.Layer.picture(poster).perspective([(0, 0), (width, 0), (width, height), (0, height)])
+    )
+    behind = bts.Scene(width, height).add(
+        bts.Layer.picture(poster).perspective([(width, 0), (0, 0), (0, height), (width, height)])
+    )
+    assert np.array_equal(front.render(width)[..., :3], poster)
+    assert np.array_equal(behind.render(width)[..., :3], poster[:, ::-1])

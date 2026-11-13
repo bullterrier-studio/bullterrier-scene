@@ -28,6 +28,8 @@ PIECES: list[Piece] = [
     ("c2_prints.py", "pile_of_prints", 800, GALLERY / "c2-pile-of-prints.png"),
     ("c2_prints.py", "delivery_crop", 1140, LOOK / "c2-delivery-crop.png"),
     ("c2_prints.py", "delivery_crop", 760, GALLERY / "c2-delivery-crop.png"),
+    ("c2b_perspective.py", "receding_floor", 960, LOOK / "c2b-receding-floor.png"),
+    ("c2b_perspective.py", "receding_floor", 800, GALLERY / "c2b-receding-floor.png"),
 ]
 
 
