@@ -2,7 +2,7 @@
 
 A night-graded photo of a mill, its windows and its sign lit as layers of their own, a logo drawn on with its own
 glow, four words landing, a 9:16 delivery crop by `fit`. Every moving value is set per frame by `with_values`.
-Proves: per-layer looks (the logo's glow does not light the windows), a region of image as a mask, a vector
+Proves: per-layer looks (the logo's glow does not light the windows), a region of image as a map, a vector
 parameter as an address, a crop without an outside tool.
 
 Where the numbers come from (a song, a clock, a slider) is the caller's business; `frame_values` takes plain
@@ -19,9 +19,7 @@ import bullterrier_scene as bts
 
 W, H = 720, 1280  # the delivery shape
 PINK, CYAN = "#ff3fd0", "#8ffcff"
-
-photo = imageio.load("inputs/mill.jpg")  # wider than 9:16
-matte = subject_matte(photo, segmenter="sam2", points=[(0.45, 0.4, True), (0.8, 0.62, True), (0.5, 0.01, False)])
+WORDS = [("35+", 0.30, 0.855), ("CLASSES", 0.62, 0.855), ("EVERY", 0.36, 0.90), ("WEEK", 0.64, 0.90)]
 
 regions = {
     "down": LinearGradient(angle=90),
@@ -31,7 +29,7 @@ regions = {
     "sky": Combine(of=["background", "above"]),
     "windows": Combine(of=["glass", "subject"]),
 }
-night = Recipe(
+night_look = Recipe(
     [
         fx.gradient(colors=["#03010a"], mask="sky"),
         fx.gradient_map(stops=["#03010a", "#09062c", "#201670", "#6a5acc"]),
@@ -40,10 +38,11 @@ night = Recipe(
     name="night",
     regions=regions,
 )
-swell = fx.bloom(radius=16, threshold=0.5, amount=0.1, name="swell")  # light that grows with the bass
+swell = Recipe([fx.bloom(radius=16, threshold=0.5, amount=0.1, name="swell")], name="swell")  # light that grows
+halo = Recipe([fx.bloom(radius=10, threshold=0.8, amount=0.3, color=CYAN, name="halo")], name="halo")
 
 
-def region(name: str) -> np.ndarray:
+def region(photo: np.ndarray, matte: np.ndarray, name: str) -> np.ndarray:
     """A region of the look as a map the size of the photo: image shows each region its steps use as a trace stage."""
     probe = Recipe([fx.grade(mask=name)], regions=regions, name="probe")
     stage = next(s for s in trace(photo, probe, maps={"subject": matte}) if s.label.startswith(f"region '{name}'"))
@@ -55,77 +54,69 @@ def box(x: float, y: float, w: float, h: float) -> bts.Layer:
     return bts.Layer.drawing(btvec.Drawing(btvec.Path.rect(x, y, w, h).fill("#ffffff"), size=(W, H)))
 
 
-base = bts.Layer.picture(photo, maps={"subject": matte}).fit(
-    (0, 0, W, H), "cover", anchor=(0.5, 0.4)
-)  # 9:16 from a wide photo
-lit = base.look(night.replace(steps=[*night.steps, swell]))  # the night photo, bloomed
-
-
-def lighter(name: str, where: bts.Layer | np.ndarray, feather: float) -> bts.Layer:
-    """The bloomed night photo again, shown only `where`, screened over the photo."""
-    return lit.named(name).mask(where, feather=feather).blend("screen")
-
-
-# The logo: parts tagged by group in the SVG, drawn on and filled in by two vector parameters.
-logo_svg = btvec.Drawing.from_svg(Path("inputs/logo.svg").read_text(encoding="utf-8"))
-ring_on = btvec.Param("ring_on", default=0, min=0, max=1, unit="fraction", meaning="how much of the ring is drawn on")
-landed = btvec.Param("landed", default=0, min=0, max=1, unit="fraction", meaning="the filled logo shows")
-logo_drawing = btvec.Drawing(
-    logo_svg.only(group="ring").stroke(PINK, width=3).slice(0, ring_on),
-    logo_svg.only(group=["swoosh", "text"]).fill(CYAN).opacity(landed),
-    size=logo_svg.size,
-)
-logo = bts.Layer.drawing(logo_drawing).named("logo").fit((0.17 * W, 0.45 * H, 0.66 * W, 0.25 * H), "contain")
-logo_glow = (
-    logo.named("logo_glow")
-    .look(Recipe([fx.bloom(radius=10, threshold=0.8, amount=0.3, color=CYAN, name="halo")], name="logo-glow"))
-    .blend("screen")
-)  # the glow is the logo's only: nothing else is lit by it
-
-WORDS = [("35+", 0.30, 0.855), ("CLASSES", 0.62, 0.855), ("EVERY", 0.36, 0.90), ("WEEK", 0.64, 0.90)]
-words = [
-    bts.Layer.text(
-        word, font="bricolage_grotesque", size=60, color="#ffffff", align="center", axes={"wdth": 80, "wght": 800}
+def build(photo: np.ndarray, matte: np.ndarray, logo_svg: str) -> bts.Scene:
+    """The scene from the photo, the matte of the mill and the tagged SVG text of the logo."""
+    maps = {"subject": matte, "windows": region(photo, matte, "windows")}  # the look sees `subject`; masks see both
+    # `crop`: 9:16 from a wide photo, the mill kept in frame by the alignment
+    night = (
+        bts.Layer.picture(photo, maps=maps).named("night").fit((0, 0, W, H), "cover", align=(0.5, 0.4)).look(night_look)
     )
-    .named(f"word{n}")
-    .place(dx=x * W, dy=y * H)
-    .opacity(0)
-    for n, (word, x, y) in enumerate(WORDS, start=1)
-]
+    sign_box = box(0.30 * W, 0.045 * H, 0.38 * W, 0.08 * H)
 
-sign_box = box(0.30 * W, 0.045 * H, 0.38 * W, 0.08 * H)
-mill = bts.Scene(W, H).add(
-    base.look(night).named("night"),
-    lighter("windows", region("windows"), feather=3),  # a region of image's as a map: no hand-made rectangle
-    lighter("sign_glow", sign_box, feather=6),
-    bts.Layer.fill(PINK).named("sign").mask(sign_box).blend("multiply"),
-    logo,
-    logo_glow,
-    *words,
-)
+    # The logo: parts tagged by group in the SVG, drawn on and filled in by two vector parameters.
+    logo_parts = btvec.Drawing.from_svg(logo_svg)
+    ring_on = btvec.Param(
+        "ring_on", default=0, min=0, max=1, unit="fraction", meaning="how much of the ring is drawn on"
+    )
+    landed = btvec.Param("landed", default=0, min=0, max=1, unit="fraction", meaning="the filled logo shows")
+    logo = btvec.Drawing(
+        logo_parts.only(group="ring").stroke(PINK, width=3).slice(0, ring_on),
+        logo_parts.only(group=["swoosh", "text"]).fill(CYAN).opacity(landed),
+        size=logo_parts.size,
+    )
+
+    words = [
+        bts.Layer.text(
+            w, font="bricolage_grotesque", size=60, color="#ffffff", align="center", axes={"wdth": 80, "wght": 800}
+        )
+        .named(f"word{n}")
+        .place(dx=x * W, dy=y * H)
+        .opacity(0)
+        for n, (w, x, y) in enumerate(WORDS, start=1)
+    ]
+    return bts.Scene(W, H).add(
+        night,
+        # `lit`: the night photo again, bloomed, shown only where a mask says, screened over itself
+        bts.Layer.of("night").named("windows").look(swell).mask("windows", feather=3).blend("screen"),
+        bts.Layer.of("night").named("sign_glow").look(swell).mask(sign_box, feather=6).blend("screen"),
+        bts.Layer.fill(PINK).named("sign").mask(sign_box).blend("multiply"),
+        bts.Layer.drawing(logo).named("logo").fit((0.17 * W, 0.45 * H, 0.66 * W, 0.25 * H), "contain"),
+        # `glow`: the logo's own light; it follows the logo's parameters and lights nothing else
+        bts.Layer.of("logo").named("logo_glow").look(halo).alpha("light").blend("screen"),
+        *words,
+    )
 
 
-def frame_values(
-    bass: float, kick: float, slam: float, ring: float, filled: float, landing: list[float]
-) -> dict[str, float]:
+def frame_values(level: float, hit: float, impact: float, ring: float, filled: float, landing: list[float]) -> dict:
     """The scene's addresses for one moment, from plain numbers in 0..1."""
-    pop = 1 + 0.28 * slam + 0.04 * kick
-    values = {
-        "windows.look.swell.amount": 0.05 + 0.35 * bass + 0.2 * kick,
-        "sign_glow.look.swell.amount": 0.05 + 0.35 * bass + 0.2 * kick,
-        "logo_glow.look.halo.amount": 0.2 + 0.2 * bass + 0.3 * kick + 0.3 * slam,
+    values: dict[str, object] = {
+        "windows.look.swell.amount": 0.05 + 0.35 * level + 0.2 * hit,
+        "sign_glow.look.swell.amount": 0.05 + 0.35 * level + 0.2 * hit,
+        "logo_glow.look.halo.amount": 0.2 + 0.2 * level + 0.3 * hit + 0.3 * impact,
+        "logo.scale": 1 + 0.28 * impact + 0.04 * hit,  # the glow follows: it is the logo's layer again
+        "logo.drawing.ring_on": ring,
+        "logo.drawing.landed": filled,
     }
-    for name in ("logo", "logo_glow"):  # one logo drawn twice has its parameters twice
-        values |= {f"{name}.scale_x": pop, f"{name}.scale_y": pop}
-        values |= {f"{name}.drawing.ring_on": ring, f"{name}.drawing.landed": filled}
     for n, a in enumerate(landing, start=1):
-        values |= {
-            f"word{n}.opacity": a,
-            f"word{n}.scale_x": 1 + 0.35 * (1 - a),
-            f"word{n}.scale_y": 1 + 0.35 * (1 - a),
-        }
+        values |= {f"word{n}.opacity": a, f"word{n}.scale": 1 + 0.35 * (1 - a)}
     return values
 
 
-frame = mill.with_values(frame_values(bass=0.7, kick=0.4, slam=0.0, ring=1.0, filled=1.0, landing=[1, 0.6, 0.2, 0]))
-imageio.save(frame.render(H), "mill-frame.png")
+if __name__ == "__main__":
+    picture = imageio.load("inputs/mill.jpg")  # wider than 9:16
+    mill_matte = subject_matte(
+        picture, segmenter="sam2", points=[(0.45, 0.4, True), (0.8, 0.62, True), (0.5, 0.01, False)]
+    )
+    mill = build(picture, mill_matte, Path("inputs/logo.svg").read_text(encoding="utf-8"))
+    values = frame_values(level=0.7, hit=0.4, impact=0.0, ring=1.0, filled=1.0, landing=[1, 0.6, 0.2, 0])
+    imageio.save(mill.with_values(values).render(H), "mill-frame.png")
