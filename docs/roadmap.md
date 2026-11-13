@@ -17,8 +17,8 @@ their later changes cannot break it; a bump of the pin is a reviewed commit, and
 
 | Batch | Starts when |
 |---|---|
-| A1 | now (image E4 and vector V10 are merged; A1 is docs only) |
-| C1 | A1 is reviewed by the owner; C1 uses only the public APIs of image and vector as they are then, so it does not wait for image E5 to E7 |
+| A1 | now (image E4 and vector V10 are merged; A1 is docs only). Review delegated by the owner on 2026-11-13 to the advisor and one independent read-only reviewer (not done yet) |
+| C1 | A1 is reviewed; C1 uses only the public APIs of image and vector as they are then, so it does not wait for image E5 to E7 |
 | C2, C3, C4 | C1 is merged |
 | C5 | C1 is merged; image has effect footprints (done, E4); image's frame of reference is settled (decision 1 below), and `Options::with_canvas` exists once C5 needs a layer on a larger canvas |
 | C6 | C2, C3 and C4 are merged: the layer model is stable enough to write down as parameters and JSON |
@@ -27,7 +27,7 @@ their later changes cannot break it; a bump of the pin is a reviewed commit, and
 | M3 | C2 to C5 and C7 are merged (the piece needs placement, masks, per-layer effects and the cache) |
 | B1 | image has a banded render (done) and `Options::with_canvas`; vector has V10e (window render); the owner has decided the storage precision (decision 2). Until then a layer with a whole-picture effect renders whole |
 | O1 | PNG: with C1. PDF and print colour: when the owner wants a print, after C5 |
-| P1 | C6 is merged (a scene is data); the owner has chosen a Rust or a Python command line (decision 3) |
+| P1 | C6 is merged (a scene is data); the command line is Rust (decision 3) |
 | R1 | image and vector are released, B1 is done or the owner defers it, and the owner decides to open the repository |
 
 **Before starting any batch:** the previous batch is merged with the gate green; its row above is met; the pin of image and
@@ -40,7 +40,7 @@ in `.superpowers/plans/`.
 |---|---|---|---|
 | 1 | ~~A design scale handed to effects by the caller~~ **Settled by image, 2026-11-11:** the design scale comes from the canvas (the working picture's long side over 480) and travels in the frame (`Place`); there is no public setter. A public `Options::with_canvas` is a later, additive change "when a caller needs it": scene is that caller, so C5 asks image for it | C5, B1 | image's design decisions, "the frame of reference (banded render, B1)" |
 | 2 | Storage precision of finished layers: 8 bit, 16 bit or float32. Image keeps float32 for working pictures (8 bit bands in smooth gradients and cannot take a further grade); still open for layers that wait for the canvas | B1 | image's design decisions |
-| 3 | Command line in Rust (a binary in the wheel, as image plans) or Python | P1 | [design.md](design.md), open question 4 |
+| 3 | ~~Command line in Rust or Python~~ **Settled in A1, 2026-11-13:** a Rust command line crate that the Python console script runs, as image does | P1 | [design.md](design.md), open question 4 |
 | 4 | A browser build of scene | when a page needs it | [design.md](design.md), open question 1 |
 
 ## What the demos and the experiment asked of scene
@@ -55,12 +55,20 @@ shows them all is M3.
 | An effect on one layer only: the logo's glow must not light the windows; the sun glows, the dog does not | a whole-picture `bloom` after a bitmap blend (G2) | C5 |
 | Contact shadow and floor reflection of a cut-out | image has `drop_shadow` and `reflection`; nothing ran them on one layer (G3) | M2 |
 | Reframing to the delivery shape without an outside crop (777 to 720 wide, 9:16 from a taller photo) | an ffmpeg crop in a script (G4) | C2 (`fit`) |
-| One colour typed once, for vector, image and the caller's code | the same hex typed three times (G5) | C6 |
+| One colour typed once, for vector, image and the caller's code | the same hex typed three times (G5) | C6: a scene's own colour is one parameter; inside looks and drawings it waits for a colour reference in image and vector ([api.md](api.md), Open questions) |
 | A region of a layer as the target of an effect: the sign, each window as its own light | a hand-made numpy rectangle and a whole-picture bloom (G8) | C3 (a mask from an image region), C5 |
-| An effect's space: on the layer's own picture, or on the canvas | the experiment let each effect choose a photo or a screen space | C5: decide and write it in `docs/api.md` |
+| An effect's space: on the layer's own picture, or on the canvas | the experiment let each effect choose a photo or a screen space | C5: decided in A1, the layer's own picture ([api.md](api.md), "Looks") |
 | A static layer renders once: the graded photo is the same in 300 frames, only the bloom amount and the split follow the music | every demo frame redoes every layer | C7: a layer's cache key is its own inputs and parameter values |
-| Values per frame arrive as `scene.with_values(...)`; the mapping from a signal to a value is not scene's | `frames.py` `frame()` held the bindings | C6, with video |
+| Values per frame arrive as `scene.with_values(...)` and `render(size)` takes none; the mapping from a signal to a value is not scene's | `frames.py` `frame()` held the bindings | C6, with video |
 | What scene does not take on: facade structure detection (windows), prompted segmentation, footage mattes, shot cuts, a timeline | the experiment did them inside its renderer | image (a region recipe, an optional finder), video |
+
+## Where the entire work ends
+
+Decided 2026-11-13: A1, C1 to C7, M1, M2, M3, O1 (PNG only, through image's save), P1 (the Rust command line) and the final
+poster (`docs/examples/wow_poster.py`, rendered). **B1 (bands) is deferred**: it needs vector's V10e and image effects that take an
+origin and a canvas size, and the render interface does not change when it arrives. The peak memory of a 15-layer A3 poster is
+still measured whole in C7 and recorded. R1 (release, first push) is the owner's. PDF and print colour wait until the owner wants
+a print.
 
 ## How we work
 
@@ -96,27 +104,27 @@ Real objects over mocks: the sibling crates are real, used through their public 
 | # | Batch | Size | Needs from image or vector |
 |---|---|---|---|
 | S0 | Scaffold, gates, README, design and roadmap | S | |
-| A1 | The code API, designed from example programs first (a poster, a cover, a template run with a photo and a title, a video-frame use), `docs/api.md`, reviewed | M | |
+| A1 | The code API, designed from example programs first (a poster, a cover, a template run with a photo and a title, a video-frame use), `docs/api.md` and `docs/examples/`; review delegated to the advisor and one independent reader | M | |
 | C1 | Walking skeleton: `Scene` with a canvas and layers from a picture, a picture with an image look and a vector drawing; normal blend; whole render to RGBA in Rust and Python; replaces the template's `scale` | M | their public APIs as they are; git dependencies pinned |
 | C2 | Placement: position, rotation, scale, skew, perspective, anchor, fit (cover and contain produce the delivery crop, such as a 9:16 frame from a taller photo, so no tool crops afterward); resampling | L | |
 | C3 | Masks: from a drawing's shape or text, an alpha, luminance, a given map, a subject cut-out; invert and feather | M | image's subject finder |
 | C4 | Blend modes (the W3C separable and non-separable set) and groups (isolation, group opacity) | L | |
 | C5 | Effect chains on layers and groups; the design-scale convention; room around a layer | M | image: a design scale from the caller (owner decision pending), effect footprints |
-| C6 | Parameters in the shared description format; the scene as JSON; named colours (a palette) that layers of every kind, drawings and image effects alike, refer to, so one colour is typed once | M | |
+| C6 | Parameters in the shared description format; the scene as JSON; named colours (a palette) that layers, drawings and image effects alike refer to, so one colour is typed once: only for scene's own colours until image and vector take a colour reference | M | image and vector: a colour reference |
 | C7 | Caching per layer: change one value, redo only what depends on it | M | |
 | M1 | First milestone piece: a two-ink geometric poster with a photo clipped into a polygon, type in front of and behind a cut-out, flat shapes and grain | M | vector V10d (gradients, blend set, clips) |
 | M2 | A composed-world piece: a cut-out subject standing in a generated world (vector sky, sun and receding grid floor), moved and scaled, with a contact shadow, a floor reflection and a glow on one layer only | M | image: `drop_shadow`, `reflection`, `rim_light` and `bloom` as layer effects; vector: gradients, subtract |
 | M3 | The mill piece rebuilt as one scene (see "What the demos and the experiment asked"): a night-graded photo with windows and a sign glowing as separate layers, a logo drawn on, a title landing on beats, a 9:16 delivery crop, every moving value set per frame; replaces the demos' hand-written frame function | M | image: `bloom`, `gradient_map`, `halftone`, `rgb_split`, regions; vector: `from_svg`, `slice`, text with words |
-| B1 | Bands: compose band by band, finished layers compact, a 15-layer A3 poster measured whole and banded | L | image: footprint, banded render, storage precision, position-hashed noise, and an origin plus canvas size handed to effects, so that seeded and position-aware effects can band; vector: V10e window render |
-| O1 | Output: PNG, then PDF; print colour (CMYK, ICC, bleed) when wanted | M | |
-| P1 | Command line `bt-scene render`; templates and presets | S | |
+| B1 | **Deferred** (see "Where the entire work ends"). Bands: compose band by band, finished layers compact, a 15-layer A3 poster measured whole and banded | L | image: footprint, banded render, storage precision, position-hashed noise, and an origin plus canvas size handed to effects, so that seeded and position-aware effects can band; vector: V10e window render |
+| O1 | Output: PNG only, through image's save; PDF and print colour (CMYK, ICC, bleed) wait until the owner wants a print | M | |
+| P1 | Command line `bt-scene render`, a Rust crate that the Python console script runs; templates and presets | S | |
 | R1 | First release | S | image and vector published first; the repository opens up |
 
 ## What each batch shows
 
 | Batch | What you can open and look at |
 |---|---|
-| A1 | `docs/api.md` and the example programs, to review; nothing renders yet |
+| A1 | `docs/api.md` and the example programs in `docs/examples/`, to review; nothing renders yet |
 | C1 | the first picture: a photo with a vector headline over it and one image effect on the photo |
 | C2 | rotated, skewed and perspective-tilted photos stacked on a canvas, like a pile of prints |
 | C3 | a photo clipped into big letters; type tucked behind a cut-out subject. The first piece that looks like a poster |
