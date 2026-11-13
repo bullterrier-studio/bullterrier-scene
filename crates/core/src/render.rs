@@ -8,13 +8,13 @@ use crate::{Error, Layer, Raster};
 const MAX_SIZE: u32 = 65_000;
 
 /// `layers` drawn on a canvas of `width` by `height` design pixels at `size` output pixels on the long side.
-pub(crate) fn render(width: u32, height: u32, layers: &[Layer], size: u32) -> Result<Raster, Error> {
-    if !(1..=MAX_SIZE).contains(&size) {
+pub(crate) fn render(width: u32, height: u32, layers: &[Layer], size: i128) -> Result<Raster, Error> {
+    let Some(size) = u32::try_from(size).ok().filter(|size| (1..=MAX_SIZE).contains(size)) else {
         return Err(Error::invalid(
             "size",
             format!("size is a whole number from 1 to {MAX_SIZE}, got {size}"),
         ));
-    }
+    };
     let long = width.max(height);
     let output = |canvas: u32| {
         usize::try_from((u64::from(canvas) * u64::from(size)).div_ceil(u64::from(long))).unwrap_or(usize::MAX)

@@ -18,7 +18,7 @@ pub(crate) fn raised(py: Python<'_>, error: &Error) -> PyErr {
     instance(py, name, error.to_string()).unwrap_or_else(|failure| failure)
 }
 
-/// An `InvalidError` for a value that cannot reach the core at all (a number outside the whole numbers it takes).
+/// An `InvalidError` for a value the core never sees: an array whose shape is not a picture's.
 pub(crate) fn invalid(py: Python<'_>, message: String) -> PyErr {
     instance(py, "InvalidError", message).unwrap_or_else(|failure| failure)
 }

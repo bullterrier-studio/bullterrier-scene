@@ -25,13 +25,15 @@ impl Scene {
     ///
     /// # Errors
     /// [`Error::Invalid`] naming `canvas` for a side outside 1 to 100,000.
-    pub fn new(width: u32, height: u32) -> Result<Self, Error> {
-        if !(1..=MAX_CANVAS).contains(&width) || !(1..=MAX_CANVAS).contains(&height) {
+    pub fn new(width: impl Into<i128>, height: impl Into<i128>) -> Result<Self, Error> {
+        let (width, height) = (width.into(), height.into());
+        let side = |value: i128| u32::try_from(value).ok().filter(|side| (1..=MAX_CANVAS).contains(side));
+        let (Some(width), Some(height)) = (side(width), side(height)) else {
             return Err(Error::invalid(
                 "canvas",
                 format!("a canvas side is a whole number from 1 to {MAX_CANVAS}, got {width} x {height}"),
             ));
-        }
+        };
         Ok(Self {
             width,
             height,
@@ -112,7 +114,7 @@ impl Scene {
     /// [`Error::Invalid`] naming `size` for a size outside its range or a picture of more than 2^27 pixels; whatever a
     /// layer cannot draw, naming the layer: [`Error::Read`] for a file, [`Error::Invalid`] for a look or a drawing the
     /// sibling crate refuses at this size.
-    pub fn render(&self, size: u32) -> Result<Raster, Error> {
-        render::render(self.width, self.height, &self.layers, size)
+    pub fn render(&self, size: impl Into<i128>) -> Result<Raster, Error> {
+        render::render(self.width, self.height, &self.layers, size.into())
     }
 }

@@ -254,3 +254,21 @@ fn the_same_call_gives_the_same_picture_and_two_scenes_do_not_touch() -> Outcome
     assert_eq!(other.render(21)?.pixels(), beside.pixels());
     Ok(())
 }
+
+/// A number that is no `u32` reaches the same message with its own value: the range is checked once, in the core.
+#[test]
+fn a_canvas_or_size_beyond_32_bits_or_below_zero_is_refused_naming_the_range_and_the_value() -> Outcome {
+    for value in [-1_i128, i128::from(u32::MAX) + 1, i128::MAX] {
+        let canvas = refusal(Scene::new(value, 5))?;
+        assert!(
+            canvas.contains("from 1 to 100000") && canvas.contains(&value.to_string()),
+            "{canvas}"
+        );
+        let size = refusal(Scene::new(2, 2)?.render(value))?;
+        assert!(
+            size.contains("from 1 to 65000") && size.contains(&value.to_string()),
+            "{size}"
+        );
+    }
+    Ok(())
+}

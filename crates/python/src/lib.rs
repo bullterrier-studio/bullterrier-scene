@@ -23,16 +23,6 @@ mod _core {
     const MAX_LAYERS: usize = bullterrier_scene::MAX_LAYERS;
 }
 
-/// A whole number the core takes as 32 bits; a number outside them is an `InvalidError` naming `name`.
-fn whole(py: Python<'_>, name: &str, value: i128) -> PyResult<u32> {
-    u32::try_from(value).map_err(|_| {
-        error::invalid(
-            py,
-            format!("{name}: a whole number from 1 to 4294967295 is taken at most, got {value}"),
-        )
-    })
-}
-
 /// The red, green, blue and alpha values of `array` (height, width, 3 or 4 channels) as floats from 0 to 1: `scale` maps its
 /// element type to that range. Three channels are opaque.
 fn levels<T: Element + Copy>(
@@ -147,7 +137,7 @@ impl Scene {
     /// An empty canvas of `width` by `height` design pixels.
     #[new]
     fn new(py: Python<'_>, width: i128, height: i128) -> PyResult<Self> {
-        let canvas = bullterrier_scene::Scene::new(whole(py, "width", width)?, whole(py, "height", height)?);
+        let canvas = bullterrier_scene::Scene::new(width, height);
         wrap(py, canvas).map(Self)
     }
 
@@ -177,7 +167,6 @@ impl Scene {
 
     /// The picture as a new float32 array (height, width, 4): straight alpha, 0 to 1, rows from the top.
     fn render<'py>(&self, py: Python<'py>, size: i128) -> PyResult<Bound<'py, PyArray3<f32>>> {
-        let size = whole(py, "size", size)?;
         let raster = wrap(py, py.detach(|| self.0.render(size)))?;
         let (height, width) = (raster.height(), raster.width());
         PyArray1::from_vec(py, raster.into_pixels()).reshape([height, width, 4])

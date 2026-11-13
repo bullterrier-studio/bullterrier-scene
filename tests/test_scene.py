@@ -102,26 +102,27 @@ def test_the_same_call_gives_the_same_picture_and_two_scenes_do_not_touch():
         (-1, 5, False),
         (100_001, 5, False),
         (2**40, 5, False),
+        (2**70, 5, False),
     ],
 )
 def test_a_canvas_is_whole_pixels_from_1_to_100000(width, height, good):
     if good:
         assert Scene(width, height).width == width
     else:
-        with pytest.raises(InvalidError, match=r"canvas|width|height"):
+        with pytest.raises(InvalidError, match=r"canvas side is a whole number from 1 to 100000, got"):
             Scene(width, height)
 
 
 @pytest.mark.parametrize(
     ("size", "good"),
-    [(1, True), (64, True), (0, False), (-3, False), (65_001, False), (2**40, False)],
+    [(1, True), (64, True), (0, False), (-3, False), (65_001, False), (2**40, False), (2**70, False)],
 )
 def test_a_size_is_a_whole_number_from_1_to_65000(size, good):
     scene = Scene(4, 4)
     if good:
         assert scene.render(size).shape[0] == size
     else:
-        with pytest.raises(InvalidError, match="size"):
+        with pytest.raises(InvalidError, match=rf"size is a whole number from 1 to 65000, got {size}"):
             scene.render(size)
 
 
