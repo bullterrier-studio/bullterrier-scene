@@ -80,3 +80,41 @@ pub(crate) fn rectangle(frame: (u32, u32), at: (f64, f64), to: (f64, f64), color
         r#"{{"root":[{{"stack":{{"items":[[{{"path":"M{x} {y} L{right} {y} L{right} {bottom} L{x} {bottom} Z"}}]],"size":[{width},{height}]}}}},{{"fill":{{"color":"{color}"}}}}],"version":1}}"#
     )
 }
+
+/// A picture whose every pixel differs, translucent in part, every value a multiple of 1/16 so that it is exact in a float
+/// (at most 12 columns and rows).
+pub(crate) fn numbered(width: usize, height: usize) -> Result<Raster, Error> {
+    let values = (0..height).flat_map(|y| {
+        (0..width).flat_map(move |x| {
+            let level = |number: usize| f32::from(u8::try_from(number).unwrap_or(0)) / 16.0;
+            [
+                level(1 + x),
+                level(1 + y),
+                level((x * 3 + y * 5) % 8 + 1),
+                level(4 + 4 * ((x + 2 * y) % 3) + 4) / 2.0,
+            ]
+        })
+    });
+    Raster::rgba(width, height, values.collect())
+}
+
+/// `layer` alone on a canvas of `width` by `height` design pixels at `size`.
+pub(crate) fn render(layer: Layer, (width, height): (u32, u32), size: u32) -> Result<Raster, Error> {
+    scene(width, height, [layer])?.render(size)
+}
+
+/// A raster of `width` by `height` pixels whose pixel (`x`, `y`) is `pixel_of(x, y)`.
+pub(crate) fn made(width: usize, height: usize, pixel_of: impl Fn(usize, usize) -> [f32; 4]) -> Result<Raster, Error> {
+    Raster::rgba(
+        width,
+        height,
+        (0..height)
+            .flat_map(|y| {
+                (0..width).flat_map({
+                    let pixel_of = &pixel_of;
+                    move |x| pixel_of(x, y)
+                })
+            })
+            .collect::<Vec<_>>(),
+    )
+}

@@ -1,0 +1,529 @@
+//! Perspective: the fitted box's corners put on a quadrilateral. Expected values come from a homography solved by hand-written
+//! elimination in this file (not the crate's closed form), from `place` where it makes the same map, and from the property
+//! that a filtered render at half the size is the average of the one at the full size.
+
+use bullterrier_scene::{Deg, Error, Fit, Layer, Place, Raster};
+use proptest::prelude::*;
+use proptest::test_runner::RngSeed;
+
+use crate::common::{Outcome, close, made, numbered, pixel, pixels, rectangle, render, scene, solid};
+
+type Corners = [[f64; 2]; 4];
+
+/// Solves `matrix x = right` by Gauss-Jordan elimination with a pivot of the largest entry.
+fn solve(mut matrix: Vec<Vec<f64>>, mut right: Vec<f64>) -> Vec<f64> {
+    let size = right.len();
+    for column in 0..size {
+        let pivot = (column..size)
+            .max_by(|&a, &b| matrix[a][column].abs().total_cmp(&matrix[b][column].abs()))
+            .unwrap_or(column);
+        matrix.swap(column, pivot);
+        right.swap(column, pivot);
+        for row in 0..size {
+            if row != column {
+                let factor = matrix[row][column] / matrix[column][column];
+                let pivot_row = matrix[column].clone();
+                for (entry, pivot_entry) in matrix[row].iter_mut().zip(pivot_row) {
+                    *entry -= factor * pivot_entry;
+                }
+                right[row] -= factor * right[column];
+            }
+        }
+    }
+    (0..size).map(|row| right[row] / matrix[row][row]).collect()
+}
+
+/// The unit square point `(u, v)` that the quadrilateral `corners` has at `(x, y)`: the 8 by 8 system of the homography that
+/// sends (0, 0), (1, 0), (1, 1), (0, 1) to the corners, then its inverse at the point.
+fn unit_square_point(corners: Corners, (x, y): (f64, f64)) -> (f64, f64) {
+    let square = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)];
+    let (mut matrix, mut right) = (Vec::new(), Vec::new());
+    for ((u, v), [px, py]) in square.into_iter().zip(corners) {
+        matrix.push(vec![u, v, 1.0, 0.0, 0.0, 0.0, -u * px, -v * px]);
+        right.push(px);
+        matrix.push(vec![0.0, 0.0, 0.0, u, v, 1.0, -u * py, -v * py]);
+        right.push(py);
+    }
+    let h = solve(matrix, right);
+    // (x, y) = ((h0 u + h1 v + h2) / w, (h3 u + h4 v + h5) / w), w = h6 u + h7 v + 1: linear in (u, v) once x and y are known
+    let rows = vec![
+        vec![h[0] - x * h[6], h[1] - x * h[7]],
+        vec![h[3] - y * h[6], h[4] - y * h[7]],
+    ];
+    let found = solve(rows, vec![x - h[2], y - h[5]]);
+    (found[0], found[1])
+}
+
+/// A `width` by `height` picture of a ramp in each direction: red is the position across (the pixel's middle over the
+/// width), green the position down.
+fn ramps(width: usize, height: usize) -> Result<Raster, Error> {
+    #[expect(clippy::cast_precision_loss, reason = "a small side")]
+    made(width, height, |x, y| {
+        [
+            (x as f32 + 0.5) / width as f32,
+            (y as f32 + 0.5) / height as f32,
+            0.0,
+            1.0,
+        ]
+    })
+}
+
+/// The quadrilateral of the near side wide (bottom) and the far side narrow (top): a floor receding.
+const TILTED: Corners = [[26.0, 6.0], [38.0, 6.0], [58.0, 58.0], [6.0, 58.0]];
+
+#[test]
+fn the_corners_of_the_box_land_on_the_corners_and_every_point_between_is_where_a_hand_solved_homography_says() -> Outcome
+{
+    let quad: Corners = [[11.0, 7.0], [50.0, 15.0], [58.0, 55.0], [5.0, 44.0]];
+    let layer = Layer::picture(ramps(32, 32)?).perspective(quad)?;
+    let drawn = render(layer, (64, 64), 64)?;
+    // the corners: a pixel inside each, on the line to the middle, has the unit square corner's colour to within the part of
+    // a pixel it is in from the corner (the ramps change by 1/32 a source pixel, and a few source pixels are a pixel here)
+    let middle = ((11.0 + 50.0 + 58.0 + 5.0) / 4.0, (7.0 + 15.0 + 55.0 + 44.0) / 4.0);
+    for ([cx, cy], (u, v)) in quad
+        .into_iter()
+        .zip([(0.0_f32, 0.0_f32), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)])
+    {
+        let (x, y) = (cx + (middle.0 - cx) * 0.06, cy + (middle.1 - cy) * 0.06);
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a pixel of the canvas"
+        )]
+        let got = pixel(&drawn, x as usize, y as usize);
+        assert!(close(got, [u, v, 0.0, 1.0], 0.1), "corner ({cx}, {cy}): {got:?}");
+    }
+    // 25 points inside: the colour is the point's place in the box
+    let mut counted = 0;
+    for step_u in 1..=5 {
+        for step_v in 1..=5 {
+            let (u, v) = (f64::from(step_u) / 6.0, f64::from(step_v) / 6.0);
+            // the homography of the quadrilateral, forward, by the same 8 by 8 solve: find the pixel whose centre is nearest
+            // to where (u, v) lands, and check that pixel's own place instead
+            let target = (
+                quad[0][0] * (1.0 - u) * (1.0 - v)
+                    + quad[1][0] * u * (1.0 - v)
+                    + quad[2][0] * u * v
+                    + quad[3][0] * (1.0 - u) * v,
+                quad[0][1] * (1.0 - u) * (1.0 - v)
+                    + quad[1][1] * u * (1.0 - v)
+                    + quad[2][1] * u * v
+                    + quad[3][1] * (1.0 - u) * v,
+            );
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "a pixel of the canvas"
+            )]
+            let (x, y) = (target.0 as usize, target.1 as usize);
+            let (pu, pv) = unit_square_point(
+                quad,
+                (f64::from(u32::try_from(x)?) + 0.5, f64::from(u32::try_from(y)?) + 0.5),
+            );
+            if (0.08..0.92).contains(&pu) && (0.08..0.92).contains(&pv) {
+                counted += 1;
+                #[expect(clippy::cast_possible_truncation, reason = "a level")]
+                let expected = [pu as f32, pv as f32, 0.0, 1.0];
+                assert!(
+                    close(pixel(&drawn, x, y), expected, 0.01),
+                    "({x}, {y}): {:?} is not {expected:?}",
+                    pixel(&drawn, x, y)
+                );
+            }
+        }
+    }
+    assert!(counted >= 20, "{counted} points checked");
+    Ok(())
+}
+
+#[test]
+fn a_quadrilateral_that_is_the_box_is_the_identity_and_an_axis_aligned_one_is_what_place_makes_bit_for_bit() -> Outcome
+{
+    let picture = || Layer::picture(numbered(6, 4).unwrap_or_else(|_| unreachable!()));
+    let same = |layer: Layer, other: Layer, what: &str| -> Outcome {
+        let (a, b) = (render(layer, (16, 12), 16)?, render(other, (16, 12), 16)?);
+        assert!(
+            a.pixels()
+                .iter()
+                .zip(b.pixels())
+                .all(|(x, y)| x.to_bits() == y.to_bits()),
+            "{what}"
+        );
+        Ok(())
+    };
+    same(
+        picture(),
+        picture().perspective([[0.0, 0.0], [6.0, 0.0], [6.0, 4.0], [0.0, 4.0]])?,
+        "the box itself",
+    )?;
+    same(
+        picture().place(Place::new().dx(3.0).dy(2.0))?,
+        picture().perspective([[3.0, 2.0], [9.0, 2.0], [9.0, 6.0], [3.0, 6.0]])?,
+        "a move",
+    )?;
+    same(
+        picture().place(Place::new().scale(2.0).anchor(0.0, 0.0))?,
+        picture().perspective([[0.0, 0.0], [12.0, 0.0], [12.0, 8.0], [0.0, 8.0]])?,
+        "a scale of 2",
+    )?;
+    same(
+        picture().place(Place::new().scale(0.5).anchor(0.0, 0.0).dx(4.0).dy(1.0))?,
+        picture().perspective([[4.0, 1.0], [7.0, 1.0], [7.0, 3.0], [4.0, 3.0]])?,
+        "a scale of a half and a move",
+    )?;
+    same(
+        picture().place(Place::new().flip_x(true))?,
+        picture().perspective([[6.0, 0.0], [0.0, 0.0], [0.0, 4.0], [6.0, 4.0]])?,
+        "a flip across x, which is a mirrored quadrilateral",
+    )?;
+    same(
+        picture().place(Place::new().rotate(Deg(90.0)).dx(5.0).dy(4.0))?,
+        picture().perspective([[10.0, 3.0], [10.0, 9.0], [6.0, 9.0], [6.0, 3.0]])?,
+        "a quarter turn",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn a_mirrored_quadrilateral_is_accepted_and_is_the_picture_mirrored_on_the_clockwise_one() -> Outcome {
+    let picture = ramps(24, 24)?;
+    let mirrored_picture = made(24, 24, |x, y| pixel(&picture, 23 - x, y))?;
+    let clockwise = [[10.0, 6.0], [50.0, 12.0], [56.0, 52.0], [4.0, 46.0]];
+    // top left and top right swapped, bottom left and bottom right swapped: the box seen from behind
+    let counter = [clockwise[1], clockwise[0], clockwise[3], clockwise[2]];
+    let by_mirror = render(Layer::picture(picture).perspective(counter)?, (64, 64), 64)?;
+    let by_picture = render(Layer::picture(mirrored_picture).perspective(clockwise)?, (64, 64), 64)?;
+    for (got, expected) in pixels(&by_mirror).zip(pixels(&by_picture)) {
+        assert!(close(got, expected, 1e-5), "{got:?} is not {expected:?}");
+    }
+    Ok(())
+}
+
+/// Each row: what is wrong with the corners and the field the refusal names.
+#[test]
+fn corners_that_are_not_a_strictly_convex_quadrilateral_or_are_out_of_range_are_refused_naming_them() -> Outcome {
+    let nan = f64::NAN;
+    let rows: Vec<(&str, Corners, bool)> = vec![
+        (
+            "a rectangle",
+            [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]],
+            true,
+        ),
+        ("a trapezoid", [[3.0, 0.0], [7.0, 0.0], [10.0, 10.0], [0.0, 10.0]], true),
+        (
+            "a mirrored rectangle",
+            [[10.0, 0.0], [0.0, 0.0], [0.0, 10.0], [10.0, 10.0]],
+            true,
+        ),
+        (
+            "a quadrilateral on the far side of the range",
+            [[-1e6, -1e6], [1e6, -1e6], [1e6, 1e6], [-1e6, 1e6]],
+            true,
+        ),
+        ("a dart", [[0.0, 0.0], [10.0, 0.0], [2.0, 2.0], [0.0, 10.0]], false),
+        (
+            "a dart the other way",
+            [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [8.0, 2.0]],
+            false,
+        ),
+        ("a bowtie", [[0.0, 0.0], [10.0, 10.0], [10.0, 0.0], [0.0, 10.0]], false),
+        (
+            "three corners on a line",
+            [[0.0, 0.0], [5.0, 0.0], [10.0, 0.0], [0.0, 10.0]],
+            false,
+        ),
+        (
+            "a corner twice",
+            [[0.0, 0.0], [10.0, 0.0], [10.0, 0.0], [0.0, 10.0]],
+            false,
+        ),
+        ("all on a line", [[0.0, 0.0], [1.0, 1.0], [2.0, 2.0], [3.0, 3.0]], false),
+        ("a NaN", [[0.0, 0.0], [10.0, 0.0], [10.0, nan], [0.0, 10.0]], false),
+        (
+            "an infinity",
+            [[0.0, 0.0], [f64::INFINITY, 0.0], [10.0, 10.0], [0.0, 10.0]],
+            false,
+        ),
+        (
+            "a corner at 1e9",
+            [[0.0, 0.0], [1e9, 0.0], [10.0, 10.0], [0.0, 10.0]],
+            false,
+        ),
+    ];
+    for (what, corners, good) in rows {
+        let layer = Layer::fill("#ffffff")?.perspective(corners);
+        let refused = match &layer {
+            Err(Error::Invalid { address, .. }) => Some(address.as_str()),
+            _ => None,
+        };
+        assert_eq!(refused.is_none(), good, "{what}: {layer:?}");
+        assert!(good || refused == Some("corners"), "{what}: {layer:?}");
+    }
+    Ok(())
+}
+
+/// The last of `place` and `perspective` wins, in either order; `fit` comes first.
+#[test]
+fn the_last_of_place_and_perspective_wins_and_fit_comes_first() -> Outcome {
+    let picture = || Layer::picture(numbered(6, 4).unwrap_or_else(|_| unreachable!()));
+    let quad = [[3.0, 2.0], [9.0, 2.0], [9.0, 6.0], [3.0, 6.0]];
+    let bits = |layer: Layer| -> Result<Vec<u32>, Error> {
+        Ok(render(layer, (16, 12), 16)?
+            .pixels()
+            .iter()
+            .map(|value| value.to_bits())
+            .collect())
+    };
+    let moved = bits(picture().place(Place::new().dx(3.0).dy(2.0))?)?;
+    assert_eq!(
+        bits(
+            picture()
+                .place(Place::new().dx(9.0))
+                .and_then(|layer| layer.perspective(quad))?
+        )?,
+        moved,
+        "place then perspective"
+    );
+    let unmoved = bits(picture())?;
+    assert_eq!(
+        bits(
+            picture()
+                .perspective(quad)?
+                .place(Place::new())
+                .unwrap_or_else(|_| unreachable!())
+        )?,
+        unmoved,
+        "perspective then place"
+    );
+    // fit first: a 4 by 2 picture contained in an 8 by 8 box is the box (0, 2, 8, 4); a quadrilateral that is that rectangle changes nothing
+    let contained = picture_of(4, 2)?.fit([0.0, 0.0, 8.0, 8.0], Fit::Contain, [0.5, 0.5])?;
+    let by_fit = render(contained.clone(), (8, 8), 8)?;
+    let by_quad = render(
+        contained.perspective([[0.0, 2.0], [8.0, 2.0], [8.0, 6.0], [0.0, 6.0]])?,
+        (8, 8),
+        8,
+    )?;
+    assert_eq!(by_fit.pixels(), by_quad.pixels());
+    Ok(())
+}
+
+fn picture_of(width: usize, height: usize) -> Result<Layer, Error> {
+    Ok(Layer::picture(numbered(width, height)?))
+}
+
+#[test]
+fn perspective_returns_a_new_layer_and_leaves_the_old_one_as_it_was() -> Outcome {
+    let layer = picture_of(6, 4)?;
+    let before = render(layer.clone(), (8, 8), 8)?;
+    let _tilted = layer.clone().perspective(TILTED)?;
+    assert_eq!(render(layer, (8, 8), 8)?.pixels(), before.pixels());
+    Ok(())
+}
+
+/// A quadrilateral partly or wholly outside the canvas is cut at it, and a wholly outside one draws nothing.
+#[test]
+fn a_quadrilateral_partly_or_wholly_off_the_canvas_is_cut_at_it() -> Outcome {
+    let picture = ramps(16, 16)?;
+    let partly = render(
+        Layer::picture(picture.clone()).perspective([[-20.0, -10.0], [30.0, 0.0], [40.0, 40.0], [-30.0, 50.0]])?,
+        (32, 32),
+        32,
+    )?;
+    assert!(pixels(&partly).all(|got| got.iter().all(|value| (0.0..=1.0).contains(value))));
+    assert!(close(pixel(&partly, 16, 20), [0.5, 0.5, 0.0, 1.0], 0.2));
+    for corners in [
+        [[100.0, 100.0], [120.0, 100.0], [120.0, 130.0], [100.0, 140.0]],
+        [[-300.0, -300.0], [-200.0, -300.0], [-210.0, -200.0], [-290.0, -190.0]],
+    ] {
+        let off = render(Layer::picture(picture.clone()).perspective(corners)?, (32, 32), 32)?;
+        assert!(off.pixels().iter().all(|&value| value == 0.0));
+    }
+    Ok(())
+}
+
+/// The near side is drawn at the scale it has: a drawing whose frame has a hard edge, on a quadrilateral four times wider at the
+/// bottom, has that edge sharp at the bottom (from clear to full red within two pixels), as it would if drawn at the near scale
+/// and not enlarged from the scale of the far side.
+#[test]
+fn the_near_side_of_a_perspective_is_drawn_at_its_own_scale_and_is_sharp() -> Outcome {
+    // a 16 by 16 frame, red from x = 8 to the right
+    let layer = Layer::drawing(&rectangle((16, 16), (8.0, 0.0), (16.0, 16.0), "#ff0000"))?.perspective([
+        [28.0, 4.0],
+        [36.0, 4.0],
+        [64.0, 60.0],
+        [0.0, 60.0],
+    ])?;
+    let drawn = render(layer, (64, 64), 64)?;
+    // the red starts at the middle of each row; count the pixels of the row at the bottom that are neither clear nor full
+    let row = 58;
+    let between = (0..64)
+        .filter(|&x| (0.05..0.95).contains(&pixel(&drawn, x, row)[3]))
+        .count();
+    // the quadrilateral's own edges, left and right, are the two soft pixels each: the middle edge adds at most two
+    assert!(between <= 6, "{between} soft pixels in row {row}");
+    let middle: Vec<f32> = (28..38).map(|x| pixel(&drawn, x, row)[3]).collect();
+    let soft_in_the_middle = middle.iter().filter(|&&alpha| (0.05..0.95).contains(&alpha)).count();
+    assert!(soft_in_the_middle <= 2, "{middle:?}");
+    Ok(())
+}
+
+/// A layer drawn under a perspective that would need more than 2^27 pixels is drawn at fewer, not refused (a fill takes one
+/// pixel whatever the scale, so it shows that the request, not the source, is bounded).
+#[test]
+fn a_perspective_that_asks_for_more_than_2_pow_27_pixels_is_drawn_smaller_not_refused() -> Outcome {
+    let layer = Layer::fill("#336699")?.perspective([[-1e6, -1e6], [1e6, -1e6], [1e6, 1e6], [-1e6, 1e6]])?;
+    let drawn = render(layer, (16, 16), 16)?;
+    assert!(pixels(&drawn).all(|got| close(
+        got,
+        [0x33_u8, 0x66, 0x99, 0xff].map(|byte| f32::from(byte) / 255.0),
+        1e-6
+    )));
+    // while a place that asks for as much is refused
+    let refused = scene(100, 100, [Layer::fill("#ffffff")?.place(Place::new().scale(1000.0))?])?.render(100);
+    assert!(refused.is_err());
+    Ok(())
+}
+
+/// The far side of a floor does not alias. A picture of 1-pixel stripes across (every other column white) on a quadrilateral
+/// whose top is a tenth of its bottom: the average of a stripe pair is grey, so the deviation from grey of a row falls toward
+/// the far side, row by row, within the noise of the taps (0.08, where the footprint is about two pixels and the taps are few);
+/// at the far end the rows are close to grey, and at the near end, where a stripe is a pixel, they are not.
+#[test]
+fn stripes_on_a_receding_plane_fade_toward_grey_row_by_row() -> Outcome {
+    let stripes = made(128, 128, |x, _| {
+        let level = if x % 2 == 0 { 1.0 } else { 0.0 };
+        [level, level, level, 1.0]
+    })?;
+    // near side (bottom) 120 wide, far side (top) 12 wide
+    let layer = Layer::picture(stripes).perspective([[58.0, 4.0], [70.0, 4.0], [124.0, 124.0], [4.0, 124.0]])?;
+    let drawn = render(layer, (128, 128), 128)?;
+    // the mean deviation from grey of the pixels well inside the quadrilateral, per block of 8 rows
+    let deviation = |rows: std::ops::Range<usize>| -> f32 {
+        let mut sum = 0.0;
+        let mut count = 0;
+        for y in rows {
+            // half of the row's width at this depth, about the middle (64): the quadrilateral is 12 + 108 (y - 4) / 120 wide
+            let half = usize::try_from(i64::from(
+                (6 + 54 * (i32::try_from(y).unwrap_or(0) - 4) / 120 - 3).max(1),
+            ))
+            .unwrap_or(1);
+            for x in 64 - half..64 + half {
+                let got = pixel(&drawn, x, y);
+                if got[3] > 0.999 {
+                    sum += (got[0] - 0.5).abs();
+                    count += 1;
+                }
+            }
+        }
+        sum / f32::from(u16::try_from(count.max(1)).unwrap_or(u16::MAX))
+    };
+    let blocks: Vec<f32> = (0..14).map(|block| deviation(8 + block * 8..16 + block * 8)).collect();
+    // from the far block (first) to the near block (last) the deviation rises: each block at most the noise below the one before
+    for pair in blocks.windows(2) {
+        assert!(
+            pair[1] >= pair[0] - 0.06,
+            "the deviation falls toward the near side: {blocks:?}"
+        );
+    }
+    assert!(blocks[0] < 0.1, "the far side is not grey: {blocks:?}");
+    assert!(blocks[13] > 0.1, "the near side lost its stripes: {blocks:?}");
+    Ok(())
+}
+
+/// A render at half the size is the box average of the render at the full size, for a strongly tilted plane (the far edge an
+/// eighth of the near one) of 1-pixel stripes: the case an unfiltered sample fails (it beats). Compared on the pixels that are
+/// inside the quadrilateral at both sizes, by their mean over the rows; the tolerance is the noise of the taps.
+#[test]
+fn a_strongly_tilted_plane_at_half_the_size_is_the_box_average_of_the_whole_size() -> Outcome {
+    let stripes = made(256, 256, |x, y| {
+        let level = if (x + y / 4) % 2 == 0 { 1.0 } else { 0.0 };
+        [level, level, level, 1.0]
+    })?;
+    let corners = |scale: f64| -> Corners {
+        [
+            [56.0 * scale, 8.0 * scale],
+            [72.0 * scale, 8.0 * scale],
+            [124.0 * scale, 120.0 * scale],
+            [4.0 * scale, 120.0 * scale],
+        ]
+    };
+    let layer = Layer::picture(stripes);
+    let full = render(layer.clone().perspective(corners(1.0))?, (128, 128), 128)?;
+    let half = render(layer.perspective(corners(1.0))?, (128, 128), 64)?;
+    let (mut worst, mut compared) = (0.0_f32, 0);
+    for y in 0..64 {
+        for x in 0..64 {
+            let near = [(0, 0), (1, 0), (0, 1), (1, 1)].map(|(dx, dy)| pixel(&full, 2 * x + dx, 2 * y + dy));
+            if near.iter().any(|got| got[3] < 0.999) || pixel(&half, x, y)[3] < 0.999 {
+                continue;
+            }
+            compared += 1;
+            let mean = near.iter().map(|got| got[0]).sum::<f32>() / 4.0;
+            worst = worst.max((pixel(&half, x, y)[0] - mean).abs());
+        }
+    }
+    assert!(compared > 500, "{compared} pixels compared");
+    assert!(
+        worst < 0.35,
+        "the half-size render differs from the box average of the whole by {worst}"
+    );
+    Ok(())
+}
+
+/// The far edge of a perspective layer is soft by coverage as an edge of `place` is: along each row of a slanted edge there is a
+/// pixel that is neither clear nor opaque.
+#[test]
+fn the_slanted_edges_of_a_perspective_layer_are_soft_not_jagged() -> Outcome {
+    let layer = Layer::picture(solid(16, 16, [1.0, 0.5, 0.0, 1.0])?).perspective(TILTED)?;
+    let drawn = render(layer, (64, 64), 64)?;
+    let rows_with_a_soft_pixel = (10..54)
+        .filter(|&y| (0..64).any(|x| (0.02..0.98).contains(&pixel(&drawn, x, y)[3])))
+        .count();
+    assert_eq!(rows_with_a_soft_pixel, 44);
+    Ok(())
+}
+
+/// A valid quadrilateral that is nearly a line renders cleanly: pixels in range, never NaN.
+#[test]
+fn a_very_flat_quadrilateral_renders_or_is_refused_but_never_gives_nan() -> Outcome {
+    for flat in [1e-3, 1e-6, 1e-9] {
+        let corners = [
+            [0.0, 10.0],
+            [30.0, 10.0 + flat],
+            [30.0, 10.0 + 2.0 * flat],
+            [0.0, 10.0 + flat],
+        ];
+        if let Ok(layer) = Layer::picture(ramps(8, 8)?).perspective(corners) {
+            let drawn = render(layer, (32, 32), 32)?;
+            assert!(
+                pixels(&drawn).all(|got| got.iter().all(|value| (0.0..=1.0).contains(value))),
+                "flat {flat}"
+            );
+        }
+    }
+    Ok(())
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig { cases: 3000, rng_seed: RngSeed::Fixed(20_261_113), ..ProptestConfig::default() })]
+
+    /// Hostile corners (huge, tiny, flat, any order), with a turn and a scale as well on half the cases: whatever is accepted
+    /// renders a picture in 0..=1 with no colour where there is no alpha, and the same twice.
+    #[test]
+    fn any_accepted_quadrilateral_gives_a_picture_in_range_and_the_same_one_twice(
+        coordinates in proptest::array::uniform8(prop_oneof![-1e6_f64..1e6, -100.0_f64..100.0, -2.0_f64..40.0, Just(0.0), Just(8.0)]),
+        place_too: bool, scale in 0.001_f64..1000.0, turn in -360.0_f64..360.0,
+    ) {
+        let [x0, y0, x1, y1, x2, y2, x3, y3] = coordinates;
+        if let Ok(layer) = Layer::picture(numbered(6, 4)?).perspective([[x0, y0], [x1, y1], [x2, y2], [x3, y3]]) {
+            let layer = if place_too { layer.place(Place::new().scale(scale).rotate(Deg(turn)))? } else { layer };
+            let first = render(layer.clone(), (16, 12), 16)?;
+            let second = render(layer, (16, 12), 16)?;
+            prop_assert_eq!(first.pixels(), second.pixels());
+            for got in pixels(&first) {
+                prop_assert!(got.iter().all(|value| (0.0..=1.0).contains(value)), "{got:?}");
+                prop_assert!(got[3] > 0.0 || got[..3] == [0.0, 0.0, 0.0], "{got:?}");
+            }
+        }
+    }
+}

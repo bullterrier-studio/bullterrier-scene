@@ -9,6 +9,7 @@ mod compose;
 mod data_boundary;
 mod drawing;
 mod look;
+mod perspective;
 mod picture;
 mod placement;
 mod structure;

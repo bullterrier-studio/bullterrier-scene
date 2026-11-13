@@ -3,7 +3,7 @@
 
 use crate::geometry::{MAX_PIXELS, Rect, Scale};
 use crate::placement::Layout;
-use crate::warp::{is_identity, warp_into};
+use crate::warp::{Map, is_identity, warp_into};
 use crate::{Error, Layer, Raster};
 
 /// The longest side of a picture, in output pixels.
@@ -56,13 +56,13 @@ fn lay(
     joined: &mut [f32],
 ) -> Result<(), Error> {
     let opened = layer.source.open(canvas)?;
-    let layout = Layout::new(layer.fit, layer.placed, opened.own, scale);
-    let request = layout.request();
+    let layout = Layout::new(layer.fit, layer.placed, layer.quad, opened.own, scale);
+    let request = layout.request(opened.own, opened.whole);
     // the one place the drawn-size limit is checked, before any source draws
     request.scale.size(request.window)?;
     let drawn = opened.draw(request)?;
     let (map, clip) = layout.warp(&drawn);
-    if is_identity(&drawn.raster, map, clip, columns, rows) {
+    if matches!(map, Map::Affine(affine) if is_identity(&drawn.raster, affine, clip, columns, rows)) {
         over(joined, drawn.raster.pixels(), layer.opacity);
     } else {
         let opacity = layer.opacity;

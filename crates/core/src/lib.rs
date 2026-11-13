@@ -10,6 +10,7 @@
 mod error;
 mod geometry;
 mod layer;
+mod perspective;
 mod placement;
 mod raster;
 mod render;

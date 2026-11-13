@@ -183,6 +183,12 @@ impl Layer {
         wrap(py, self.0.clone().place(place)).map(Self)
     }
 
+    /// This layer with the corners of its fitted box put on `corners`: four (x, y) points, top left, top right, bottom right,
+    /// bottom left.
+    fn perspective(&self, py: Python<'_>, corners: [[f64; 2]; 4]) -> PyResult<Self> {
+        wrap(py, self.0.clone().perspective(corners)).map(Self)
+    }
+
     /// This layer with the image look written as the recipe document `json`.
     fn look(&self, py: Python<'_>, json: &str) -> PyResult<Self> {
         wrap(py, self.0.clone().look(json)).map(Self)

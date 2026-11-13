@@ -55,7 +55,7 @@ impl Source for Drawing {
             width: self.width,
             height: self.height,
         };
-        Ok(Opened::new(own, move |request| {
+        let opened = Opened::new(own, move |request| {
             let (width, height) = request.scale.size(own)?;
             #[expect(clippy::cast_precision_loss, reason = "a side of at most 65,000 pixels")]
             let size = Size::px(width as f64, height as f64);
@@ -68,6 +68,7 @@ impl Source for Drawing {
                 raster: Arc::new(Raster::made(width, height, pixels)),
                 covers: own,
             })
-        }))
+        });
+        Ok(opened.drawing_whole())
     }
 }

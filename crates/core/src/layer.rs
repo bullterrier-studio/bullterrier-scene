@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use crate::Error;
 use crate::Raster;
+use crate::perspective::Quad;
 use crate::placement::{Fit, Fitting, Place, Placed};
 use crate::source::Source;
 use crate::source::drawing::Drawing;
@@ -20,6 +21,7 @@ pub struct Layer {
     pub(crate) source: Arc<dyn Source>,
     pub(crate) fit: Option<Fitting>,
     pub(crate) placed: Placed,
+    pub(crate) quad: Option<Quad>,
 }
 
 impl Layer {
@@ -30,6 +32,7 @@ impl Layer {
             source: Arc::new(source),
             fit: None,
             placed: Placed::default(),
+            quad: None,
         }
     }
 
@@ -135,6 +138,23 @@ impl Layer {
     /// or `dy` outside -1e6 to 1e6, an `anchor` outside 0 to 1, or a number that is not finite.
     pub fn place(mut self, place: Place) -> Result<Self, Error> {
         self.placed = self.placed.with(place)?;
+        self.quad = None;
+        Ok(self)
+    }
+
+    /// This layer with the corners of its fitted box put on `corners`, the places its top left, top right, bottom right and
+    /// bottom left land on, in design pixels of the canvas. It replaces what `place` says (the last of `place` and
+    /// `perspective` that is called wins); `fit` still comes first, so the corners are those of the fitted box. The
+    /// corners must make a strictly convex quadrilateral, which a perspective maps a rectangle to and nothing else; one
+    /// that turns counter-clockwise is accepted and is the box seen from behind, a mirror. The layer is drawn at the
+    /// largest scale the quadrilateral gives it, so the near side is sharp, cut down if that would pass the 2^27 pixels
+    /// of a layer; the far side is filtered, not aliased.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `corners` for a number that is not finite or is beyond -1e6 to 1e6, and for corners that
+    /// are not a strictly convex quadrilateral (a dart, a bowtie, three on a line, a corner twice).
+    pub fn perspective(mut self, corners: [[f64; 2]; 4]) -> Result<Self, Error> {
+        self.quad = Some(Quad::new(corners)?);
         Ok(self)
     }
 

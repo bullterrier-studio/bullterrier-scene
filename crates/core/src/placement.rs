@@ -5,9 +5,10 @@
 use std::str::FromStr;
 
 use crate::Error;
-use crate::geometry::{Rect, Scale};
+use crate::geometry::{Axis, MAX_PIXELS, Rect, Scale};
+use crate::perspective::Quad;
 use crate::source::{Drawn, Request};
-use crate::warp::Affine;
+use crate::warp::{Affine, Map, Projective};
 
 /// How `fit` puts a layer's box into the box it is given.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -155,7 +156,7 @@ const SKEW: Range = Range {
     unit: " degrees",
 };
 /// `dx` and `dy`: design pixels.
-const TRAVEL: Range = Range {
+pub(crate) const TRAVEL: Range = Range {
     low: -1e6,
     high: 1e6,
     unit: " design pixels",
@@ -169,7 +170,7 @@ const FRACTION: Range = Range {
 
 impl Range {
     /// `value` if it is a number within the range.
-    fn check(self, field: &str, value: f64) -> Result<f64, Error> {
+    pub(crate) fn check(self, field: &str, value: f64) -> Result<f64, Error> {
         if (self.low..=self.high).contains(&value) {
             Ok(value)
         } else {
@@ -370,6 +371,16 @@ impl Placed {
     }
 }
 
+/// The product of two 3 by 3 matrices.
+fn multiply3(left: [[f64; 3]; 3], right: [[f64; 3]; 3]) -> [[f64; 3]; 3] {
+    let entry = |row: usize, column: usize| (0..3).map(|k| left[row][k] * right[k][column]).sum();
+    [
+        [entry(0, 0), entry(0, 1), entry(0, 2)],
+        [entry(1, 0), entry(1, 1), entry(1, 2)],
+        [entry(2, 0), entry(2, 1), entry(2, 2)],
+    ]
+}
+
 /// Where one layer's box lands, for a source of a given size.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Layout {
@@ -381,11 +392,13 @@ pub(crate) struct Layout {
     /// The scale `fit` gives, along each axis.
     factor: (f64, f64),
     placed: Placed,
+    /// Where the fitted box's corners go, instead of what `placed` says.
+    quad: Option<Quad>,
 }
 
 impl Layout {
     /// The layout of a source whose box is `own`, drawn on an output of scale `scale`.
-    pub(crate) fn new(fit: Option<Fitting>, placed: Placed, own: Rect, scale: Scale) -> Self {
+    pub(crate) fn new(fit: Option<Fitting>, placed: Placed, quad: Option<Quad>, own: Rect, scale: Scale) -> Self {
         let (window, area, factor) = fitted(own, fit);
         Self {
             scale,
@@ -393,11 +406,24 @@ impl Layout {
             area,
             factor,
             placed,
+            quad,
         }
     }
 
-    /// What the source is asked to draw: the window, at the output scale times the fit and the zoom.
-    pub(crate) fn request(&self) -> Request {
+    /// What the source is asked to draw: the window, at the output scale times the fit and the zoom. For a perspective, at
+    /// the largest scale the quadrilateral gives any corner of the window along each axis (the near side is sharp), cut down
+    /// by one factor if what the source allocates (`whole` says whether that is its whole box or the window) would pass the
+    /// 2^27 pixels of a layer: the render stays valid and the near side loses sharpness.
+    pub(crate) fn request(&self, own: Rect, whole: bool) -> Request {
+        if let Some(quad) = self.quad {
+            let (across, down) = self.largest_scales(&quad);
+            let part = if whole { own } else { self.window };
+            let fit = capped(part, (across, down));
+            return Request {
+                window: self.window,
+                scale: Scale::exactly(across * fit, down * fit),
+            };
+        }
         let zoom = self.placed.scale;
         Request {
             window: self.window,
@@ -405,12 +431,48 @@ impl Layout {
         }
     }
 
+    /// The largest, over the four corners of the fitted box, of the output pixels a design pixel of the box has along its x
+    /// axis and along its y axis under the quadrilateral: the scale is largest at a corner, since a homography's local scale
+    /// changes by the last coordinate, which is linear (`the_largest_scale_of_a_perspective_is_at_a_corner` walks the box).
+    fn largest_scales(&self, quad: &Quad) -> (f64, f64) {
+        [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)]
+            .into_iter()
+            .map(|corner| self.scales_at(quad, corner))
+            .fold((0.0, 0.0), |(across, down), (x, y)| {
+                (f64::max(across, x), f64::max(down, y))
+            })
+    }
+
+    /// The output pixels a design pixel of the box has along x and along y at the point `(u, v)` of the fitted box (each
+    /// from 0 to 1): the lengths of the columns of the Jacobian of the output with respect to the box's design pixels.
+    fn scales_at(&self, quad: &Quad, (u, v): (f64, f64)) -> (f64, f64) {
+        let m = quad.matrix();
+        let axes = [self.scale.x.pixels(1.0), self.scale.y.pixels(1.0)];
+        let w = m[2][0] * u + m[2][1] * v + m[2][2];
+        let (qx, qy) = (
+            (m[0][0] * u + m[0][1] * v + m[0][2]) / w,
+            (m[1][0] * u + m[1][1] * v + m[1][2]) / w,
+        );
+        // d(output) / d(box x) and / d(box y): the homography's derivative by u and by v, over the box's design pixels
+        let (per_x, per_y) = (self.factor.0 / self.area.width, self.factor.1 / self.area.height);
+        let along_x = [
+            axes[0] * (m[0][0] - qx * m[2][0]) / w * per_x,
+            axes[1] * (m[1][0] - qy * m[2][0]) / w * per_x,
+        ];
+        let along_y = [
+            axes[0] * (m[0][1] - qx * m[2][1]) / w * per_y,
+            axes[1] * (m[1][1] - qy * m[2][1]) / w * per_y,
+        ];
+        (along_x[0].hypot(along_x[1]), along_y[0].hypot(along_y[1]))
+    }
+
     /// The warp of `drawn` onto the output: the map from its pixels to output pixels, and the clip in its pixels. A pixel `p`
     /// of the box is, in the fitted box, `(p - window) x factor`; then, about the anchor `a` and with `linear` the matrix of
     /// `Placed::linear`, `a + zoom x linear x (. - a)`; then moved by `(dx, dy)`; and each output axis scales by its own
     /// output scale. Each entry of the map is formed as one quotient of whole numbers where it can be (the count of pixels
-    /// of the raster is the divisor), so that a map that is the identity, a move or a quarter turn has exact entries.
-    pub(crate) fn warp(&self, drawn: &Drawn) -> (Affine, Rect) {
+    /// of the raster is the divisor), so that a map that is the identity, a move or a quarter turn has exact entries. A
+    /// perspective puts the fitted box on its quadrilateral instead, in the same way when that is a parallelogram.
+    pub(crate) fn warp(&self, drawn: &Drawn) -> (Map, Rect) {
         let covers = drawn.covers;
         // the raster's size, as floats
         #[expect(clippy::cast_precision_loss, reason = "a side of at most 2^27 pixels")]
@@ -431,19 +493,22 @@ impl Layout {
                 height: self.window.height * down,
             }
         };
-        let placed = self.placed;
-        let linear = placed.linear();
         let axes = [self.scale.x, self.scale.y];
         // the length of a pixel of the raster along each of its axes in the fitted box, times the pixels it holds
         let extent = [self.factor.0 * covers.width, self.factor.1 * covers.height];
-        let entry = |row: usize, column: usize| {
-            linear[row][column] * axes[row].pixels(placed.scale * extent[column]) / counts[column]
-        };
-        // where the raster's top left is in the fitted box, and the anchor
+        // where the raster's top left is in the fitted box
         let corner = [
             (covers.x - self.window.x) * self.factor.0,
             (covers.y - self.window.y) * self.factor.1,
         ];
+        if let Some(quad) = self.quad {
+            return (self.perspective(&quad, axes, extent, corner, counts), clip);
+        }
+        let placed = self.placed;
+        let linear = placed.linear();
+        let entry = |row: usize, column: usize| {
+            linear[row][column] * axes[row].pixels(placed.scale * extent[column]) / counts[column]
+        };
         let anchor = [placed.anchor.0 * self.area.width, placed.anchor.1 * self.area.height];
         let origin = [self.area.x, self.area.y];
         let moved = [placed.dx, placed.dy];
@@ -461,6 +526,126 @@ impl Layout {
             e: entry(1, 1),
             f: translation(1),
         };
-        (map, clip)
+        (Map::Affine(map), clip)
+    }
+
+    /// The map of a perspective: raster pixel to the point of the fitted box (a unit square), the box's homography to the
+    /// quadrilateral, and the output scale of each axis. A parallelogram is affine, and its entries are formed as those of
+    /// `place` are, so that an axis-aligned one that `place` can make gives the same map bit for bit.
+    fn perspective(&self, quad: &Quad, axes: [Axis; 2], extent: [f64; 2], corner: [f64; 2], counts: [f64; 2]) -> Map {
+        let m = quad.matrix();
+        let (width, height) = (self.area.width, self.area.height);
+        if m[2][0] == 0.0 && m[2][1] == 0.0 {
+            let ratio = [[m[0][0] / width, m[0][1] / height], [m[1][0] / width, m[1][1] / height]];
+            let entry =
+                |row: usize, column: usize| axes[row].pixels(ratio[row][column] * extent[column]) / counts[column];
+            let translation =
+                |row: usize| axes[row].pixels(m[row][2] + ratio[row][0] * corner[0] + ratio[row][1] * corner[1]);
+            return Map::Affine(Affine {
+                a: entry(0, 0),
+                b: entry(0, 1),
+                c: translation(0),
+                d: entry(1, 0),
+                e: entry(1, 1),
+                f: translation(1),
+            });
+        }
+        // the raster pixel to the unit square, then the homography, then the output scale
+        let to_square = [
+            [extent[0] / counts[0] / width, 0.0, corner[0] / width],
+            [0.0, extent[1] / counts[1] / height, corner[1] / height],
+            [0.0, 0.0, 1.0],
+        ];
+        let to_output = [
+            [axes[0].pixels(1.0), 0.0, 0.0],
+            [0.0, axes[1].pixels(1.0), 0.0],
+            [0.0, 0.0, 1.0],
+        ];
+        Map::Projective(Projective(multiply3(to_output, multiply3(m, to_square))))
+    }
+}
+
+/// The factor, at most 1, by which a part `part` of a box drawn at the scales `(across, down)` must be made smaller to have
+/// no more than 2^27 pixels: the ceilings add at most a pixel to each side, so `(w k a + 1)(h k d + 1)` is the bound, and `k`
+/// is the root of that quadratic.
+fn capped(part: Rect, (across, down): (f64, f64)) -> f64 {
+    #[expect(clippy::cast_precision_loss, reason = "the limit is a power of two: exact")]
+    let limit = MAX_PIXELS as f64;
+    let (wide, tall) = (part.width * across, part.height * down);
+    let (square, sides) = (wide * tall, wide + tall);
+    // wide tall k^2 + (wide + tall) k + 1 - limit = 0
+    let root = (-sides + (sides * sides + 4.0 * square * (limit - 1.0)).sqrt()) / (2.0 * square);
+    root.min(1.0)
+}
+
+// Inline, because no public route reaches these: a render shows the scale a source is asked for only through its pixels.
+#[cfg(test)]
+mod tests {
+    use super::{Layout, Placed, capped};
+    use crate::geometry::{MAX_PIXELS, Rect, Scale};
+    use crate::perspective::Quad;
+
+    fn rect(width: f64, height: f64) -> Rect {
+        Rect {
+            x: 0.0,
+            y: 0.0,
+            width,
+            height,
+        }
+    }
+
+    /// The cut keeps the ceilinged size of the part within 2^27 pixels, and leaves a part that fits alone.
+    #[test]
+    fn the_cut_keeps_the_drawn_size_of_a_part_within_the_limit_and_leaves_a_small_one() {
+        for (width, height, across, down) in [
+            (1000.0, 1000.0, 100.0, 100.0),
+            (3.0, 7.0, 1e7, 1e6),
+            (1e6, 1e-3, 500.0, 1e4),
+            (4000.0, 3000.0, 40.0, 10.0),
+            (1.0, 1.0, 11584.0, 11584.0),
+        ] {
+            let factor = capped(rect(width, height), (across, down));
+            assert!(factor > 0.0 && factor <= 1.0, "{factor}");
+            let (columns, rows) = ((width * across * factor).ceil(), (height * down * factor).ceil());
+            #[expect(clippy::cast_precision_loss, reason = "a power of two")]
+            let limit = MAX_PIXELS as f64;
+            assert!(
+                columns * rows <= limit,
+                "{width} x {height} at {across}, {down}: {columns} x {rows}"
+            );
+        }
+        assert!((capped(rect(10.0, 10.0), (2.0, 2.0)) - 1.0).abs() < f64::EPSILON);
+    }
+
+    /// The largest scale along each axis of the box is at a corner: a dense walk over the fitted box finds none above it.
+    #[test]
+    fn the_largest_scale_of_a_perspective_is_at_a_corner() {
+        let quads = [
+            [[26.0, 6.0], [38.0, 6.0], [58.0, 58.0], [6.0, 58.0]],
+            [[11.0, 7.0], [50.0, 15.0], [58.0, 55.0], [5.0, 44.0]],
+            [[0.0, 0.0], [90.0, 10.0], [60.0, 40.0], [5.0, 30.0]],
+            [[10.0, 50.0], [60.0, 40.0], [55.0, 5.0], [8.0, 20.0]],
+        ];
+        for corners in quads {
+            let quad = Quad::new(corners).unwrap_or_else(|_| unreachable!());
+            let layout = Layout::new(
+                None,
+                Placed::default(),
+                Some(quad),
+                rect(20.0, 12.0),
+                Scale::of_canvas(64, 64, 64, 64),
+            );
+            let (across, down) = layout.largest_scales(&quad);
+            for step_u in 0..=40 {
+                for step_v in 0..=40 {
+                    let at = (f64::from(step_u) / 40.0, f64::from(step_v) / 40.0);
+                    let (a, d) = layout.scales_at(&quad, at);
+                    assert!(
+                        a <= across * (1.0 + 1e-9) && d <= down * (1.0 + 1e-9),
+                        "{at:?}: ({a}, {d}) above ({across}, {down})"
+                    );
+                }
+            }
+        }
     }
 }

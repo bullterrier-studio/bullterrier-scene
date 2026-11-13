@@ -7,7 +7,7 @@
 use bullterrier_scene::{Deg, Error, Fit, Layer, Place, Raster};
 use proptest::prelude::*;
 
-use crate::common::{Outcome, close, exactly, pixel, pixels, rectangle, scene, solid, varied};
+use crate::common::{Outcome, close, exactly, made, numbered, pixel, pixels, rectangle, render, scene, solid, varied};
 
 const CLEAR: [f32; 4] = [0.0; 4];
 
@@ -19,44 +19,6 @@ type CornerTurn = fn(i64, i64) -> (i64, i64);
 
 /// A `fit` row: what it is, the box, the align, and the field a refusal names (`None` for a good row).
 type FitRow<'a> = (&'a str, [f64; 4], [f64; 2], Option<&'a str>);
-
-/// A picture whose every pixel differs, translucent in part, every value a multiple of 1/16 so that it is exact in a float
-/// (at most 12 columns and rows).
-fn numbered(width: usize, height: usize) -> Result<Raster, Error> {
-    let values = (0..height).flat_map(|y| {
-        (0..width).flat_map(move |x| {
-            let level = |number: usize| f32::from(u8::try_from(number).unwrap_or(0)) / 16.0;
-            [
-                level(1 + x),
-                level(1 + y),
-                level((x * 3 + y * 5) % 8 + 1),
-                level(4 + 4 * ((x + 2 * y) % 3) + 4) / 2.0,
-            ]
-        })
-    });
-    Raster::rgba(width, height, values.collect())
-}
-
-/// `layer` alone on a canvas of `width` by `height` design pixels at `size`.
-fn render(layer: Layer, (width, height): (u32, u32), size: u32) -> Result<Raster, Error> {
-    scene(width, height, [layer])?.render(size)
-}
-
-/// A raster of `width` by `height` pixels whose pixel (`x`, `y`) is `pixel_of(x, y)`.
-fn made(width: usize, height: usize, pixel_of: impl Fn(usize, usize) -> [f32; 4]) -> Result<Raster, Error> {
-    Raster::rgba(
-        width,
-        height,
-        (0..height)
-            .flat_map(|y| {
-                (0..width).flat_map({
-                    let pixel_of = &pixel_of;
-                    move |x| pixel_of(x, y)
-                })
-            })
-            .collect::<Vec<_>>(),
-    )
-}
 
 /// Whether `placed` is, bit for bit, `unplaced` moved so that pixel (`x`, `y`) of the unplaced picture is at
 /// `destination(x, y)`, and clear everywhere that no pixel moves to. `Some(message)` says where it is not.

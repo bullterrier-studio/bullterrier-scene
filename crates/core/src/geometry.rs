@@ -99,6 +99,14 @@ impl Scale {
         }
     }
 
+    /// A scale of exactly `x` by `y` output pixels per design pixel, whatever the canvas's.
+    pub(crate) fn exactly(x: f64, y: f64) -> Self {
+        Self {
+            x: Axis { pixels: x, design: 1.0 },
+            y: Axis { pixels: y, design: 1.0 },
+        }
+    }
+
     /// This scale with x multiplied by `x` and y by `y`: the scale a source is asked to draw at once it is fitted and zoomed.
     pub(crate) fn times(self, x: f64, y: f64) -> Self {
         Self {

@@ -50,12 +50,12 @@ impl Affine {
     };
 
     /// The point `(x, y)` mapped.
-    fn at(self, x: f64, y: f64) -> (f64, f64) {
+    pub(super) fn at(self, x: f64, y: f64) -> (f64, f64) {
         (self.a * x + self.b * y + self.c, self.d * x + self.e * y + self.f)
     }
 
     /// The map back. Exact when the determinant is 1 and the entries are small whole or half numbers: a division by 1.
-    fn inverse(self) -> Self {
+    pub(super) fn inverse(self) -> Self {
         let determinant = self.a * self.e - self.b * self.d;
         Self {
             a: self.e / determinant,
@@ -66,6 +66,20 @@ impl Affine {
             f: (self.c * self.d - self.a * self.f) / determinant,
         }
     }
+}
+
+/// A homography from raster pixels to output pixels: `(x, y)` goes to `((m00 x + m01 y + m02) / w, (m10 x + m11 y + m12) / w)`
+/// with `w = m20 x + m21 y + m22`. Its scale is free, so it can be given with any sign and any size.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Projective(pub(crate) [[f64; 3]; 3]);
+
+/// The map of a warp.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Map {
+    /// A move, a scale, a turn, a skew: parallel lines stay parallel.
+    Affine(Affine),
+    /// A perspective.
+    Projective(Projective),
 }
 
 /// Whether `map` and `clip` leave `source` exactly as it is on an output of `columns` by `rows` pixels.
@@ -122,17 +136,21 @@ fn warp_by(source: &Raster, map: Affine, clip: Rect, columns: usize, rows: usize
 }
 
 /// [`warp`] giving each output pixel the picture reaches to `put(index, pixel)` (`index` is `row * columns + column`; a
-/// pixel it does not reach is not given: it is transparent). Both kernels give the same pixels, bit for bit; the one for a
-/// map that keeps the axes finds each column's and row's taps and coverage once instead of for every pixel, and handing
-/// the pixels over lets a caller blend them where they land instead of making a raster of the output first.
+/// pixel it does not reach is not given: it is transparent). Both kernels for a map that keeps the axes give the same
+/// pixels, bit for bit; the one for an axis-aligned map finds each column's and row's taps and coverage once instead of for
+/// every pixel, and handing the pixels over lets a caller blend them where they land instead of making a raster of the
+/// output first.
 pub(crate) fn warp_into(
     source: &Raster,
-    map: Affine,
+    map: Map,
     clip: Rect,
     (columns, rows): (usize, usize),
     put: &mut impl FnMut(usize, [f32; 4]),
 ) {
-    warp_through(source, map, clip, (columns, rows), keeps_axes(map), put);
+    match map {
+        Map::Affine(map) => warp_through(source, map, clip, (columns, rows), keeps_axes(map), put),
+        Map::Projective(map) => footprint::through_projective(source, map, clip, (columns, rows), put),
+    }
 }
 
 /// Whether the footprint of an output pixel under `map` is a rectangle along the raster's axes: each column of the map has
@@ -174,7 +192,7 @@ fn exact_through(
     let (across_x, across_y) = (inverse.a.hypot(inverse.b), inverse.d.hypot(inverse.e));
     let (low_x, high_x) = (clip.x, clip.x + clip.width);
     let (low_y, high_y) = (clip.y, clip.y + clip.height);
-    let (first_row, last_row, first_column, last_column) = reach(map, clip, columns, rows);
+    let (first_row, last_row, first_column, last_column) = reach(|x, y| map.at(x, y), clip, columns, rows);
     #[expect(
         clippy::cast_possible_truncation,
         reason = "a share from 0 to 1 is held as a 32-bit float"
@@ -213,12 +231,12 @@ fn exact_through(
         // a one-pixel raster (a flat colour) needs no taps: every pixel is that one with its alpha scaled by the cover
         let flat = (width == 1 && height == 1).then(|| [pixels[0], pixels[1], pixels[2], pixels[3]]);
         for (row, (y_taps, share_y)) in (first_row..last_row).zip(down) {
-            if !is_drawn(share_y) {
+            if !is_positive(share_y) {
                 continue;
             }
             for (column, (x_taps, share_x)) in (first_column..last_column).zip(&across) {
                 let cover = share_x * share_y;
-                if !is_drawn(cover) {
+                if !is_positive(cover) {
                     continue;
                 }
                 let pixel = match flat {
@@ -236,7 +254,7 @@ fn exact_through(
                 let (x, y) = inverse.at(centre_x, centre_y);
                 let cover = share((x - low_x) / across_x, (high_x - x) / across_x)
                     * share((y - low_y) / across_y, (high_y - y) / across_y);
-                if !is_drawn(cover) {
+                if !is_positive(cover) {
                     continue;
                 }
                 let pixel = sample(
@@ -251,9 +269,9 @@ fn exact_through(
     }
 }
 
-/// Whether a coverage puts anything on the output: a number above 0. A coverage that is NaN (a pixel the map cannot place)
-/// draws nothing, and is not mistaken for one that does.
-fn is_drawn(cover: f64) -> bool {
+/// Whether `value` is a number above 0: a coverage that puts something on the output, a last coordinate in front of a
+/// horizon. NaN is not, and is not mistaken for one that is.
+fn is_positive(cover: f64) -> bool {
     matches!(cover.partial_cmp(&0.0), Some(std::cmp::Ordering::Greater))
 }
 
@@ -354,15 +372,20 @@ fn finish(mixed: [f32; 4], total: f32, cover: f32) -> [f32; 4] {
 }
 
 /// The rows and columns of the output that the clip can reach, as `(first row, end row, first column, end column)`: the
-/// bounding box of its corners under `map`, a pixel wider, within the output.
-fn reach(map: Affine, clip: Rect, columns: usize, rows: usize) -> (usize, usize, usize, usize) {
+/// bounding box of its corners under `forward`, a pixel wider, within the output.
+fn reach(
+    forward: impl Fn(f64, f64) -> (f64, f64),
+    clip: Rect,
+    columns: usize,
+    rows: usize,
+) -> (usize, usize, usize, usize) {
     let corners = [
         (clip.x, clip.y),
         (clip.x + clip.width, clip.y),
         (clip.x, clip.y + clip.height),
         (clip.x + clip.width, clip.y + clip.height),
     ]
-    .map(|(x, y)| map.at(x, y));
+    .map(|(x, y)| forward(x, y));
     let range = |pick: fn((f64, f64)) -> f64, count: usize| {
         let (low, high) = corners
             .iter()

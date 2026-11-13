@@ -7,7 +7,7 @@ data the Rust core takes; the core checks it.
 
 import json
 import math
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from numbers import Real
 from pathlib import Path
 from typing import Any, Self
@@ -70,6 +70,11 @@ def _items[T](name: str, value: object, wanted: str, one: Callable[[str, object]
     if not isinstance(value, (list, tuple, np.ndarray)) or len(value) != size:
         raise TypeError(f"{name}: {wanted} is wanted, got {_shown(value)}")
     return tuple(one(name, item) for item in value)
+
+
+def _pair(name: str, value: object) -> tuple[float, ...]:
+    """`value` as an `(x, y)` pair of finite floats; anything else is an error naming `name`."""
+    return _items(name, value, "(x, y), two numbers", _number, 2)
 
 
 class Layer:
@@ -183,6 +188,20 @@ class Layer:
                 anchor=None if anchor is None else _items("anchor", anchor, "(x, y), two numbers", _number, 2),
             )
         )
+
+    def perspective(self, corners: Sequence[tuple[float, float]]) -> Self:
+        """This layer with the corners of its fitted box put on `corners`, replacing what `place` says.
+
+        `corners` are four `(x, y)` points in design pixels of the canvas, where the fitted box's top left, top right,
+        bottom right and bottom left land. The last of `place` and `perspective` called wins; `fit` comes first. The
+        corners must make a strictly convex quadrilateral (no dart, no bowtie, no three on a line, no corner twice);
+        one that turns counter-clockwise is accepted, the box seen from behind. The layer is drawn at the largest scale
+        the quadrilateral gives it, so its near side is sharp (cut down if that would pass the 2^27 pixels of a layer),
+        and its far side is filtered. A wrong shape or type is a `TypeError`, and a number beyond float range, beyond
+        -1e6 to 1e6 or not finite, or corners that are no such quadrilateral, an `InvalidError` naming `corners`.
+        """
+        rows = _items("corners", corners, "four (x, y) pairs", _pair, 4)
+        return type(self)(self._core.perspective(rows))
 
     def opacity(self, value: float) -> Self:
         """This layer at `value` of its own alpha, from 0 (hidden) to 1 (the default); `InvalidError` outside it."""

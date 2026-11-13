@@ -38,6 +38,9 @@ pub(crate) struct Drawn {
 pub(crate) struct Opened<'a> {
     /// The source's whole box, in design pixels, its top left at `(0, 0)`.
     pub(crate) own: Rect,
+    /// Whether it draws the whole box whatever part is asked for (a vector drawing), so that what it allocates is the box at
+    /// the scale, not the part.
+    pub(crate) whole: bool,
     draw: Box<dyn FnOnce(Request) -> Result<Drawn, Error> + 'a>,
 }
 
@@ -46,8 +49,15 @@ impl<'a> Opened<'a> {
     pub(crate) fn new(own: Rect, draw: impl FnOnce(Request) -> Result<Drawn, Error> + 'a) -> Self {
         Self {
             own,
+            whole: false,
             draw: Box::new(draw),
         }
+    }
+
+    /// This source, saying that it draws the whole of its box.
+    pub(crate) fn drawing_whole(mut self) -> Self {
+        self.whole = true;
+        self
     }
 
     /// The part of the box that `request` asks for.

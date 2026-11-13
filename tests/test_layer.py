@@ -510,3 +510,70 @@ def test_numpy_numbers_lists_and_arrays_are_taken_where_a_number_or_a_pair_is(ca
 def test_place_takes_keywords_only():
     with pytest.raises(TypeError, match="positional"):
         Layer.fill("#ffffff").place(2)  # type: ignore[call-arg]  # the point: a positional argument
+
+
+# --- perspective -----------------------------------------------------------------------------------------------
+
+
+def test_a_perspective_on_the_box_itself_is_the_picture_and_a_flat_one_is_a_move():
+    picture = numbered(4, 4)
+    on_itself = canvas_of(Layer.picture(picture).perspective([(0, 0), (4, 0), (4, 4), (0, 4)]), 4)
+    assert np.array_equal(on_itself, picture)
+    moved = canvas_of(Layer.picture(picture).perspective([(3, 2), (7, 2), (7, 6), (3, 6)]), 8)
+    expected = np.zeros((8, 8, 4), np.float32)
+    expected[2:6, 3:7] = picture
+    assert np.array_equal(moved, expected)
+
+
+def test_a_mirrored_quadrilateral_is_numpys_flip_of_the_clockwise_one():
+    picture = numbered(4, 4)
+    mirrored = canvas_of(Layer.picture(picture).perspective([(4, 0), (0, 0), (0, 4), (4, 4)]), 4)
+    assert np.array_equal(mirrored, np.fliplr(picture))
+
+
+def test_a_perspective_with_the_far_side_narrow_leaves_the_corners_of_the_canvas_clear():
+    drawn = canvas_of(Layer.picture(numbered(8, 8)).perspective([(10, 2), (22, 2), (30, 30), (2, 30)]), 32)
+    assert drawn[0, 0, 3] == 0
+    assert drawn[0, 31, 3] == 0
+    assert drawn[20, 16, 3] == 1
+
+
+def test_the_last_of_place_and_perspective_wins():
+    picture = numbered(4, 4)
+    flat = [(3, 2), (7, 2), (7, 6), (3, 6)]
+    by_place = canvas_of(Layer.picture(picture).place(dx=3, dy=2), 8)
+    assert np.array_equal(canvas_of(Layer.picture(picture).place(dx=9).perspective(flat), 8), by_place)
+    assert np.array_equal(canvas_of(Layer.picture(picture).perspective(flat).place(dx=3, dy=2), 8), by_place)
+
+
+@pytest.mark.parametrize(
+    ("corners", "match"),
+    [
+        pytest.param([(0, 0), (10, 10), (10, 0), (0, 10)], "corners", id="a bowtie"),
+        pytest.param([(0, 0), (10, 0), (2, 2), (0, 10)], "corners", id="a dart"),
+        pytest.param([(0, 0), (5, 0), (10, 0), (0, 10)], "corners", id="three on a line"),
+        pytest.param([(0, 0), (1e9, 0), (10, 10), (0, 10)], "corners", id="a corner at 1e9"),
+        pytest.param([(0, 0), (float("nan"), 0), (10, 10), (0, 10)], "corners", id="a NaN"),
+        pytest.param([(0, 0), (HUGE, 0), (10, 10), (0, 10)], "corners", id="an integer beyond a float"),
+    ],
+)
+def test_corners_that_are_no_convex_quadrilateral_are_an_invalid_error_naming_them(corners, match: str):
+    with pytest.raises(InvalidError, match=match):
+        Layer.fill("#ffffff").perspective(corners)
+
+
+@pytest.mark.parametrize(
+    "corners",
+    [
+        pytest.param([(0, 0), (1, 0), (1, 1)], id="three corners"),
+        pytest.param([(0, 0), (1, 0), (1, 1), (0, 1), (5, 5)], id="five corners"),
+        pytest.param([(0, 0), (1, 0), (1, 1), (0,)], id="a corner of one number"),
+        pytest.param([(0, 0), (1, 0), (1, 1), 0], id="a corner that is a number"),
+        pytest.param([(0, 0), (1, 0), (1, 1), (0, True)], id="a bool"),
+        pytest.param("0011", id="a text"),
+        pytest.param(None, id="None"),
+    ],
+)
+def test_corners_of_the_wrong_shape_or_type_are_a_type_error_naming_them(corners):
+    with pytest.raises(TypeError, match="corners"):
+        Layer.fill("#ffffff").perspective(corners)
