@@ -91,18 +91,35 @@ class Layer:
         self._core = core
 
     @classmethod
-    def picture(cls, source: npt.NDArray[Any] | Path) -> Self:
+    def picture(
+        cls, source: npt.NDArray[Any] | Path, *, maps: Mapping[str, npt.NDArray[Any] | Path | None] | None = None
+    ) -> Self:
         """A picture: an array or a `pathlib.Path` read when the scene renders (upright, sRGB, alpha kept).
 
         The array is (height, width, 3 or 4) of `uint8`, `uint16` or floats 0 to 1; four channels are straight alpha.
         Its box is its pixels, one design pixel each, at the canvas origin; what lies outside the canvas is cut. A `str`
         is a `TypeError`: pass `Path(...)`. An array of another shape, or a value outside 0 to 1, is an `InvalidError`.
+
+        `maps` are the picture's named maps, each a value 0 to 1 for each pixel of the picture: an array (height, width)
+        of `uint8`, `uint16` or floats, a `Path` to a grey picture read when the scene renders, or `None`, a hole that
+        a render refuses until parameters fill holes. A map is cut and fitted with the picture; a look sees the maps
+        its recipe uses (`subject`, `depth`, a `given` region) and `mask("name")` multiplies by one. A map of another
+        size than its picture, or a hole, is an `InvalidError` at render naming the layer and the map; a name that
+        is not letters, digits and `_` starting with a letter, an `InvalidError` at the call.
         """
         if isinstance(source, str):
             raise TypeError(f"a picture is an array or a Path, got the text {source!r}: pass Path({source!r})")
-        if isinstance(source, Path):
-            return cls(_core.Layer.picture_file(source))
-        return cls(_core.Layer.picture(source))
+        made = cls(_core.Layer.picture_file(source) if isinstance(source, Path) else _core.Layer.picture(source))
+        for name, given in (maps or {}).items():
+            if isinstance(given, str):
+                raise TypeError(f"map {name!r} is an array or a Path, got the text {given!r}: pass Path({given!r})")
+            if given is None:
+                made = type(made)(made._core.map_hole(name))
+            elif isinstance(given, Path):
+                made = type(made)(made._core.map_file(name, given))  # noqa: SLF001  (a layer of this class)
+            else:
+                made = type(made)(made._core.map(name, given))  # noqa: SLF001  (a layer of this class)
+        return made
 
     @classmethod
     def drawing(cls, source: Any) -> Self:
@@ -202,6 +219,28 @@ class Layer:
         """
         rows = _items("corners", corners, "four (x, y) pairs", _pair, 4)
         return type(self)(self._core.perspective(rows))
+
+    def mask(self, by: Self | str, *, use: str = "alpha", feather: float = 0, invert: bool = False) -> Self:
+        """This layer with its alpha multiplied by a mask; call it again to multiply another in.
+
+        `by` is a `Layer`, drawn on the canvas as its own `fit` and `place` say, or the name of one of this picture
+        layer's `maps`, cut and fitted with the picture. A mask layer's own alpha includes its masks, its opacity
+        multiplies the mask, and it has no name (`InvalidError`); masks nest at most `MAX_DEPTH` deep. `use` reads
+        the mask layer as `"alpha"` or as `"luminance"` (0.2126 R + 0.7152 G + 0.0722 B of the sRGB values, times the
+        alpha: white keeps, black hides); a map is its own values, `"alpha"` only. `feather` blurs the mask's edge by a
+        Gaussian of that standard deviation in design pixels (0 to 1,000,000; 0 is hard; three box passes within 0.0099
+        of the Gaussian's distribution function), before `invert` makes the mask 1 minus itself. `InvalidError` names
+        the field for a name that is no map of this layer, `use` another word, a `feather` out of range; a `TypeError`
+        for a wrong type.
+        """
+        if not isinstance(use, str):
+            raise TypeError(f'use: "alpha" or "luminance" is wanted, got {type(use).__name__} {_shown(use)}')
+        blur, flipped = _number("feather", feather), _flag("invert", invert)
+        if isinstance(by, Layer):
+            return type(self)(self._core.mask_layer(by._core, use, blur, flipped))  # noqa: SLF001  (a layer)
+        if isinstance(by, str):
+            return type(self)(self._core.mask_map(by, use, blur, flipped))
+        raise TypeError(f"by: a Layer or the name of one of this layer's maps is wanted, got {type(by).__name__}")
 
     def opacity(self, value: float) -> Self:
         """This layer at `value` of its own alpha, from 0 (hidden) to 1 (the default); `InvalidError` outside it."""

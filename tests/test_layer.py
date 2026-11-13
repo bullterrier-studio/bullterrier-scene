@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from bullterrier_scene import FormatError, InvalidError, Layer, ReadError, Scene
+from bullterrier_scene import MAX_DEPTH, FormatError, InvalidError, Layer, ReadError, Scene
 
 PLUS_ONE_STOP = {"steps": [{"effect": "grade", "params": {"exposure": 1.0}, "opacity": 1.0, "blend_mode": "normal"}]}
 RECTANGLE = (
@@ -577,3 +577,167 @@ def test_corners_that_are_no_convex_quadrilateral_are_an_invalid_error_naming_th
 def test_corners_of_the_wrong_shape_or_type_are_a_type_error_naming_them(corners):
     with pytest.raises(TypeError, match="corners"):
         Layer.fill("#ffffff").perspective(corners)
+
+
+# --- maps and masks ------------------------------------------------------------------------------------------------
+
+
+def grey_png(path: Path, levels: np.ndarray) -> Path:
+    """An 8-bit grey PNG of `levels` (uint8, height, width), written with the standard library."""
+    height, width = levels.shape
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+    rows = b"".join(b"\x00" + row.tobytes() for row in levels)
+    header = struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0)
+    path.write_bytes(
+        b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+    )
+    return path
+
+
+LEVELS = np.array([[0.0, 0.25, 0.5, 1.0], [1.0, 0.5, 0.25, 0.0]], np.float32)
+
+
+def masked_alpha(layer: Layer) -> np.ndarray:
+    return Scene(4, 2).add(layer).render(4)[..., 3]
+
+
+def photo(**maps) -> Layer:
+    """A picture of the size of `LEVELS` with the maps given."""
+    return Layer.picture(np.full((2, 4, 3), 0.5, np.float32), maps=maps)
+
+
+@pytest.mark.parametrize(
+    "given",
+    [
+        pytest.param(LEVELS, id="float32"),
+        pytest.param(LEVELS.astype(np.float64), id="float64"),
+        pytest.param(np.rint(LEVELS * 255).astype(np.uint8), id="uint8"),
+        pytest.param(np.rint(LEVELS * 65535).astype(np.uint16), id="uint16"),
+    ],
+)
+def test_a_map_array_of_any_supported_type_is_the_alpha_a_mask_by_its_name_gives(given):
+    # a whole level of 255 or 65535 is within half a level of the quarters this picture holds
+    assert np.allclose(masked_alpha(photo(m=given).mask("m")), LEVELS, atol=0.5 / 255)
+
+
+def test_a_map_file_is_read_when_the_scene_renders_as_a_grey_picture(tmp_path):
+    path = grey_png(tmp_path / "m.png", np.rint(LEVELS * 255).astype(np.uint8))
+    layer = photo(m=path).mask("m")  # not read yet: a file that is gone later is a render error
+    assert np.allclose(masked_alpha(layer), LEVELS, atol=0.5 / 255)
+    path.unlink()
+    with pytest.raises(ReadError, match=r"m\.png"):
+        masked_alpha(layer)
+
+
+def test_a_map_of_another_size_or_a_hole_is_refused_at_render_naming_the_layer_and_the_map():
+    with pytest.raises(InvalidError, match=r"photo\.map\.m.*3 x 2.*4 x 2"):
+        masked_alpha(photo(m=np.zeros((2, 3), np.float32)).named("photo"))
+    with pytest.raises(InvalidError, match=r"photo\.map\.m.*hole"):
+        masked_alpha(photo(m=None).named("photo"))
+
+
+@pytest.mark.parametrize(
+    ("maps", "error", "match"),
+    [
+        pytest.param({"m": np.zeros((2, 4, 1), np.float32)}, InvalidError, "values.*height, width", id="three axes"),
+        pytest.param({"m": np.full((2, 4), 2.0, np.float32)}, InvalidError, "values", id="a level above 1"),
+        pytest.param({"m": np.zeros((2, 4), np.int8)}, TypeError, "uint8, uint16, float32 or float64", id="an int8"),
+        pytest.param({"m": "m.png"}, TypeError, r"Path\('m.png'\)", id="a text"),
+        pytest.param({"2m": LEVELS}, InvalidError, "map", id="a name that starts with a digit"),
+        pytest.param({"": LEVELS}, InvalidError, "map", id="an empty name"),
+    ],
+)
+def test_a_map_that_is_not_one_is_refused_at_the_call(maps, error, match):
+    with pytest.raises(error, match=match):
+        photo(**maps)
+
+
+def test_a_mask_by_a_layer_reads_alpha_or_luminance_and_inverts():
+    ramp = np.array([[[1, 0, 0, a] for a in (0.0, 0.25, 0.5, 1.0)]] * 2, np.float32)
+    by = Layer.picture(ramp)
+    fill = Layer.fill("#ffffff")
+    assert np.allclose(masked_alpha(fill.mask(by)), LEVELS[[0, 0]], atol=1e-6)
+    assert np.allclose(masked_alpha(fill.mask(by, invert=True)), 1 - LEVELS[[0, 0]], atol=1e-6)
+    # pure red is 0.2126 of white, times its alpha
+    assert np.allclose(masked_alpha(fill.mask(by, use="luminance")), 0.2126 * LEVELS[[0, 0]], atol=1e-6)
+
+
+def test_a_feather_blurs_the_edge_of_a_mask_and_a_feather_of_zero_does_not():
+    half = np.zeros((20, 20, 4), np.float32)
+    half[:, :10] = 1
+    base = Layer.fill("#ffffff")
+
+    def edge_row(**options) -> np.ndarray:
+        return Scene(20, 20).add(base.mask(Layer.picture(half), **options)).render(20)[10, :, 3]
+
+    hard, soft = edge_row(), edge_row(feather=2)
+    assert np.array_equal(hard, edge_row(feather=0))
+    assert np.array_equal(hard, (np.arange(20) < 10).astype(np.float32))
+    assert 0 < soft[9] < 1
+    assert 0 < soft[10] < 1
+    assert abs(soft[9] + soft[10] - 1) < 1e-5  # symmetric about the edge, up to the far edges of the shape
+
+
+def test_a_mask_call_returns_a_new_layer_and_the_old_one_keeps_what_it_had():
+    base = photo(m=LEVELS)
+    masked = base.mask("m")
+    assert np.array_equal(masked_alpha(base), np.ones((2, 4), np.float32))
+    assert np.allclose(masked_alpha(masked), LEVELS, atol=1e-6)
+
+
+@pytest.mark.parametrize(
+    ("call", "match"),
+    [
+        pytest.param(lambda: photo(m=LEVELS).mask("n"), r'mask.*"n".*its maps: m', id="a name that is no map"),
+        pytest.param(lambda: Layer.fill("#fff000").mask("m"), "mask", id="a name on a layer with no picture"),
+        pytest.param(lambda: photo(m=LEVELS).mask("m", use="luminance"), "use", id="a map as luminance"),
+        pytest.param(lambda: photo(m=LEVELS).mask("m", use="light"), "use", id="another word for use"),
+        pytest.param(lambda: photo(m=LEVELS).mask("m", feather=-1), "feather", id="a negative feather"),
+        pytest.param(lambda: photo(m=LEVELS).mask("m", feather=1e9), "feather.*1000000", id="a feather past the range"),
+        pytest.param(
+            lambda: photo(m=LEVELS).mask("m", feather=float("nan")), "feather", id="a feather that is no number"
+        ),
+        pytest.param(
+            lambda: Layer.fill("#ffffff").mask(Layer.fill("#ffffff").named("shape")),
+            "mask.*name",
+            id="a named mask layer",
+        ),
+    ],
+)
+def test_a_mask_the_core_refuses_is_an_invalid_error_naming_the_field(call, match):
+    with pytest.raises(InvalidError, match=match):
+        call()
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        pytest.param({"by": 3}, "by", id="a number for by"),
+        pytest.param({"by": None}, "by", id="None for by"),
+        pytest.param({"by": "m", "use": 1}, "use", id="a number for use"),
+        pytest.param({"by": "m", "feather": "8"}, "feather", id="a text for the feather"),
+        pytest.param({"by": "m", "feather": True}, "feather", id="a bool for the feather"),
+        pytest.param({"by": "m", "invert": 1}, "invert", id="a number for invert"),
+    ],
+)
+def test_a_wrong_type_in_a_mask_call_is_a_type_error_naming_the_argument(kwargs, match):
+    with pytest.raises(TypeError, match=match):
+        photo(m=LEVELS).mask(**kwargs)
+
+
+def test_masks_nest_to_max_depth_and_one_deeper_is_an_invalid_error():
+    assert MAX_DEPTH == 16
+    layer = Layer.fill("#ffffff")
+    for _ in range(MAX_DEPTH):
+        layer = Layer.fill("#ffffff").mask(layer)
+    assert np.array_equal(masked_alpha(layer), np.ones((2, 4), np.float32))
+    with pytest.raises(InvalidError, match=r"mask.*16"):
+        Layer.fill("#ffffff").mask(layer)
+
+
+def test_mask_is_keyword_only_after_by():
+    with pytest.raises(TypeError):
+        Layer.fill("#ffffff").mask(Layer.fill("#ffffff"), "luminance")  # type: ignore[call-arg]  # on purpose

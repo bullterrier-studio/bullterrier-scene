@@ -10,7 +10,7 @@ use numpy::{Element, PyArray1, PyArray3, PyArrayMethods, PyReadonlyArrayDyn, PyU
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 
-use bullterrier_scene::{Deg, Fit, Place, Raster};
+use bullterrier_scene::{Deg, Fit, Map, Mask, Place, Raster, Use};
 
 /// bullterrier-scene's Rust core.
 #[pymodule]
@@ -21,6 +21,10 @@ mod _core {
     /// The most layers a scene holds.
     #[pymodule_export]
     const MAX_LAYERS: usize = bullterrier_scene::MAX_LAYERS;
+
+    /// The deepest masks nest.
+    #[pymodule_export]
+    const MAX_DEPTH: usize = bullterrier_scene::MAX_DEPTH;
 }
 
 /// The red, green, blue and alpha values of `array` (height, width, 3 or 4 channels) as floats from 0 to 1: `scale` maps its
@@ -66,6 +70,48 @@ fn raster_of(py: Python<'_>, array: &Bound<'_, PyAny>) -> PyResult<Raster> {
         )]
         return levels(py, &found, |value| value as f32);
     }
+    Err(unsupported(array, "a picture array", "(height, width, 3 or 4)"))
+}
+
+/// A map as the core takes it: an array of `uint8`, `uint16`, `float32` or `float64`, (height, width), levels from 0 to 1.
+fn map_of(py: Python<'_>, array: &Bound<'_, PyAny>) -> PyResult<Map> {
+    fn grey<T: Element + Copy>(
+        py: Python<'_>,
+        array: &PyReadonlyArrayDyn<'_, T>,
+        to_level: impl Fn(T) -> f32,
+    ) -> PyResult<Map> {
+        let shape = array.shape();
+        let &[height, width] = shape else {
+            return Err(error::invalid(
+                py,
+                format!("values: a map array is (height, width), got shape {shape:?}"),
+            ));
+        };
+        let values = array.as_array().iter().map(|value| to_level(*value)).collect();
+        Map::new(width, height, values).map_err(|failure| error::raised(py, &failure))
+    }
+    if let Ok(found) = array.extract::<PyReadonlyArrayDyn<'_, u8>>() {
+        return grey(py, &found, |value| f32::from(value) / 255.0);
+    }
+    if let Ok(found) = array.extract::<PyReadonlyArrayDyn<'_, u16>>() {
+        return grey(py, &found, |value| f32::from(value) / 65535.0);
+    }
+    if let Ok(found) = array.extract::<PyReadonlyArrayDyn<'_, f32>>() {
+        return grey(py, &found, |value| value);
+    }
+    if let Ok(found) = array.extract::<PyReadonlyArrayDyn<'_, f64>>() {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a level from 0 to 1 is held as a 32-bit float"
+        )]
+        return grey(py, &found, |value| value as f32);
+    }
+    Err(unsupported(array, "a map array", "(height, width)"))
+}
+
+/// The `TypeError` for an array that is none of the element types a picture or a map takes: what is wrong with it, and how to fix
+/// it where that is known (the other byte order).
+fn unsupported(array: &Bound<'_, PyAny>, what: &str, shaped: &str) -> PyErr {
     let dtype = array.getattr("dtype").ok();
     let text = |name: &str| {
         dtype
@@ -75,18 +121,18 @@ fn raster_of(py: Python<'_>, array: &Bound<'_, PyAny>) -> PyResult<Raster> {
     };
     // `byteorder` is `>` or `<` only for an order that is not the machine's
     if text("byteorder").is_some_and(|order| matches!(order.to_string().as_str(), ">" | "<")) {
-        return Err(pyo3::exceptions::PyTypeError::new_err(
-            "a picture array is in the other byte order than this machine's: convert it with \
-             array.astype(array.dtype.newbyteorder(\"=\"))",
+        return pyo3::exceptions::PyTypeError::new_err(format!(
+            "{what} is in the other byte order than this machine's: convert it with \
+             array.astype(array.dtype.newbyteorder(\"=\"))"
         ));
     }
     let got = text("name").map_or_else(
         || "something that is no numpy array".to_owned(),
         |name| format!("dtype {name}"),
     );
-    Err(pyo3::exceptions::PyTypeError::new_err(format!(
-        "a picture array holds uint8, uint16, float32 or float64 values, shaped (height, width, 3 or 4), got {got}"
-    )))
+    pyo3::exceptions::PyTypeError::new_err(format!(
+        "{what} holds uint8, uint16, float32 or float64 values, shaped {shaped}, got {got}"
+    ))
 }
 
 /// One layer of a scene: a source, and how it joins the layers below it. It never changes; a call returns a new one.
@@ -100,6 +146,18 @@ struct Scene(bullterrier_scene::Scene);
 /// `result` with a refusal of the core raised as the package's exception.
 fn wrap<T>(py: Python<'_>, result: Result<T, bullterrier_scene::Error>) -> PyResult<T> {
     result.map_err(|failure| error::raised(py, &failure))
+}
+
+/// `layer` with `mask` set to read `uses` ("alpha" or "luminance"), blurred by `feather` design pixels and inverted if `invert`.
+fn masked(
+    layer: &bullterrier_scene::Layer,
+    mask: Mask,
+    uses: &str,
+    feather: f64,
+    invert: bool,
+) -> Result<bullterrier_scene::Layer, bullterrier_scene::Error> {
+    let mask = mask.using(uses.parse::<Use>()?).feather(feather);
+    layer.clone().mask(if invert { mask.invert() } else { mask })
 }
 
 #[pymethods]
@@ -127,6 +185,31 @@ impl Layer {
     #[staticmethod]
     fn fill(py: Python<'_>, color: &str) -> PyResult<Self> {
         wrap(py, bullterrier_scene::Layer::fill(color)).map(Self)
+    }
+
+    /// This picture layer with the array `values` (height, width; levels 0 to 1) as its map `name`.
+    fn map(&self, py: Python<'_>, name: &str, values: &Bound<'_, PyAny>) -> PyResult<Self> {
+        wrap(py, self.0.clone().map(name, map_of(py, values)?)).map(Self)
+    }
+
+    /// This picture layer with the grey picture in the file `path` as its map `name`, read when the scene renders.
+    fn map_file(&self, py: Python<'_>, name: &str, path: PathBuf) -> PyResult<Self> {
+        wrap(py, self.0.clone().map_file(name, path)).map(Self)
+    }
+
+    /// This picture layer with a hole for its map `name`: a render refuses it until parameters fill holes.
+    fn map_hole(&self, py: Python<'_>, name: &str) -> PyResult<Self> {
+        wrap(py, self.0.clone().map_hole(name)).map(Self)
+    }
+
+    /// This layer masked by the layer `by`, drawn on the canvas.
+    fn mask_layer(&self, py: Python<'_>, by: &Layer, uses: &str, feather: f64, invert: bool) -> PyResult<Self> {
+        wrap(py, masked(&self.0, Mask::new(by.0.clone()), uses, feather, invert)).map(Self)
+    }
+
+    /// This picture layer masked by its map `name`.
+    fn mask_map(&self, py: Python<'_>, name: &str, uses: &str, feather: f64, invert: bool) -> PyResult<Self> {
+        wrap(py, masked(&self.0, Mask::new(name), uses, feather, invert)).map(Self)
     }
 
     /// This layer called `name`.
