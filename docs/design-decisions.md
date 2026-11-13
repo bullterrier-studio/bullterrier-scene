@@ -22,11 +22,14 @@ Neither crate is published (`publish = false`). A path dependency would tie scen
 branch. *Reason:* a pinned revision builds the same everywhere and a bump is a reviewed commit. *Consequence:* `deny.toml`
 allows exactly those two git sources; a dependency arrives with its first user (C1), since an unused crate fails the gate.
 
-## The pins: image `f319f13`, vector `05debff` (2026-11-13)
+## The pins: image `f319f13`, vector `5442066` (2026-11-13)
 
 `Cargo.toml` pins `bullterrier-image` (`f319f138ffe11c7764f857f09c5610c367deb4bc`) and `bullterrier-vector`
-(`05debff5f3cddb73602315262c86bd27fc97b296`), the heads of their `main` when C1 began, with no feature turned on (image's
-`onnx` stays off). *To bump:* change `rev` in a commit of its own, run `cargo test -p bullterrier-scene --test it
+(`5442066f9fa5e280ffab6f3a9f85456578900c7f`), the heads of their `main` when C1 began (vector's was `05debff`; C3 bumped it
+for text), with no feature turned on (image's `onnx` stays off). *Vector's bump brought* V10e (`Window`: a rectangle of the
+output drawn alone, the window drawing B1 and the C2 zoom limit wait for) and V10f (text runs: a text of several fonts and
+sizes); the C3 text layer uses neither (one font, whole frame), and the `data_boundary` tests passed unchanged. Image's stays:
+its `format` and region-map work is not pushed. *To bump:* change `rev` in a commit of its own, run `cargo test -p bullterrier-scene --test it
 data_boundary` first (it reads the forms the siblings write with the pinned readers and fails naming what changed), then the
 gate. `deny.toml` allows the two git URLs, `OFL-1.1` for `bullterrier-vector` alone (its bundled fonts), and the licences
 their dependencies bring. *Cost:* a cold build of the two crates is about 35 s (dev) or 95 s (release wheel, 5.2 MB), and the

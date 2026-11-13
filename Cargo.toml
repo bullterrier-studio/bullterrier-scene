@@ -18,7 +18,7 @@ bullterrier-scene = { path = "crates/core" }
 # The sibling crates, pinned to a revision (docs/design-decisions.md, "Image and vector come in as git dependencies"):
 # bump `rev` in a commit of its own. Used only in crates/core/src/source/picture.rs and drawing.rs. Neither is published.
 bullterrier-image = { git = "https://github.com/bullterrier-studio/bullterrier-image", rev = "f319f138ffe11c7764f857f09c5610c367deb4bc" }
-bullterrier-vector = { git = "https://github.com/bullterrier-studio/bullterrier-vector", rev = "05debff5f3cddb73602315262c86bd27fc97b296" }
+bullterrier-vector = { git = "https://github.com/bullterrier-studio/bullterrier-vector", rev = "5442066f9fa5e280ffab6f3a9f85456578900c7f" }
 numpy = "0.30"
 proptest = "1.12"
 tempfile = "3.27"

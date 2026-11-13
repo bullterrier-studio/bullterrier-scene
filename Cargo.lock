@@ -161,7 +161,7 @@ dependencies = [
 [[package]]
 name = "bullterrier-vector"
 version = "0.0.0"
-source = "git+https://github.com/bullterrier-studio/bullterrier-vector?rev=05debff5f3cddb73602315262c86bd27fc97b296#05debff5f3cddb73602315262c86bd27fc97b296"
+source = "git+https://github.com/bullterrier-studio/bullterrier-vector?rev=5442066f9fa5e280ffab6f3a9f85456578900c7f#5442066f9fa5e280ffab6f3a9f85456578900c7f"
 dependencies = [
  "harfrust",
  "i_overlay",
