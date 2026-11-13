@@ -28,6 +28,7 @@ yet. Each call is as written below, except:
 | A drawing | `inputs` (font bytes) is not built: no layer needs a font yet. A document vector cannot read is `FormatError` under `/drawing` in vector's words, a version skew included, without the crate's version | C6, text layers |
 | Errors | The address of an error of a layer in a scene starts with its name (`photo.look`), a layer without one `layer1`; at the call that made it, before the layer has a place, it is the field (`look`) | |
 | Python paths | `Layer.picture(Path)` is read at `render`; `Layer.drawing(Path)` and `Layer.look(Path)` at the call | |
+| Equality | Not built: `==` on a scene or layer is identity in Python, and the Rust types have no `PartialEq` | C6 |
 
 **Limits, measured** (release build, 2026-11-13, arm64 Mac, peak resident memory of a whole render):
 
@@ -441,6 +442,7 @@ ends.
 |---|---|---|
 | image | `Recipe.to_dict()` writes `format`, a public list of the formats it reads, and a public crate version for the messages. **Not met at the pin** (its `to_dict()` writes none, the list is private): C1 keeps a copy of the list and omits the version | C6 |
 | vector | a public list of the document versions it reads and a public crate version, for the version-skew message | C6 |
+| image | a look refused for its picture's size says "`frame` makes a picture of ..." when no frame is set, and a missing map's message names image's Rust API (`Photo::with_map`); scene passes both through | C3 |
 | image | a public call that returns a region of a look as a map (today `mill.py` matches a `trace` stage by its label) | before C3 |
 | image | alpha carried through looks (a drop shadow outside a shape) | later |
 | image | a `Parameter` spelled as the format (`meaning`, `min`, `max`), and `Picture` and `Lut` parameters that `to_dict()` can write as data | later |

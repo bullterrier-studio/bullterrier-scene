@@ -30,7 +30,8 @@ allows exactly those two git sources; a dependency arrives with its first user (
 data_boundary` first (it reads the forms the siblings write with the pinned readers and fails naming what changed), then the
 gate. `deny.toml` allows the two git URLs, `OFL-1.1` for `bullterrier-vector` alone (its bundled fonts), and the licences
 their dependencies bring. *Cost:* a cold build of the two crates is about 35 s (dev) or 95 s (release wheel, 5.2 MB), and the
-gate proofs peak at 5.1 GB. The repositories are private: a fetch needs git credentials, and CI needs a token that reads both.
+gate proofs peak at 5.1 GB. The repositories are private: a fetch needs git credentials, and CI needs a token that reads both (the workflows have none yet).
+*For R1:* the wheel embeds vector's bundled fonts (OFL-1.1) while the package metadata says MIT.
 
 ## No WebAssembly build yet (2026-11-08)
 
