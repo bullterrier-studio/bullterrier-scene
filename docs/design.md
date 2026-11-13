@@ -82,8 +82,9 @@ alpha. Those are hidden behind the one call; none is a public type.
 Image and vector each made sensible choices alone; a scene puts their output side by side, so the choices must meet.
 
 1. **Design scale.** A `px` value in a scene means a pixel of the scene's design canvas, whatever the size of the layer it
-   belongs to. Grain of 2 px on a small inset photo is then as coarse as on the full-bleed photo behind it. Image today
-   derives the scale from each picture's own long side; the scene needs it from the caller (a pending change in image).
+   belongs to. Grain of 2 px on a small inset photo is then as coarse as on the full-bleed photo behind it. Image derives the scale from the canvas it
+   renders (the working picture's long side over 480) and carries it in the frame; a layer on a larger canvas needs image's
+   `Options::with_canvas` (additive, asked for by C5).
 2. **Blending in sRGB values**, as vector and the W3C Compositing and Blending spec do, so a drawing looks the same alone and
    in a scene. Linear-light blending is a later option, never a silent default.
 3. **Straight alpha at every boundary**, premultiplied inside. Open: a look on an already transparent layer moves the colour
@@ -143,6 +144,9 @@ that needs a newer one. The first batch to need each is in the roadmap table.
 
 ## Open questions
 
+0. Whether scene depends on control. The ecosystem page says scene "knows image, vector and control", but no batch reads a control
+   type: values arrive as numbers through `with_values`, and the parameter description format is image's. Proposal: scene does not
+   depend on control; video connects the two. The owner decides before C6.
 1. Whether a browser build is wanted for scene, and what it asks of image's crate.
 2. How a scene refers to image looks and vector drawings: embedded data or a file.
 3. Print colour (CMYK, ICC, bleed, PDF) is output and belongs here; when to build it is open.
