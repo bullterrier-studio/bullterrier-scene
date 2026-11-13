@@ -271,3 +271,13 @@ fn a_canvas_or_size_beyond_32_bits_or_below_zero_is_refused_naming_the_range_and
     }
     Ok(())
 }
+
+/// The side limit is its own rule: a canvas thin enough that 65,001 pixels on its long side are few pixels in all.
+#[test]
+fn a_size_of_65000_is_drawn_on_a_thin_canvas_and_65001_is_refused_for_the_size_alone() -> Outcome {
+    let thin = scene(100_000, 1, [])?;
+    assert_eq!(thin.render(65_000)?.width(), 65_000);
+    let message = refusal(thin.render(65_001))?;
+    assert!(message.contains("from 1 to 65000"), "{message}");
+    Ok(())
+}

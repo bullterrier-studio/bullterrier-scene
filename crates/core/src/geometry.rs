@@ -90,6 +90,14 @@ mod tests {
     }
 
     #[test]
+    fn a_layer_may_have_2_pow_27_pixels_and_not_one_more_row() {
+        // 4 by 2 design pixels at 16,384 output pixels on a canvas whose long side is 4: 16,384 by 8,192
+        let scale = Scale::new(16_384, 4);
+        assert_eq!(scale.layer_size(4.0, 2.0).ok(), Some((16_384, 8_192)));
+        assert!(scale.layer_size(4.0, 2.000_5).is_err());
+    }
+
+    #[test]
     fn a_length_of_whole_design_pixels_that_makes_whole_output_pixels_is_exact() {
         // 1280 over 1280 at 640: halves exactly, never 641
         let scale = Scale::new(640, 1280);
