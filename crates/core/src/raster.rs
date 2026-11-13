@@ -151,8 +151,15 @@ mod tests {
 
     #[test]
     fn a_window_is_the_part_at_its_offset_and_clear_where_it_reaches_past_the_picture() {
-        let cases: [(&str, Window, Vec<i32>); 7] = [
+        let cases: [(&str, Window, Vec<i32>); 10] = [
             ("the whole picture", (0, 0, 3, 2), vec![0, 1, 2, 10, 11, 12]),
+            ("the top row", (0, 0, 3, 1), vec![0, 1, 2]),
+            ("the left columns", (0, 0, 2, 2), vec![0, 1, 10, 11]),
+            (
+                "one row more than the picture",
+                (0, 0, 3, 3),
+                vec![0, 1, 2, 10, 11, 12, -1, -1, -1],
+            ),
             ("a part inside", (1, 0, 2, 2), vec![1, 2, 11, 12]),
             ("past the right and bottom edges", (2, 1, 2, 2), vec![12, -1, -1, -1]),
             ("from before the top left", (-1, -1, 2, 2), vec![-1, -1, -1, 0]),

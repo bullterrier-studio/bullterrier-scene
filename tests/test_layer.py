@@ -145,7 +145,7 @@ def test_a_picture_array_of_another_shape_or_with_a_value_outside_0_to_1_is_refu
 
 @pytest.mark.parametrize("source", ["photo.png", [[[0, 0, 0]]], np.zeros((1, 1, 3), np.int64), None, 3])
 def test_a_picture_of_another_type_is_a_type_error_and_a_text_names_the_fix(source):
-    with pytest.raises(TypeError, match="Path" if isinstance(source, str) else None):
+    with pytest.raises(TypeError, match=r"the text.*Path" if isinstance(source, str) else None):
         Layer.picture(source)
 
 
@@ -234,7 +234,7 @@ def test_a_look_leaves_the_layer_it_was_given_to_as_it_was():
 
 @pytest.mark.parametrize("recipe", ["recipe.toml", 3, None, object(), ["grade"]])
 def test_a_look_of_another_type_is_a_type_error_and_a_text_names_the_fix(recipe):
-    with pytest.raises(TypeError, match="Path" if isinstance(recipe, str) else None):
+    with pytest.raises(TypeError, match=r"the text.*Path" if isinstance(recipe, str) else None):
         grey(0.5).look(recipe)
 
 

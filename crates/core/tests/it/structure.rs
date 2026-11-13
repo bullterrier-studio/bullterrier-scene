@@ -208,6 +208,14 @@ fn a_render_of_more_than_2_pow_27_pixels_is_refused_naming_the_size() -> Outcome
     Ok(())
 }
 
+/// Exactly 2^27 pixels is drawn (an empty scene, so that only the picture's own 2 GiB is held).
+#[test]
+fn a_render_of_exactly_2_pow_27_pixels_is_drawn() -> Outcome {
+    let picture = scene(16_384, 8_192, [])?.render(16_384)?;
+    assert_eq!((picture.width(), picture.height()), (16_384, 8_192));
+    Ok(())
+}
+
 #[test]
 fn add_returns_a_new_scene_and_the_old_one_is_unchanged() -> Outcome {
     let before = scene(3, 3, [Layer::fill("#ff0000")?])?;

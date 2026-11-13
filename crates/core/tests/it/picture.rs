@@ -193,7 +193,47 @@ fn a_picture_file_that_cannot_be_read_is_a_read_error_naming_the_layer_and_the_f
     Ok(())
 }
 
+/// The four weights of a bilinear sample are not exactly 1 in 32-bit floats (for a 2 by 2 picture at size 10 some sum to a
+/// step over it): an opaque picture still comes out with an alpha of 1 to within a rounding step, never above.
+#[test]
+fn an_opaque_picture_stays_opaque_at_a_size_whose_weights_do_not_sum_to_exactly_one() -> Outcome {
+    let drawn = alone(varied(2, 2)?, 10)?;
+    assert!(
+        pixels(&drawn).all(|got| (1.0 - 1e-6..=1.0).contains(&got[3])),
+        "an alpha is outside 1 - 1e-6 to 1"
+    );
+    Ok(())
+}
+
 proptest! {
+    /// An opaque picture is opaque at any size, and every value is within 0 to 1.
+    #[test]
+    fn an_opaque_picture_is_opaque_and_in_range_at_any_size(width in 2_usize..8, height in 2_usize..8, size in 1_u32..60) {
+        let drawn = alone(varied(width, height)?, size)?;
+        for got in pixels(&drawn) {
+            prop_assert!((1.0 - 1e-6..=1.0).contains(&got[3]), "alpha {}", got[3]);
+            prop_assert!(got[..3].iter().all(|value| (0.0..=1.0).contains(value)), "{got:?}");
+        }
+    }
+
+    /// A ramp across a picture of `width` pixels, on a canvas that is just that row, at any size: output pixel `i` of `size`
+    /// looks at `(i + 0.5) * width / size - 0.5` among the pixel centres (an edge outside), where a linear ramp is its own
+    /// position over `width - 1`.
+    #[test]
+    fn a_ramp_is_stretched_onto_exactly_the_output_at_any_size(width in 2_usize..40, size in 1_u32..120) {
+        let last = u8::try_from(width - 1)?;
+        let levels: Vec<f32> = (0..=last).flat_map(|x| [f32::from(x) / f32::from(last), 0.0, 0.0, 1.0]).collect();
+        let drawn = scene(u32::try_from(width)?, 1, [Layer::picture(Raster::rgba(width, 1, levels)?)])?.render(size)?;
+        prop_assert_eq!(drawn.width(), usize::try_from(size)?);
+        let (width_f, size_f) = (f64::from(u32::try_from(width)?), f64::from(size));
+        for x in 0..drawn.width() {
+            let at = ((f64::from(u32::try_from(x)?) + 0.5) * width_f / size_f - 0.5).clamp(0.0, width_f - 1.0);
+            let expected = at / (width_f - 1.0);
+            let got = f64::from(pixel(&drawn, x, 0)[0]);
+            prop_assert!((got - expected).abs() <= 1e-6, "column {x}: {got} is not {expected}");
+        }
+    }
+
     /// Half the size is the 2 by 2 box average of the full size: bilinear sampling at a 2x reduction lands on the middle of
     /// four pixels. Opaque pictures, because an average of straight colours is not that of premultiplied ones.
     #[test]
