@@ -13,8 +13,9 @@ public: no absolute paths, no references to folders outside the repository.
 
 ```bash
 uv sync && uv run poe setup          # once per clone: environment (builds the Rust extension: needs rustup), git hooks, commit template, cargo tools
-uv run pytest tests/test_scale.py -n 0   # the tests near your change, while you work
-cargo test -p bullterrier-scene --test it scale::  # one Rust area (inline: cargo test -p bullterrier-scene --lib scaling::)
+uv run pytest tests/test_scene.py -n 0   # the tests near your change, while you work
+cargo test -p bullterrier-scene --test it compose::  # one Rust area (inline: cargo test -p bullterrier-scene --lib raster::)
+uv run poe look                      # render the example scene to dist/look/c1.png and the gallery piece, and print the path
 uv run poe fast                      # the inner loop, as often as you like: format, lint, types, quick tests
 uv run poe check                     # the gate, before you report or merge (then `uv run lint-imports`)
 uv run poe full                      # `check` and the gate proofs: before a tag (`poe release` runs it) and in CI
@@ -22,18 +23,24 @@ uv run poe full                      # `check` and the gate proofs: before a tag
 
 | To ... | Look at |
 |---|---|
-| add logic | a `pub` function in `crates/core/src/<concept>.rs`, re-exported in `lib.rs`; `scaling.rs` is the model |
-| expose it to Python | a `#[pyfunction]` in `crates/python/src/lib.rs` exported from `mod _core`; its stub line in `src/bullterrier_scene/_native/_core.pyi`; the name in `src/bullterrier_scene/__init__.py` |
+| add logic | a module in `crates/core/src/<concept>.rs` (a layer source is `source/<kind>.rs`), reached through `Scene` or `Layer`; `render.rs` is the model |
+| expose it to Python | a method of `Scene` or `Layer` in `crates/python/src/lib.rs`; its stub line in `src/bullterrier_scene/_native/_core.pyi`; the call in `src/bullterrier_scene/scene.py` or `layer.py`; a new name in `__init__.py` |
 | add a command | `src/bullterrier_scene/cli.py` |
-| add an error | the core's `Error` (`error.rs`), mapped in `crates/python/src/error.rs`, a class in `errors.py` |
+| add an error | the core's `Error` (`error.rs`), mapped in `crates/python/src/error.rs`, a class in `errors.py` (`InvalidError`, `FormatError`, `ReadError` so far) |
 | test it | "Testing" and "Rust tests" below; `crates/core/tests/it/` (Rust), `tests/` (Python) |
 | add a macros crate | "Adding a macros crate" below |
 | change a gate | `pyproject.toml` (Python tools, poe tasks), `Cargo.toml` (Rust lints, tool pins); proof in `tests/tools/` |
 | keep files identical across projects | `docs/shared-files.md` |
 
-**State:** scaffold only (S0): the template's one feature `scale(value, factor)` stands in end to end (core, extension, package, the
-command `bt-scene scale`, each tested) until batch C1 replaces it. A1 (the code API) is written: `docs/api.md` and `docs/examples/`,
-awaiting its review. Next: C1 (`docs/roadmap.md`, "When work starts": image E4 and vector V10 are merged).
+**State:** C1 done (the walking skeleton, `docs/roadmap.md`): a `Scene` of picture, drawing and fill layers with an image look on a
+picture, normal blend and opacity, rendered whole at any size to a float32 array (Python) and a `Raster` (Rust); the template's
+`scale` is gone. What is built and where it differs from the contract is "C1: what is built" in `docs/api.md`. Next: C2
+(placement and `fit`).
+
+**Setup, once:** image and vector are private git dependencies (pinned by `rev` in `Cargo.toml`, bumped in a commit of its own).
+A fetch needs git credentials for `github.com/bullterrier-studio` (a credential helper is enough; if cargo's own git client is
+refused, `CARGO_NET_GIT_FETCH_WITH_CLI=true`; there is no `.cargo/config.toml`, the template forbids it). CI needs a token that
+can read both repositories.
 
 ## Responsibility
 
@@ -65,14 +72,20 @@ Layers, imports flow **downward only** (import-linter: contracts in `pyproject.t
 
 ```
 app        __main__, cli
+scene      Scene                                        (a canvas and its stack; a facade over `_core.Scene`)
+layer      Layer                                        (what a call takes of the objects the siblings write; a facade over `_core.Layer`)
 _native    home of the Rust extension `_native._core`   (imports `errors` only, lazily, to raise its errors)
-errors     BullterrierSceneError > InvalidError
+errors     BullterrierSceneError > InvalidError, FormatError, ReadError
 ```
 
-**Rust core:** `crates/core` (pure Rust: no PyO3, no numpy, `#![forbid(unsafe_code)]`; one
-file per concept; `error.rs` the one error type) and `crates/python` (PyO3 bindings building `bullterrier_scene._native._core`; generic: no
-logic of the core, only the mapping of calls and errors). A refusal of the core is a Python `InvalidError`, imported when the first
-one is raised. There is no other boundary. Python code never reimplements the core; a core function is exposed as it is.
+**Rust core:** `crates/core` (pure Rust: no PyO3, no numpy, `#![forbid(unsafe_code)]`; one file per concept): `scene` (`Scene`),
+`layer` (`Layer`), `raster` (`Raster`), `render` (size, normal blend, straight alpha), `resample` (bilinear), `geometry` (`Rect`,
+`Scale`), `error` (the one error type), and `source/` (the trait with one question, "draw this rectangle of the canvas at this
+scale", and its three answers: `fill`, `picture` (the image adapter), `drawing` (the vector adapter)). `crates/python` (PyO3 bindings
+building `bullterrier_scene._native._core`; generic: no logic of the core, only the mapping of calls, arrays and errors). A refusal
+of the core is a Python `InvalidError`, `FormatError` or `ReadError`, imported when the first one is raised. There is no other
+boundary. The Python facade turns what a caller holds (a look's dict, a drawing's JSON, a path) into the data the core takes and
+never reimplements it.
 
 ## Rules
 
@@ -80,3 +93,12 @@ one is raised. There is no other boundary. Python code never reimplements the co
 
 The shared rules above come from the template (`docs/rules.md`, updated by `copier update`). This project's own rules go
 here, below them; this file is the project's and an update never changes it.
+
+## Scene's rules
+
+1. **A sibling crate is named in one file.** `bullterrier_image` only in `source/picture.rs`, `bullterrier_vector` only in
+   `source/drawing.rs`, and neither file declares a public item: no sibling type is in a public signature (`tests/it/architecture.rs`).
+2. **Look and drawing enter as data**, a recipe's JSON and a drawing's JSON; Python imports neither sibling package.
+3. **Pins move in a commit of their own**, with the gate run; the differential tests of `tests/it/data_boundary.rs` run first and
+   name what a sibling changed.
+4. **Straight alpha at every boundary, premultiplied inside; sRGB values** (`docs/design.md`, "Conventions").

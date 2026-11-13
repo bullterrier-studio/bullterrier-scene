@@ -115,9 +115,10 @@ a video frame is a scene drawn at one moment. The reasoning is in [docs/design.m
 
 ## Status
 
-**Pre-alpha, and private.** The project is scaffolded and its checks pass, but no scene can be drawn yet: the first
-working render is planned for the third batch ([docs/roadmap.md](docs/roadmap.md)). The repository is private because it
-is built on two sibling packages that are themselves not released; it opens up when they do.
+**Pre-alpha, and private.** A scene of pictures (with an image look), vector drawings and flat fills can be rendered whole
+at any size, with opacity: [docs/gallery](docs/gallery) shows the first picture, and `uv run poe look` draws it. Placement,
+masks, blend modes, groups, parameters and caching come in the next batches ([docs/roadmap.md](docs/roadmap.md)). The repository
+is private because it is built on two sibling packages that are themselves not released; it opens up when they do.
 
 ## Works with
 

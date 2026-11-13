@@ -18,7 +18,7 @@ their later changes cannot break it; a bump of the pin is a reviewed commit, and
 | Batch | Starts when |
 |---|---|
 | A1 | now (image E4 and vector V10 are merged; A1 is docs only). Review delegated by the owner on 2026-11-13 to the advisor and one independent read-only reviewer |
-| C1 | A1 is reviewed; C1 uses only the public APIs of image and vector as they are then, so it does not wait for image E5 to E7 |
+| C1 | Done 2026-11-13 (image `f319f13`, vector `05debff`) |
 | C2, C3, C4 | C1 is merged |
 | C5 | C1 is merged; image has effect footprints (done, E4); image's frame of reference is settled (decision 1 below), and `Options::with_canvas` exists once C5 needs a layer on a larger canvas |
 | C6 | C2, C3 and C4 are merged: the layer model is stable enough to write down as parameters and JSON |
@@ -103,7 +103,7 @@ Real objects over mocks: the sibling crates are real, used through their public 
 |---|---|---|---|
 | S0 | Scaffold, gates, README, design and roadmap | S | |
 | A1 | The code API, designed from example programs first (a poster, a cover, a template run with a photo and a title, a video-frame use), `docs/api.md` and `docs/examples/`; review delegated to the advisor and one independent reader | M | |
-| C1 | Walking skeleton: `Scene` with a canvas and layers from a picture, a picture with an image look and a vector drawing; normal blend; whole render to RGBA in Rust and Python; replaces the template's `scale` | M | their public APIs as they are; git dependencies pinned |
+| C1 | **Done 2026-11-13.** Walking skeleton: `Scene` with a canvas and layers from a picture, a picture with an image look and a vector drawing; normal blend; whole render to RGBA in Rust and Python; replaces the template's `scale`. What is built and where it differs from the contract: [api.md](api.md), "C1: what is built" | M | their public APIs as they are; git dependencies pinned |
 | C2 | Placement: `dx`, `dy`, `scale`, `aspect`, `rotate`, `skew`, `flip`, `anchor`, perspective, `fit` (cover and contain produce the delivery crop, such as a 9:16 frame from a taller photo, so no tool crops afterward); references (`Layer.of`); resampling | L | |
 | C3 | Masks: from a drawing's shape or text, an alpha, luminance, a given map, a subject cut-out; invert and feather | M | image's subject finder |
 | C4 | Blend modes (the W3C separable and non-separable set) and groups (isolation, group opacity) | L | |

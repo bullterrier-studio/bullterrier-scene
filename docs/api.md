@@ -1,7 +1,8 @@
 # The code API
 
-Status: A1, designed from the example programs in [examples/](examples/). Nothing is built yet: every signature below is
-what batches C1 to C7 make real, and each example is the acceptance material of the batch that makes it run. Reasons:
+Status: A1, designed from the example programs in [examples/](examples/); C1 (the walking skeleton) is built, the rest is
+not. What C1 makes real, and where it differs from the contract below, is "C1: what is built". Every other signature is
+what batches C2 to C7 make real, and each example is the acceptance material of the batch that makes it run. Reasons:
 [design-decisions.md](design-decisions.md). The JSON form of a scene is "Saved scene" below.
 
 Signatures are Python's; "Languages" gives the Rust form. The library is imported under the alias `bts` in every language.
@@ -10,6 +11,38 @@ Signatures are Python's; "Languages" gives the Rust form. The library is importe
 import bullterrier_scene as bts
 ```
 
+## C1: what is built
+
+Python: `Scene(width, height)`, `add`, `layers`, `width`, `height`, `render`; `Layer.picture` (an array or a `Path`),
+`Layer.drawing`, `Layer.fill`, `named`, `opacity`, `look`; `InvalidError`, `FormatError`, `ReadError`; `MAX_LAYERS`. Rust:
+`Scene::{new, add, layers, width, height, render}`, `Layer::{picture, picture_file, drawing, fill, named, opacity, look,
+look_file}` (`look` and `drawing` take the document as text), `Raster::rgba`, `Error`, `MAX_LAYERS`. Nothing else below exists
+yet. Each call is as written below, except:
+
+| Where | C1 | Changes with |
+|---|---|---|
+| Boxes | A picture's box is its pixels and a drawing's its frame, one design pixel each, at the canvas origin; a fill covers the canvas; what lies outside the canvas is cut. No `fit`, `place` or `perspective`. A box that is not whole in output pixels is drawn at the next whole size, stretched onto it | C2 |
+| Resampling | Once, bilinear, on premultiplied colour, no prefilter: a reduction by more than 2 aliases | C2 |
+| A look | Only a picture layer takes one (a fill or a drawing is `InvalidError` naming `look`). It runs on the picture at the output size, on its straight colour with the alpha left as it is: the contract's "colour over black" for an opaque picture, which is all C1 tests. A look's `px` are image's own, a pixel of the layer's output picture whose long side is 480, not yet pixels of the canvas; the tests keep to canvas-sized pictures so that C5 does not rewrite them. Image refuses a look on a picture of more than 2^26 pixels, in its words | C5 |
+| `format` of a look | `Recipe.to_dict()` writes none, and image's reader refuses a top-level `format`. A document that carries one is checked against a copy of image's list (1, 2, 3; image keeps it private, a test fails when a bump of the pin changes it) and the key is removed. The refusal names the version found and the versions read, not the crate's version, which neither crate publishes | image: a public list and version |
+| A drawing | `inputs` (font bytes) is not built: no layer needs a font yet. A document vector cannot read is `FormatError` under `/drawing` in vector's words, a version skew included, without the crate's version | C6, text layers |
+| Errors | The address of an error of a layer in a scene starts with its name (`photo.look`), a layer without one `layer1`; at the call that made it, before the layer has a place, it is the field (`look`) | |
+| Python paths | `Layer.picture(Path)` is read at `render`; `Layer.drawing(Path)` and `Layer.look(Path)` at the call | |
+
+**Limits, measured** (release build, 2026-11-13, arm64 Mac, peak resident memory of a whole render):
+
+| Render | Peak |
+|---|---|
+| nothing drawn, 2^27 pixels (16,384 by 8,192) | 2.1 GB |
+| one fill, 2^27 pixels | 2.8 GB |
+| one canvas-sized picture, 2^26 pixels (8,192 squared), 1.1 s | 3.3 GB; with a look (3.1 s) 4.2 GB |
+| one canvas-sized picture, 11,585 squared (2^27 pixels), 3.5 s | 5.5 GB |
+| 1,000 fills on 1,024 by 1,024, 1.9 s | 63 MB |
+
+`MAX_LAYERS` (1,000) and the 2^27 pixels stay: a render holds the picture, the layer being drawn and its working copies, not
+one picture per layer, so peak memory does not grow with the layers. A picture at the limit takes 5.5 GB; there is no promise
+that a machine has it, and bands (B1) are what lift it. `MAX_DEPTH` waits for scenes as layers (C4).
+
 ## Examples
 
 Each program is a `build(...)` function that returns a `Scene` from its inputs (a photo array, a matte, a path), and a
@@ -17,6 +50,7 @@ Each program is a `build(...)` function that returns a `Scene` from its inputs (
 
 | Program | Shows |
 |---|---|
+| [c1_first_picture.py](examples/c1_first_picture.py) | C1 (runs now: `uv run poe look`): a synthetic photo with one image look and a vector headline over it, rendered at two sizes |
 | [poster_two_ink.py](examples/poster_two_ink.py) | M1: a photo in two inks clipped into a polygon, type behind a cut-out subject, flat shapes, grain, three sizes |
 | [cover_template.py](examples/cover_template.py), [.rs](examples/cover_template.rs) | C6: one scene, a photo, a title and a colour set by `with_values`; saved as JSON and read back; six covers |
 | [frame_sequence.py](examples/frame_sequence.py) | C7: a headline sliding in over 24 frames, one value set per frame |
@@ -179,7 +213,8 @@ writes, or a `Path` to a recipe file; a `str` is `TypeError` (pass `Path(...)`).
   the others, so it caches by itself.
 - **Design pixels.** A `px` value of a look is a pixel of the scene's canvas as the layer is fitted, before `place`: 2 px grain
   on a small inset is as coarse as on the photo behind it, whatever the inset's size. `render(size)` multiplies it, as
-  image's `render(size=)` does. A layer that `place` then scales takes its grain and its halo with it.
+  image's `render(size=)` does. A layer that `place` then scales takes its grain and its halo with it. (C1: image's own
+  convention, a pixel of the layer's output picture whose long side is 480: see "C1: what is built".)
 - **Light that spills.** A look sees the layer's colour over black and the layer's box grows by the look's footprint (the
   room). A layer that is not light keeps its source's alpha, so the halo a bloom adds outside the shape is cut. A light layer
   shows it, and may extend past its box. A glow is a reference made light:
@@ -404,7 +439,8 @@ ends.
 
 | From | Need | By |
 |---|---|---|
-| image | `Recipe.to_dict()` writes `format`, and a list of the formats it reads | before C1 |
+| image | `Recipe.to_dict()` writes `format`, a public list of the formats it reads, and a public crate version for the messages. **Not met at the pin** (its `to_dict()` writes none, the list is private): C1 keeps a copy of the list and omits the version | C6 |
+| vector | a public list of the document versions it reads and a public crate version, for the version-skew message | C6 |
 | image | a public call that returns a region of a look as a map (today `mill.py` matches a `trace` stage by its label) | before C3 |
 | image | alpha carried through looks (a drop shadow outside a shape) | later |
 | image | a `Parameter` spelled as the format (`meaning`, `min`, `max`), and `Picture` and `Lut` parameters that `to_dict()` can write as data | later |
@@ -418,5 +454,5 @@ ends.
    push a name into them. See "Needs from others". Until then a colour is a Python constant.
 2. **Dark light past a shape.** A light layer makes alpha from brightness, so a dark halo (image's `drop_shadow`) is
    invisible; a shadow is a fill masked by the shape. Lifts when image carries alpha through its effects.
-3. **Limits are placeholders** (`MAX_LAYERS`, `MAX_DEPTH`, 2^27 pixels) until C1 measures them.
+3. **`MAX_DEPTH` (16) is a placeholder** until scenes can be layers (C4). `MAX_LAYERS` and 2^27 pixels are measured ("C1: what is built").
 4. **The cache's bound** (entries or bytes) is set when C7 measures a 15-layer A3 poster.
