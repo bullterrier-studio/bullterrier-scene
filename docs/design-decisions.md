@@ -131,6 +131,49 @@ from `parameters()` cannot ask for an error by itself (a zero or negative scale,
 x then y, so its bound of 89 degrees is enough). A rule across two numbers of an embedded look is the sibling's. `fit`'s slack is `align`,
 the pivot of `place` is `anchor`: one name per concept. `scale` is one number because it is what an animation drives.
 
+## Placement: a hand-written warp, convex kernels, drawn at the placed density (2026-11-13)
+
+**Crates surveyed** (crates.io and the fetched sources, 2026-11-13). Criteria: f32 channels with no 8-bit round trip,
+transparent outside the source, a stated pixel-centre convention, sub-pixel accuracy, a cost that fits `deny.toml`.
+
+| Crate | Finding | Verdict |
+|---|---|---|
+| `imageproc` 0.27.0 (MIT, 2026-06) | `warp` takes affine and projective maps over `f32` pixels, bilinear and bicubic, a constant border. But a pixel's value sits at its integer index (scene's centres are at +0.5), the map is evaluated in `f32` (a 90 degree turn is not an exact permutation), there is no prefilter (a reduction aliases), a border fades over one source pixel (a blur at `scale` 3, not coverage), and it brings 51 crates (nalgebra, rand, simba, wide) | not adopted; a dev-dependency oracle only if the gate takes it |
+| `fast_image_resize` 6.1.0 (MIT or Apache-2.0, 2026-07) | `f32` RGBA with alpha handling and fractional crops, SIMD; it scales and crops, with no rotation, skew or translation by a fraction | dropped: sources draw at the placed density, so scene never scales a finished picture up |
+| `tiny-skia` 0.12.0 (BSD-3-Clause, 2026-02) | affine and bilinear draws, but a `Pixmap` is premultiplied 8-bit | fails the first criterion |
+
+**Chosen:** one kernel in `warp.rs` (about 200 lines): backward mapping in `f64`, premultiplied `f32`, bilinear where a source
+pixel is larger than an output pixel and an area average (a separable box, applied first) along any source axis whose scale
+is below 1 (no threshold: the column norm of the map decides), colour from the clamped edge and an alpha coverage by the
+distance of the pixel centre to the box edge, transparent outside. *Reason:* the properties placement is tested on (a
+whole-pixel move, a 90 degree turn and a flip are exact permutations; a half pixel is the average of two neighbours; the
+area of a layer scales with the square of `scale`) hold by construction only when the arithmetic is ours. *Cost:* a kernel to
+keep, no SIMD (a 12 megapixel placement is measured in the batch report, not promised).
+
+**Convex kernels only** (bilinear, area; no negative lobes). Scene's colours are exactly 0 to 1 with no clamp in the render
+(see "Image's range is nominal"); that holds because every weight is at least 0 and the colour and the alpha are summed in the
+same order, so rounding keeps the colour at most the alpha. A bicubic or Lanczos upgrade must restore a clamp, knowingly.
+
+**Exact angles.** `rotate` wraps by `rem_euclid(360)` and 0, 90, 180 and 270 use exact cosine and sine; the matrix is built
+from the factors and inverted by its own algebra, so a layer turned by a multiple of 90 degrees about a point on the pixel
+grid is bit for bit a permutation. Other angles take `sin_cos` and are exact to rounding.
+
+**Fractional boxes: one rule** (`geometry.rs`). The output picture covers the canvas exactly: `ceil(canvas x size / long
+side)` pixels, stretched, so a design length is `columns / width` output pixels along x and `rows / height` along y (the
+two differ by less than one pixel over the canvas, and are equal whenever the canvas is whole at that size). A rectangle of
+design pixels drawn at a density is `ceil(width x density)` by `ceil(height x density)` pixels that divide it evenly, and the
+warp puts that raster where its true rectangle falls, so a box between two output pixels is exact and the extra pixel is
+never a stretch. A layer that covers the canvas covers it whole, at any size.
+
+**Drawn at the placed density.** A source draws at `output scale x fit factor x place.scale`, so a vector headline at
+`scale=3` is sharp (not an upsampled raster) and a look runs at the size the layer has, which is what makes a halo follow
+`scale`. `aspect`, flip, skew, rotate and `dx`, `dy` are then one warp of the finished raster. For a picture with no look the
+source hands over its own pixels and the warp is the only resample (source, fit and place fold into one). *Cost:* an animated
+`scale` redraws the source and its look every frame, while `dx`, `dy`, `rotate`, `skew` and `flip` only re-warp a raster
+that can be cached (C7 relies on it). A large `scale` on a big layer meets the 2^27 drawn-size limit even where little of it
+shows: window drawing (B1) lifts it, and it is not worked around. After C5 gives looks design pixels, the scale handed to
+image is `canvas scale x place.scale`, so a halo still follows `scale`.
+
 ## Text options are vector's, passed as data (2026-11-13)
 
 `Layer.text(content, *, font, color, **options)`: scene owns the content (a text parameter), the font and the colour; the rest
