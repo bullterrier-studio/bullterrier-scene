@@ -51,9 +51,12 @@ impl Axis {
     }
 }
 
-/// The least whole number of pixels that holds `length` pixels. A length that is whole in exact arithmetic but a few
-/// units in the last place over it in a float (a product of a fit factor and a zoom) is not rounded up a pixel: the
-/// product is allowed a relative error of 1e-12, about 4,500 times the rounding of a product of two numbers.
+/// The relative error a length may have and still count as the whole number it should be: 1e-12, about 4,500 times the
+/// rounding of a product of two numbers. A fit factor times a zoom (0.1 x 3 is 0.30000000000000004) is a few units in the
+/// last place off the whole number it is in exact arithmetic, and must not draw a pixel more.
+const ROUNDING: f64 = 1e-12;
+
+/// The least whole number of pixels that holds `length` pixels, allowing a relative error of [`ROUNDING`].
 pub(crate) fn whole_up(length: f64) -> usize {
     // a length is never negative and none reaches 2^53 (the callers bound it): the cast is exact
     #[expect(
@@ -62,7 +65,7 @@ pub(crate) fn whole_up(length: f64) -> usize {
         reason = "a length of at most 2^27 pixels"
     )]
     {
-        (length * (1.0 - 1e-12)).ceil().max(0.0) as usize
+        (length * (1.0 - ROUNDING)).ceil().max(0.0) as usize
     }
 }
 

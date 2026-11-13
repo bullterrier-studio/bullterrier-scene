@@ -918,6 +918,66 @@ fn a_flat_fill_placed_gives_what_a_constant_picture_and_the_general_kernel_give(
     Ok(())
 }
 
+/// A fit factor of 0.1 times a zoom of 3 is 0.30000000000000004 in a float: a 100 pixel picture is still 30 pixels, not 31.
+/// A look runs at the drawn size, so a no-op look on the layer must leave it what the layer without the look is, to within
+/// the look's own rounding; 31 pixels resampled to 30 would blur the picture.
+#[test]
+fn a_fit_factor_times_a_zoom_that_is_a_whole_number_of_pixels_draws_no_pixel_more() -> Outcome {
+    let noop = r#"{"steps": [{"effect": "grade"}]}"#;
+    let photo = varied(100, 100)?;
+    let layer = |looked: bool| -> Result<Layer, Error> {
+        let picture = Layer::picture(photo.clone());
+        let picture = if looked { picture.look(noop)? } else { picture };
+        picture
+            .fit([0.0, 0.0, 10.0, 10.0], Fit::Stretch, [0.5, 0.5])?
+            .place(Place::new().scale(3.0).anchor(0.0, 0.0))
+    };
+    let (plain, looked) = (
+        render(layer(false)?, (30, 30), 30)?,
+        render(layer(true)?, (30, 30), 30)?,
+    );
+    for (x, y) in (0..30).flat_map(|y| (0..30).map(move |x| (x, y))) {
+        assert!(close(pixel(&looked, x, y), pixel(&plain, x, y), 1e-5), "({x}, {y})");
+    }
+    Ok(())
+}
+
+/// The drawn-size limit is the size of the part of the box that is shown: a 1000 by 1000 picture cover-fitted into a box 10
+/// wide and 1000 tall shows 10 by 1000 of it, 400 by 40,000 pixels (16 million) at a scale of 40; its whole box would be
+/// 1.6 billion.
+#[test]
+fn the_drawn_size_limit_is_that_of_the_part_a_cover_fit_shows() -> Outcome {
+    let layer = Layer::picture(solid(1000, 1000, [0.5; 4])?)
+        .fit([0.0, 0.0, 10.0, 1000.0], Fit::Cover, [0.5, 0.5])?
+        .place(Place::new().scale(40.0))?;
+    let drawn = render(layer, (10, 1000), 1000)?;
+    assert_eq!((drawn.width(), drawn.height()), (10, 1000));
+    // the shown part is the middle of the picture, 10 design pixels wide at 40 times: the canvas is a part of that
+    assert!(close(pixel(&drawn, 5, 500), [0.5; 4], 1e-6));
+    Ok(())
+}
+
+/// A picture cut by cover and reduced at once: a 300 by 200 picture of three vertical bands 100 wide (and a 200 by 300 one of
+/// three horizontal bands) cover-fitted into a box 20 by 40 (40 by 20), a reduction by 5, shows the band align names, whole.
+#[test]
+fn a_cover_cut_that_is_also_a_reduction_keeps_the_part_align_names() -> Outcome {
+    let level = |band: usize| f32::from(u8::try_from(band + 1).unwrap_or(0)) / 4.0;
+    let wide = made(300, 200, |x, _| [level(x / 100), 0.0, 0.0, 1.0])?;
+    let tall = made(200, 300, |_, y| [level(y / 100), 0.0, 0.0, 1.0])?;
+    for (align, band) in [(0.0, 0), (0.5, 1), (1.0, 2)] {
+        let across = Layer::picture(wide.clone()).fit([0.0, 0.0, 20.0, 40.0], Fit::Cover, [align, 0.5])?;
+        let down = Layer::picture(tall.clone()).fit([0.0, 0.0, 40.0, 20.0], Fit::Cover, [0.5, align])?;
+        for (what, layer, canvas) in [("across", across, (20, 40)), ("down", down, (40, 20))] {
+            let drawn = render(layer, canvas, 40)?;
+            assert!(
+                pixels(&drawn).all(|got| close(got, [level(band), 0.0, 0.0, 1.0], 1e-5)),
+                "{what}, align {align}: band {band} is not all that is shown"
+            );
+        }
+    }
+    Ok(())
+}
+
 proptest! {
     /// A layer that covers the canvas covers it whole at any size, a size that leaves the short side between two pixels
     /// included (the output is stretched onto whole pixels).
