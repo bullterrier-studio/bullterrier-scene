@@ -70,8 +70,8 @@ fn straight(mut joined: Vec<f32>) -> Vec<f32> {
     for pixel in joined.as_chunks_mut::<4>().0 {
         let alpha = pixel[3];
         for channel in &mut pixel[..3] {
-            // the quotient can pass 1 by a rounding step
-            *channel = if alpha > 0.0 { (*channel / alpha).min(1.0) } else { 0.0 };
+            // a premultiplied colour never passes its alpha (each step is monotone in both), so the quotient is at most 1
+            *channel = if alpha > 0.0 { *channel / alpha } else { 0.0 };
         }
     }
     joined

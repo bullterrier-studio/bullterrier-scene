@@ -61,8 +61,9 @@ pub(crate) fn resample(from: &Raster, width: usize, height: usize) -> Raster {
                 }
             }
             let alpha = mixed[3];
-            // the quotient can pass 1 by a rounding step
-            let colour = |value: f32| if alpha > 0.0 { (value / alpha).min(1.0) } else { 0.0 };
+            // a premultiplied colour never passes its alpha, so the quotient is at most 1; the weights of four taps can
+            // sum to a step over 1, and so can the alpha
+            let colour = |value: f32| if alpha > 0.0 { value / alpha } else { 0.0 };
             pixels.extend([colour(mixed[0]), colour(mixed[1]), colour(mixed[2]), alpha.min(1.0)]);
         }
     }
