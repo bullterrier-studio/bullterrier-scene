@@ -2,6 +2,7 @@
 import only the layers below it:
 
     app        __main__ > cli
+    facade     scene > layer: what a call takes of the objects the sibling packages write, and gives the core
     _native    the home of the Rust extension (`_native._core`); it imports only `errors` (the extension imports its
                `InvalidError` when it first raises one)
     errors     the exceptions; they import nothing from bullterrier_scene, so every layer may raise them
@@ -26,7 +27,7 @@ PACKAGE = Path(bullterrier_scene.__file__).parent
 ROOT = PACKAGE.parent.parent  # the repository: pyproject.toml holds the contracts
 LINT_IMPORTS = Path(sys.executable).with_name("lint-imports")  # `uv run lint-imports` from the repository root
 
-LAYERS = "Layers: __main__ > cli > _native > errors"
+LAYERS = "Layers: __main__ > cli > scene > layer > _native > errors"
 
 
 def lint(cwd: Path, pythonpath: Path | None = None) -> subprocess.CompletedProcess:
@@ -67,6 +68,13 @@ FORBIDDEN = {
         "bullterrier_scene._native",
     ),
     "cli to main": ("cli.py", "import bullterrier_scene.__main__", "bullterrier_scene.cli"),
+    "scene to cli": ("scene.py", "import bullterrier_scene.cli", "bullterrier_scene.scene"),
+    "layer to scene": ("layer.py", "import bullterrier_scene.scene", "bullterrier_scene.layer"),
+    "the Rust extension's home to layer": (
+        "_native/__init__.py",
+        "import bullterrier_scene.layer",
+        "bullterrier_scene._native",
+    ),
 }
 
 
@@ -79,6 +87,9 @@ def test_a_forbidden_import_breaks_its_contract(module, line, importer, tmp_path
 
 
 ALLOWED = {
+    "cli to scene": ("cli.py", "import bullterrier_scene.scene"),
+    "scene to layer": ("scene.py", "import bullterrier_scene.layer"),
+    "layer to the Rust extension": ("layer.py", "from bullterrier_scene._native import _core"),
     "cli to errors": ("cli.py", "import bullterrier_scene.errors"),
     "cli to the Rust extension": ("cli.py", "from bullterrier_scene._native import _core"),
     "the Rust extension's home to errors": ("_native/__init__.py", "import bullterrier_scene.errors"),
@@ -114,7 +125,7 @@ def package_modules_loaded_by(module: str) -> list[str]:
     ("module", "leaf"),
     [
         pytest.param("bullterrier_scene._native._core", True, id="the extension is a leaf"),
-        pytest.param("bullterrier_scene.cli", False, id="a module that imports others is not"),
+        pytest.param("bullterrier_scene.scene", False, id="a module that imports others is not"),
     ],
 )
 def test_the_rust_extension_imports_nothing_from_the_package(module, leaf):

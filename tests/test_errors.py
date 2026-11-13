@@ -3,7 +3,7 @@
 import pytest
 
 import bullterrier_scene
-from bullterrier_scene import BullterrierSceneError, InvalidError
+from bullterrier_scene import BullterrierSceneError, FormatError, InvalidError, ReadError
 
 
 def test_the_base_error_is_an_exception_a_caller_can_catch():
@@ -12,11 +12,22 @@ def test_the_base_error_is_an_exception_a_caller_can_catch():
 
 
 def test_the_errors_are_exported_from_the_package():
-    exported = (bullterrier_scene.BullterrierSceneError, bullterrier_scene.InvalidError)
-    assert exported == (BullterrierSceneError, InvalidError)
+    exported = (
+        bullterrier_scene.BullterrierSceneError,
+        bullterrier_scene.InvalidError,
+        bullterrier_scene.FormatError,
+        bullterrier_scene.ReadError,
+    )
+    assert exported == (BullterrierSceneError, InvalidError, FormatError, ReadError)
 
 
-def test_an_invalid_error_is_a_library_error_and_a_value_error():
-    error = InvalidError("factor: must be finite")
-    assert isinstance(error, BullterrierSceneError)
-    assert isinstance(error, ValueError)
+@pytest.mark.parametrize(
+    ("error", "builtin"),
+    [(InvalidError, ValueError), (FormatError, ValueError), (ReadError, OSError)],
+    ids=["invalid", "format", "read"],
+)
+def test_each_error_is_a_library_error_and_the_builtin_it_replaces(error, builtin):
+    raised = error("at /look: no luck")
+    assert isinstance(raised, BullterrierSceneError)
+    assert isinstance(raised, builtin)
+    assert "no luck" in str(raised)

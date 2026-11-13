@@ -23,9 +23,9 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
     "Typing :: Typed",
 ]
-# Each is declared with the first code that imports it (deptry fails on one nothing imports). None yet: the
-# extension is the whole runtime.
-dependencies = []
+# Each is declared with the first code that imports it (deptry fails on one nothing imports). numpy: the arrays
+# the extension takes and gives (crates/python)
+dependencies = ["numpy>=1.26"]
 
 [project.urls]
 Repository = "https://github.com/bullterrier-studio/bullterrier-scene"
@@ -327,13 +327,15 @@ DEP004 = ["packaging"]
 root_package = "bullterrier_scene"
 
 [[tool.importlinter.contracts]]
-name = "Layers: __main__ > cli > _native > errors"
+name = "Layers: __main__ > cli > scene > layer > _native > errors"
 type = "layers"
 containers = ["bullterrier_scene"]
 exhaustive = true  # a new top-level module must be placed in a layer here
 layers = [
     "__main__",  # `python -m bullterrier_scene`: runs the command line
     "cli",  # app: the command line
+    "scene",  # the scene: a canvas and its stack of layers
+    "layer",  # the layer: what it takes of the objects the sibling packages write (looks, drawings) and gives the core
     # the home of the Rust extension (`_native._core`): it imports only `errors` (the bindings raise its errors), so
     # every layer above may use it
     "_native",

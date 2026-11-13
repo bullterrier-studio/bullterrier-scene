@@ -7,7 +7,7 @@ code that already catches that builtin keeps working.
 Dependency direction: the bottom layer. It imports nothing from bullterrier_scene, so every layer may raise them.
 """
 
-__all__ = ["BullterrierSceneError", "InvalidError"]
+__all__ = ["BullterrierSceneError", "FormatError", "InvalidError", "ReadError"]
 
 
 class BullterrierSceneError(Exception):
@@ -15,4 +15,13 @@ class BullterrierSceneError(Exception):
 
 
 class InvalidError(BullterrierSceneError, ValueError):
-    """A value breaks a rule: the message names the argument and what is valid."""
+    """A value or an argument breaks a rule: the message names the argument or layer, the rule and the value."""
+
+
+class FormatError(BullterrierSceneError, ValueError):
+    """A document cannot be read: a look or a drawing the linked sibling crate does not read, a version it does not
+    read included. The message starts with the JSON Pointer of the value that is wrong."""
+
+
+class ReadError(BullterrierSceneError, OSError):
+    """A file the scene names cannot be read: the message names the layer, the file and the reason."""

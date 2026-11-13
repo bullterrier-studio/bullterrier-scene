@@ -19,6 +19,7 @@ bullterrier-scene = { path = "crates/core" }
 # bump `rev` in a commit of its own. Used only in crates/core/src/source/picture.rs and drawing.rs. Neither is published.
 bullterrier-image = { git = "https://github.com/bullterrier-studio/bullterrier-image", rev = "f319f138ffe11c7764f857f09c5610c367deb4bc" }
 bullterrier-vector = { git = "https://github.com/bullterrier-studio/bullterrier-vector", rev = "05debff5f3cddb73602315262c86bd27fc97b296" }
+numpy = "0.30"
 proptest = "1.12"
 tempfile = "3.27"
 # abi3-py312: one wheel per platform serves every Python from 3.12 (the oldest the package supports)
