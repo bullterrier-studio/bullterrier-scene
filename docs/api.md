@@ -80,6 +80,7 @@ or a quarter turn) it may be 1 - 1e-7, because the weights of a span in 32-bit f
 | C2a: the same picture cut by `cover` into 720 by 1,280, 0.03 s | 326 MB |
 | C2b: the same picture turned 17 degrees and scaled 0.9, 0.46 s (C2a: 0.19 s, 530 MB); skewed 89 degrees, 0.22 s; in perspective with a far side a tenth as wide, 0.50 s | 386 MB each |
 | C3 regression, the mask-free path, on the same machine and load before and after (three runs each): 1,000 fills on 1,024 by 1,024, 0.667 to 0.690 s then 0.670 to 0.680 s | 19 MB both; one fill of 2^27 pixels, 0.32 to 0.33 s then 0.33 s, 2.15 GB both |
+| C3 regression, pictures: the 12 megapixel picture unplaced 0.024 s, moved 0.030 s, scaled 0.9 and moved by half a pixel 0.127 s, turned 17 degrees and scaled 0.9 0.447 s, skewed 89 degrees 0.176 s, in perspective 0.52 s, cut by `cover` into 720 by 1,280 0.023 s: each within 2% of the build before C3 | 386 MB each (523 MB scaled; 306 MB cut), the same to 0.1 MB |
 | C3: a fill masked by a fill, feathered, on a 2,400 by 3,200 poster (3,200 pixels on the long side): feather 3 design pixels 0.16 s, 30 0.22 s, 300 0.80 s | 190, 190 and 240 MB |
 | C3: a nest of 15 mask layers each feathered by 30 design pixels on that poster, 8.6 s (without a feather, 0.13 s) | 630 MB (186 MB with none; each level's plane is larger than the one it serves by the reach of its blur) |
 
