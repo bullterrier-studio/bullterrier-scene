@@ -200,3 +200,44 @@ def test_the_billboard_seen_from_behind_is_the_poster_mirrored(perspective):
     )
     assert np.array_equal(front.render(width)[..., :3], poster)
     assert np.array_equal(behind.render(width)[..., :3], poster[:, ::-1])
+
+
+# --- C3: letters filled with a landscape, type behind a figure -----------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def clip() -> ModuleType:
+    return load("c3_clip", ROOT / "docs" / "examples" / "c3_clip.py")
+
+
+def test_the_clipped_type_is_the_same_picture_twice_and_at_two_sizes(clip):
+    scene = clip.clipped_type()
+    first = scene.render(600)
+    assert first.shape == (400, 600, 4)
+    assert np.array_equal(first, scene.render(600))
+    assert (first[..., 3] == 1).all()  # the ground is opaque everywhere
+    assert scene.render(300).shape == (200, 300, 4)
+
+
+def test_the_figure_stands_in_front_of_the_type_and_the_type_shows_either_side_of_it(clip):
+    drawn = clip.clipped_type().render(clip.W)
+    row = 610  # inside the line BEHIND (it stands on y = 680 and is 250 high)
+    # the type is pale (the vignette dims it a little near the edge) where the figure is not: its first letter
+    assert (drawn[row, 150:330, :3].min(axis=-1) > 0.6).sum() > 40
+    # the figure is red where its matte is 1, on the same row: the type does not show through it
+    _, matte = clip.figure()
+    left = clip.W // 2 - matte.shape[1] // 2
+    inside = np.where(matte[row - (clip.H - 30 - matte.shape[0])] > 0.99)[0] + left
+    assert len(inside) > 20
+    figure = drawn[row, inside, :3]
+    assert (figure[:, 0] > 2 * figure[:, 1]).all()
+
+
+def test_the_landscape_shows_only_in_the_letters_and_nowhere_else_above_the_figure(clip):
+    drawn = clip.clipped_type().render(clip.W)
+    ground = clip.rgb(clip.GROUND)
+    band = drawn[40:370, 150:1050, :3]
+    differs = np.abs(band - ground).max(axis=-1) > 0.1
+    assert 0.1 < differs.mean() < 0.5  # letters, not a picture over the whole band
+    # the sun of the landscape (it is orange) is in the band, in a letter
+    assert (band[..., 0] - band[..., 2] > 0.35).any()
