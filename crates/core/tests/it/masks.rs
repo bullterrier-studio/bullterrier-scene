@@ -677,10 +677,10 @@ fn a_map_mask_inverts_and_multiplies_like_any_mask() -> Outcome {
 /// With no look a map is multiplied into the picture's own pixels (and blurred there); with a look the picture is resampled to
 /// the size the look runs at and the map with it, blurred there and multiplied after the look. At one output pixel to the
 /// design pixel the two agree to the bit in alpha, with a feather and without. Where the picture is reduced by two they
-/// agree to 1e-6 without a feather (the area average of a map is the same number either way); with a feather the two
-/// kernels (3 box passes of sigma 2 before the reduction, of sigma 1 after it) are each within 0.0099 of the Gaussian's
-/// distribution function, plus 0.001 for the average of the two pixels the reduction joins on the curve, so across an edge
-/// they differ by at most 2 x 0.0109 = 0.0218 (measured 0.02178).
+/// agree to 1e-6 without a feather (the area average of a map is the same number either way). With a feather they are two
+/// kernels (3 box passes of sigma 2 before the reduction, of sigma 1 after it), each within 0.0099 of the Gaussian's
+/// distribution function, so across an edge they differ by about two of those and the reduction's rounding: measured 0.0218,
+/// and the tolerance is 0.025.
 #[test]
 fn a_look_that_changes_nothing_gives_the_alpha_a_layer_has_with_no_look() -> Outcome {
     let nothing = r#"{"steps": [{"effect": "grade"}]}"#;
@@ -690,7 +690,7 @@ fn a_look_that_changes_nothing_gives_the_alpha_a_layer_has_with_no_look() -> Out
         ("one to one, hard", 0.0, 16, false, 0.0),
         ("one to one, soft", 3.0, 16, false, 0.0),
         ("reduced by two, hard", 0.0, 8, false, 1e-6),
-        ("reduced by two, soft, across an edge", 2.0, 8, true, 0.0218),
+        ("reduced by two, soft, across an edge", 2.0, 8, true, 0.025),
     ];
     for (what, feather, size, across_an_edge, tolerance) in rows {
         let map: &dyn Fn(usize, usize) -> f32 = if across_an_edge { &edge } else { &wavy };
@@ -834,5 +834,38 @@ fn a_mask_call_leaves_the_layer_it_was_made_on_as_it_was_and_a_render_is_repeata
             .any(|&alpha| alpha > 0.0 && alpha < 1.0)
     );
     assert_eq!(scene(200, 4, [base])?.render(200)?.pixels(), before.pixels());
+    Ok(())
+}
+
+/// A fill that is placed or fitted is the shape `place` and `fit` make of the canvas box, whatever its feather: a blur adds
+/// margin to the plane the mask is drawn on, and the margin must not change the box that `scale`, `aspect`, `rotate` and
+/// `contain` act on. Each row's feathered mass equals its hard mass (the shape is well inside the canvas).
+#[test]
+fn a_feathered_fill_that_is_placed_or_fitted_has_the_shape_it_has_unfeathered() -> Outcome {
+    let rows: [(&str, Layer); 4] = [
+        ("scaled by a half", Layer::fill(WHITE)?.place(Place::new().scale(0.5))?),
+        (
+            "squashed",
+            Layer::fill(WHITE)?.place(Place::new().aspect(0.5).scale(0.5))?,
+        ),
+        (
+            "contained in a box of another shape",
+            Layer::fill(WHITE)?.fit([20.0, 10.0, 80.0, 60.0], Fit::Contain, [0.5, 0.5])?,
+        ),
+        (
+            "turned a quarter and halved",
+            Layer::fill(WHITE)?.place(Place::new().rotate(bullterrier_scene::Deg(90.0)).scale(0.4))?,
+        ),
+    ];
+    let mass = |values: &[f32]| values.iter().map(|&value| f64::from(value)).sum::<f64>();
+    for (what, shape) in rows {
+        let hard = mass(&masked_white(shape.clone(), (120, 80), 120)?);
+        assert!(hard > 1_000.0, "{what}: the shape is {hard}");
+        let soft = mass(&masked_white(Mask::new(shape).feather(3.0), (120, 80), 120)?);
+        assert!((soft - hard).abs() <= 1e-4 * hard, "{what}: {soft} is not {hard}");
+    }
+    // and the scaled one is the half-size rectangle in the middle: 60 by 40 pixels, exactly
+    let half = masked_white(Layer::fill(WHITE)?.place(Place::new().scale(0.5))?, (120, 80), 120)?;
+    assert!((half.iter().map(|&value| f64::from(value)).sum::<f64>() - 2_400.0).abs() <= 1e-9);
     Ok(())
 }

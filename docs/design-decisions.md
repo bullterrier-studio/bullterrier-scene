@@ -250,9 +250,10 @@ beat). C2b replaces the rule for every map that is not of the **exact class**, a
   mask's edge (cheap, and wrong for a shape that crosses the edge). The margin costs a plane up to `(1 + 6 sigma / canvas)^2`
   times the canvas, `(1 + 6 sigma / width) (1 + 6 sigma / height)` (a poster with sigma 300: 2.7 times), and is bounded by 2^27
   pixels. Two things make it work: the warp's
-  output may start before the canvas (`Map::shifted`, additive), and the box a mask layer's source is asked for is the canvas
-  grown by the margin, so a fill covers it (`mask(fill)` stays 1 to the edge, and a shape that ends at the canvas edge is 0.5
-  there). A map has no margin: it is blurred on its own raster with the edge replicated, because a matte that touches the
+  output may start before the canvas (`Map::shifted`, additive), and a source with no box of its own (a fill) with no `fit` and no `place` is asked for the canvas
+  grown by the margin, so it covers it (`mask(fill)` stays 1 to the edge, and a shape that ends at the canvas edge is 0.5
+  there); a fitted or placed fill is asked for the canvas, because `fit` and `place` act on the box and a layer must be the same
+  shape whatever its blur adds. A map has no margin: it is blurred on its own raster with the edge replicated, because a matte that touches the
   picture's edge goes on past it.
 - **A source's box may start away from the origin.** A text's box is its glyphs' bounds, which start left of and above the
   anchor, and a fill's box is the margin canvas. `fitted`'s `cover` window had assumed an origin of 0 (`window.x = (width -

@@ -3,7 +3,7 @@
 
 use crate::geometry::{MAX_PIXELS, Rect, Scale};
 use crate::mask::product;
-use crate::placement::Layout;
+use crate::placement::{Layout, Placement};
 use crate::source::Drawn;
 use crate::warp::{Map, is_identity, warp_into};
 use crate::{Error, Layer, Raster};
@@ -128,7 +128,13 @@ impl Landed {
 /// `layer` drawn at the scale it will have, and put on `target`: the source asked for the part of its box that shows, then the
 /// map of the one warp worked out.
 pub(crate) fn land(layer: &Layer, target: &Target) -> Result<Landed, Error> {
-    let opened = layer.source.open(target.rect())?;
+    // a source with no box of its own (a fill) takes the part of the canvas the target holds, margin included, so that a mask
+    // that fills the canvas goes on into the margin; but only where nothing acts on the box, for `fit` and `place` work on
+    // it and a layer must be the same shape whatever its blur adds
+    let unplaced = layer.fit.is_none() && layer.placement == Placement::default();
+    let opened = layer
+        .source
+        .open(if unplaced { target.rect() } else { target.canvas })?;
     let layout = Layout::new(layer.fit, layer.placement, opened.own, target.scale);
     let request = layout.request(opened.own, opened.whole);
     // the one place the drawn-size limit is checked, before any source draws
