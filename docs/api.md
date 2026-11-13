@@ -56,7 +56,7 @@ parameter format, `scene.with_values({address: value})` sets them and returns a 
 | `parameters` | `parameters()` | every parameter, by address, in layer order ("Values") | |
 | `with_values` | `with_values(values)` | the scene with `values` (a mapping from address to value) set | `InvalidError`: an address the scene lacks (the message lists the valid ones and the nearest), a value outside its range or of the wrong kind (the address, the rule and the value) |
 | `render` | `render(size)` | the picture ("Output") | `InvalidError`, `ReadError` |
-| `to_json` | `to_json()` | the scene as JSON text, self-contained ("Saved scene") | `InvalidError`: a picture that is an array (it has no file), a look that holds a `Picture` or `Lut` |
+| `to_json` | `to_json()` | the scene as JSON text, self-contained ("Saved scene") | `InvalidError`: a picture that is an array (it has no file) |
 | `Scene.from_json` | `Scene.from_json(text, *, base=None)` | the scene back; a relative path in it resolves against folder `base` (default: the working folder). Reads no picture, font or map: those are read at `render` | `FormatError` |
 
 Scenes and layers compare by what they would render; equal values render equal pictures.
@@ -88,7 +88,7 @@ holds a plugin layer still saves as JSON.
 
 | Call | Signature | Promise | Errors |
 |---|---|---|---|
-| `named` | `named(name)` | the layer called `name`: letters, digits and `_`, starting with a letter, unique in its scene. A layer without a name is `layer1`, `layer2`... by its place in the scene, which shifts when a layer is inserted: name every layer you set values on | `InvalidError` |
+| `named` | `named(name)` | the layer called `name`: letters, digits and `_`, starting with a letter, unique in its scene. A layer without a name is `layer1`, `layer2`... by its place in the scene, which shifts when a layer is inserted: name every layer you set values on. `layer<n>` is refused as a name for any other place | `InvalidError` |
 | `fit` | `fit(box, how="cover", *, anchor=(0.5, 0.5))` | the layer's box fitted into `box` = `(x, y, width, height)`, design pixels. `"cover"`: scaled, aspect kept, to fill `box`, the overflow cut off at `box`'s edge; `"contain"`: scaled to lie wholly inside; `"stretch"`: `box` exactly, aspect not kept. `anchor` (fractions 0..1 of the layer's box) says which part stays when cover cuts and where a contained layer sits in the slack. Resolved at render from the picture's real size, so a hole's picture of any size fills the same box; cover is the delivery crop. Not a parameter | `InvalidError`: `how` another word, `box` with a size not above 0, `anchor` outside 0..1 |
 | `place` | `place(*, dx=None, dy=None, scale=None, rotate=None, skew=None, anchor=None)` | sets the fields it names and keeps the others. After `fit`, the layer is scaled by `scale` (a number, or `(x, y)`; negative mirrors), skewed by `skew` (`(x, y)` degrees) and rotated by `rotate` (degrees clockwise, any size, wrapping), all about `anchor` (fractions of the fitted box, default the centre), then moved by `dx`, `dy` design pixels. Defaults: no change | `InvalidError`: `scale` 0, a skew of 90 degrees or more, a non-finite number |
 | `perspective` | `perspective(corners)` | the four corners of the fitted box land on `corners` (top left, top right, bottom right, bottom left; design pixels), replacing `place`'s transform (the last of the two called wins). Not a parameter | `InvalidError`: corners that cross or are collinear |
@@ -131,8 +131,10 @@ writes, or a path to a recipe file. Looks apply in call order. See "Data in".
 - **Design pixels.** A `px` value of a look is a pixel of the scene's canvas, whatever the layer's size: 2 px grain on a
   small inset is as coarse as on the photo behind it. `render(size)` multiplies it, as image's `render(size=)` does.
 - **Light that spills.** A look runs on the layer's colour over black, so light it adds past the shape (a bloom's halo) is real
-  colour. A layer blended `"screen"` shows that light whole; any other blend cuts the layer to its own alpha, so a halo or a
-  shadow outside the shape does not show. A glow is therefore a copy of the layer: `logo.look(bloom).blend("screen")`.
+  colour. For a layer blended `"screen"` that colour is the layer, wherever the source's alpha was; masks and opacity still
+  scale it. Any other blend cuts the layer to its own alpha, so a halo or a shadow outside the shape does not show. A glow is
+  therefore a copy of the layer: `logo.look(bloom).blend("screen")`, or masked to a region: `lighter("windows", ...)` in
+  [mill.py](examples/mill.py).
   Darkness outside a shape (a drop shadow) is a layer of its own ([composed_world.py](examples/composed_world.py)).
 - **Maps.** A look's regions see the picture's `maps`. Scene runs no model: a subject or depth map is found by the caller with
   image and handed in.
@@ -328,6 +330,8 @@ Every row of "What the demos and the experiment asked of scene" in [roadmap.md](
 
 ## Decided after review
 
+Settled by the owner and the advisor before the design:
+
 - **Immutable values** (`Scene`, `Layer`): simple cache keys, no aliasing.
 - **Looks and drawings enter as data**, embedded in a saved scene; a path is a read-only convenience. Rust takes serialised
   data, not the sibling crates' types.
@@ -335,12 +339,17 @@ Every row of "What the demos and the experiment asked of scene" in [roadmap.md](
 - **Addresses** are the layer's name and the sibling's address verbatim; the format's `name` rule applies to the layer name.
 - **Rasters** are arrays in code and a path with a digest in JSON.
 - **Output** is a float32 array, PNG is image's, `size` is the long side.
-- **A group is a scene; a mask is a layer** (or a map of the layer's own picture).
-- **Placement is `fit` then fixed fields (`place`)**, not a chain of verbs, so every placement number has an address.
-- **Screen shows what a look adds past the shape**; other blends cut to the layer's alpha.
 - **Where the entire work ends:** A1, C1 to C7, M1 to M3, O1 (PNG only, through image's save), P1 (a Rust command line that
   the Python console script runs, as image does) and the final poster. B1 (bands) is deferred, since it needs vector's window
   render and image effects that take an origin and a canvas size; the interface does not change when it arrives.
+
+Chosen in the design, for the reviewers to challenge:
+
+- **A group is a scene; a mask is a layer** (or a map of the layer's own picture).
+- **Placement is `fit` then fixed fields (`place`)**, not a chain of verbs, so every placement number has an address.
+- **A look cannot change alpha; `screen` shows what it adds past the shape**, other blends cut to the layer's alpha.
+- **One `Layer.picture`**: a picture of `None` is a hole the caller fills, so footage needs no second kind of layer.
+- **Gradients are vector's**, not a scene source; **text** is a source so a title can be a parameter.
 
 ## Open questions
 
