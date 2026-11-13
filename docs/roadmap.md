@@ -104,7 +104,7 @@ Real objects over mocks: the sibling crates are real, used through their public 
 | S0 | Scaffold, gates, README, design and roadmap | S | |
 | A1 | The code API, designed from example programs first (a poster, a cover, a template run with a photo and a title, a video-frame use), `docs/api.md` and `docs/examples/`; review delegated to the advisor and one independent reader | M | |
 | C1 | **Done 2026-11-13.** Walking skeleton: `Scene` with a canvas and layers from a picture, a picture with an image look and a vector drawing; normal blend; whole render to RGBA in Rust and Python; replaces the template's `scale`. What is built and where it differs from the contract: [api.md](api.md), "What is built" | M | their public APIs as they are; git dependencies pinned |
-| C2 | Placement: `dx`, `dy`, `scale`, `aspect`, `rotate`, `skew`, `flip`, `anchor`, perspective, `fit` (cover and contain produce the delivery crop, such as a 9:16 frame from a taller photo, so no tool crops afterward); references (`Layer.of`); resampling. **C2a done 2026-11-13** (`fit`, the affine `place`, the one warp, the delivery crop; what is built: [api.md](api.md), "What is built"); **C2b** `perspective` (a homography: convex quadrilaterals only); references (`Layer.of`) are not in C2a and wait for a plan | L | |
+| C2 | Placement: `dx`, `dy`, `scale`, `aspect`, `rotate`, `skew`, `flip`, `anchor`, perspective, `fit` (cover and contain produce the delivery crop, such as a 9:16 frame from a taller photo, so no tool crops afterward); references (`Layer.of`); resampling. **C2a done 2026-11-13** (`fit`, the affine `place`, the one warp, the delivery crop; what is built: [api.md](api.md), "What is built"); **C2b done 2026-11-13** (`perspective`: a homography to a convex quadrilateral, mirrored accepted; one footprint rule for every warp: [design-decisions.md](design-decisions.md)); references (`Layer.of`) are not in C2 so far and wait for a plan | L | |
 | C3 | Masks: from a drawing's shape or text, an alpha, luminance, a given map, a subject cut-out; invert and feather | M | image's subject finder |
 | C4 | Blend modes (the W3C separable and non-separable set) and groups (isolation, group opacity) | L | |
 | C5 | Effect chains on layers and groups; light layers (`as_light`); the design-scale convention; room around a layer | M | image: effect footprints, and `Options::with_canvas` (the design scale is settled by image, decision 1) |
@@ -124,7 +124,7 @@ Real objects over mocks: the sibling crates are real, used through their public 
 |---|---|
 | A1 | `docs/api.md` and the example programs in `docs/examples/`, to review; nothing renders yet |
 | C1 | the first picture: a photo with a vector headline over it and one image effect on the photo |
-| C2 | rotated, skewed and perspective-tilted photos stacked on a canvas, like a pile of prints (C2a: turned, skewed and mirrored; the tilt is C2b), and a tall photo cut three ways into a 9:16 frame |
+| C2 | rotated, skewed and perspective-tilted photos stacked on a canvas, like a pile of prints (C2a: turned, skewed and mirrored; C2b: the tilt, and a checker road to a horizon), and a tall photo cut three ways into a 9:16 frame |
 | C3 | a photo clipped into big letters; type tucked behind a cut-out subject. The first piece that looks like a poster |
 | C4 | a contact sheet of every blend mode on the same two layers, to compare by eye with the same blends in a browser |
 | C5 | grain over the whole poster and a halftone on one photo only; one effect at two layer sizes side by side, equally coarse |

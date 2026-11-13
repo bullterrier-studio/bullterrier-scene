@@ -1,8 +1,8 @@
 # The code API
 
-Status: A1, designed from the example programs in [examples/](examples/); C1 (the walking skeleton) and C2a (`fit` and the
-affine `place`) are built, the rest is not. What they make real, and where they differ from the contract below, is "What is
-built". Every other signature is what batches C2b to C7 make real, and each example is the acceptance material of the batch
+Status: A1, designed from the example programs in [examples/](examples/); C1 (the walking skeleton), C2a (`fit` and the
+affine `place`) and C2b (`perspective`) are built, the rest is not. What they make real, and where they differ from the contract below, is "What is
+built". Every other signature is what batches C3 to C7 make real, and each example is the acceptance material of the batch
 that makes it run. Reasons:
 [design-decisions.md](design-decisions.md). The JSON form of a scene is "Saved scene" below.
 
@@ -21,7 +21,10 @@ look_file}` (`look` and `drawing` take the document as text), `Raster::rgba`, `E
 
 **C2a** adds `Layer.fit`, `Layer.place` (Python) and `Layer::{fit, place}`, `Fit`, `Place`, `Deg` (Rust: `layer.fit([x, y, width,
 height], Fit::Cover, [0.5, 0.5])?` takes all three, `layer.place(Place::new().dx(100.0).rotate(Deg(-4.0)))?` sets the fields
-named). `perspective` is C2b; references (`Layer.of`) are not built. Nothing else below exists yet. Each call is as written
+named).
+
+**C2b** adds `Layer.perspective(corners)` (Python, four (x, y) pairs) and `Layer::perspective([[f64; 2]; 4])` (Rust). References
+(`Layer.of`) are not built. Nothing else below exists yet. Each call is as written
 below, except:
 
 | Where | Built | Changes with |
@@ -29,6 +32,7 @@ below, except:
 | Boxes | A picture's box is its pixels and a drawing's its frame, one design pixel each, at the canvas origin; a fill covers the canvas; `fit` and `place` move them. What lies outside the canvas is cut. The picture covers the canvas exactly: the long axis has exactly `size / long side` output pixels per design pixel; the short axis has its length rounded up to whole pixels and the picture is stretched onto them, so there a design pixel is `rows / height` (or `columns / width`) output pixels, within one pixel over the whole canvas of `size / long side`. That is what lets a layer that covers the canvas cover it whole at any size. **Limit:** on a thin canvas the design pixel is visibly not square (a canvas of 100 by 3 at `size` 7 is 7 by 1 pixels: 0.07 output pixels along x and 1/3 along y), and a turn or a skew of a layer on it is sheared by that ratio; draw such a canvas at a size where its short side is whole. A box that ends between two output pixels covers the pixel it ends in in part | |
 | Resampling | One warp per layer ([design-decisions.md](design-decisions.md), "Placement"): bilinear on premultiplied colour; where the map shrinks the picture, the average of what the output pixel's footprint covers (an exact area average where the map keeps the axes, a lattice of taps over the footprint elsewhere), at any skew; no negative weight (a bicubic upgrade must restore a clamp); nothing outside the fitted box is drawn and an edge between two pixels is soft by coverage; a move by whole pixels, a quarter turn and a flip are exact copies | |
 | `fit`, `place` | `anchor` outside 0 to 1, and `dx` or `dy` outside -1e6 to 1e6 (the range of the parameters), are `InvalidError` naming the field. A call that sets a number the call refuses leaves the layer as it was. `fit` is resolved when the scene renders | |
+| `perspective` | Corners beyond -1e6 to 1e6 or not finite, and corners that are no strictly convex quadrilateral, are `InvalidError` naming `corners`; a mirrored (counter-clockwise) one is accepted. A layer under one is drawn at the largest scale the quadrilateral gives any corner of its window along each axis, cut down by one factor to the 2^27 pixels of a layer where it would pass them (not refused: the near side loses sharpness, which window drawing, B1, lifts). A parallelogram is affine and takes the exact path: an axis-aligned one is what `place` makes, bit for bit | |
 | A look | Only a picture layer takes one (a fill or a drawing is `InvalidError` naming `look`). It runs on the fitted raster at the size the layer has: the source drawn at `output scale x fit factor x scale` (see "How a layer is drawn"), on its straight colour with the alpha left as it is: the contract's "colour over black" for an opaque picture, which is all C1 tests. A look's `px` are image's own, a pixel of the layer's drawn picture whose long side is 480, not yet pixels of the canvas; the tests keep to canvas-sized pictures so that C5 does not rewrite them. Image refuses a look on a picture of more than 2^26 pixels, in its words | C5 |
 | `format` of a look | `Recipe.to_dict()` writes none, and image's reader refuses a top-level `format`. A document that carries one is checked against a copy of image's list (1, 2, 3; image keeps it private, a test fails when a bump of the pin changes it) and the key is removed. The refusal names the version found and the versions read, not the crate's version, which neither crate publishes | image: a public list and version |
 | A drawing | `inputs` (font bytes) is not built: no layer needs a font yet. A document vector cannot read is `FormatError` under `/drawing` in vector's words, a version skew included, without the crate's version. Vector draws the whole frame, not a part (B1) | C6, text layers |
@@ -47,8 +51,8 @@ raster past the box (its room) would be clipped away: `Drawn` needs a visible re
 C7's cache key needs.
 
 **Limit: alpha.** The alpha of an interior pixel of an opaque layer is exactly 1 after a move, a quarter turn, a flip, any
-turn or an enlargement; after an area average (a reduction) it may be 1 - 1e-7, because the weights of a span in 32-bit
-floats sum to a step under 1.
+turn, a perspective or an enlargement; after the exact area average of a map that keeps the axes (a reduction by a scale, a flip
+or a quarter turn) it may be 1 - 1e-7, because the weights of a span in 32-bit floats sum to a step under 1.
 
 **Limits, measured** (release build, 2026-11-13, arm64 Mac, peak resident memory of a whole render):
 
@@ -61,6 +65,7 @@ floats sum to a step under 1.
 | 1,000 fills on 1,024 by 1,024, 0.67 s | 19 MB (C1: 0.89 s, 36 MB) |
 | C2a: one 12 megapixel picture on a 12 megapixel canvas: unplaced 0.03 s, 386 MB; moved 0.05 s, 386 MB; scaled 0.9 and moved by half a pixel 0.12 s, 520 MB; turned 17 degrees and scaled 0.9, 0.19 s, 527 MB | |
 | C2a: the same picture cut by `cover` into 720 by 1,280, 0.03 s | 326 MB |
+| C2b: the same picture turned 17 degrees and scaled 0.9, 0.46 s (C2a: 0.19 s, 530 MB); skewed 89 degrees, 0.22 s; in perspective with a far side a tenth as wide, 0.50 s | 386 MB each |
 
 `MAX_LAYERS` (1,000) and the 2^27 pixels stay. The 2^27 applies to the output and to every layer's drawn size (its box at
 the scale it is drawn at, `ceil(width x scale)` by `ceil(height x scale)`, the scale being `output scale x fit factor x
@@ -79,6 +84,7 @@ Each program is a `build(...)` function that returns a `Scene` from its inputs (
 |---|---|
 | [c1_first_picture.py](examples/c1_first_picture.py) | C1 (runs now: `uv run poe look`): a synthetic photo with one image look and a vector headline over it, rendered at two sizes |
 | [c2_prints.py](examples/c2_prints.py) | C2a (runs now: `uv run poe look`): a pile of synthetic snapshots, each `fit` (cover, contain, stretch) and placed (turned, skewed, mirrored, scaled), and one tall photo cut three ways into a 9:16 frame |
+| [c2b_perspective.py](examples/c2b_perspective.py) | C2b (runs now: `uv run poe look`): a checker road receding to a horizon, where its checks are smaller than a pixel and fade to grey, and two billboards on quadrilaterals, one mirrored |
 | [poster_two_ink.py](examples/poster_two_ink.py) | M1: a photo in two inks clipped into a polygon, type behind a cut-out subject, flat shapes, grain, three sizes |
 | [cover_template.py](examples/cover_template.py), [.rs](examples/cover_template.rs) | C6: one scene, a photo, a title and a colour set by `with_values`; saved as JSON and read back; six covers |
 | [frame_sequence.py](examples/frame_sequence.py) | C7: a headline sliding in over 24 frames, one value set per frame |
@@ -164,6 +170,13 @@ each output pixel's centre from it (bilinear, averaged by area along any axis th
 fitted box, and leaves a pixel an edge crosses covered in part. For a picture with no look the source hands over its own
 pixels, so source, `fit` and `place` are one warp with no resample between them.
 
+- **Perspective.** The source draws at the largest scale the quadrilateral gives any corner of the window along each axis, so the
+  near side is sharp, and the warp filters the far side by each pixel's own footprint (the next point). If that would pass the
+  2^27 pixels of a layer it draws at a smaller scale that does not, and the render stays valid; the near side then loses
+  sharpness. Window drawing (B1) lifts that.
+- **Footprint.** Where the warp shrinks the picture each output pixel is the average of what its footprint covers: an exact area
+  average where the map keeps the raster's axes (a scale, a flip, a quarter turn), a lattice of taps over the footprint
+  otherwise (a turn, a skew, a perspective), at any skew. Where the footprint is no larger than a pixel it is plain bilinear.
 - **Cost.** An animated `scale` draws the source and runs its look again every frame. `dx`, `dy`, `rotate`, `skew`, `flip`
   and `aspect` only warp a raster that did not change, which is what C7 caches.
 - **Zoom limit.** A large `scale` on a big layer meets the 2^27 drawn-size limit even where only a part shows; drawing a window
@@ -216,7 +229,7 @@ any layer (`opacity`, `blend`, `light`, the placement fields) and its looks: `lo
 | `named` | `named(name)` | the layer called `name`: letters, digits and `_`, starting with a letter, unique in its scene. A layer without a name is `layer1`, `layer2`... by its place in the scene, which shifts when a layer is inserted: name every layer you set values on or refer to. `layer<n>` is refused as a name for any other place | `InvalidError` |
 | `fit` | `fit(box, how="cover", *, align=(0.5, 0.5))` | the layer's box fitted into `box` = `(x, y, width, height)`, design pixels. `"cover"`: scaled, aspect kept, to fill `box`, the overflow cut off at `box`'s edge; `"contain"`: scaled to lie wholly inside; `"stretch"`: `box` exactly, aspect not kept. `align` (fractions 0..1 of the layer's box) says which part stays when cover cuts and where a contained layer sits in the slack. Resolved at render from the picture's real size, so a hole's picture of any size fills the same box; cover is the delivery crop. `place` acts on the fitted box: the cut `box` for cover, the contained rectangle for contain. The cut is a hard clip of the layer's own raster, not a mask. Not a parameter | `InvalidError`: `how` another word, `box` with a size not above 0 or a number that is not finite, `align` outside 0..1 |
 | `place` | `place(*, dx=None, dy=None, scale=None, aspect=None, rotate=None, skew=None, flip=None, anchor=None)` | sets the fields it names and keeps the others; `flip=(x, y)` sets `flip_x` and `flip_y`, `skew=(x, y)` sets `skew_x` and `skew_y`. The finished raster is flipped by `flip` (`(x, y)` booleans), scaled by `scale` (uniform) and by `aspect` on y (the height ratio: y scale is `scale` times `aspect`, x scale is `scale`), skewed by `skew` (degrees: `skew_x`, then `skew_y`, one after the other, so the transform's determinant stays 1 and the bound below is enough) and rotated by `rotate` (degrees clockwise, any size, wrapping), all about `anchor` (fractions 0..1 of the fitted box, default the centre), then moved by `dx`, `dy` design pixels (not turned with the layer). Defaults: no change. A rotation by a multiple of 90 degrees, a flip and a move by whole output pixels are exact copies of the pixels (about an anchor on the pixel grid) | `InvalidError`: `scale` or `aspect` outside 0.001..1000, a skew outside -89..89, `dx` or `dy` outside -1e6..1e6, an `anchor` outside 0..1, a non-finite number |
-| `perspective` | `perspective(corners)` | **C2b, not built.** The four corners of the fitted box land on `corners` (top left, top right, bottom right, bottom left; design pixels), replacing `place`'s transform (the last of the two called wins). Not a parameter | `InvalidError`: a homography maps a rectangle only to a convex quadrilateral, so corners that make a non-convex one (a dart), cross (a bowtie) or are collinear are refused. Open: whether corners in counter-clockwise order (a mirrored quadrilateral) are accepted, `flip` being the other way to mirror: decided in C2b (Open questions) |
+| `perspective` | `perspective(corners)` | the four corners of the fitted box land on `corners` (top left, top right, bottom right, bottom left; design pixels of the canvas), by the homography of the box to the quadrilateral, replacing `place`'s transform (the last of the two called wins; `fit` comes first, so the corners are the fitted box's). The quadrilateral must be strictly convex, which is what a homography maps a rectangle to: all four cross products of consecutive edges above 0, or all below. One that turns counter-clockwise is accepted: it is the box seen from behind, a mirror (the picture of a clockwise quadrilateral with its corners left and right swapped). Not a parameter | `InvalidError` naming `corners`: a number beyond -1e6..1e6 or not finite; a dart (a corner inside the others), a bowtie (edges that cross), three corners on a line, a corner twice |
 
 `place`'s fields are parameters: `dx`, `dy` (px), `scale`, `aspect` (ratio), `rotate` (degrees, cyclic), `skew_x`, `skew_y`
 (degrees), `flip_x`, `flip_y` (bool). `scale` is the zoom of an animation; a flat shadow is `aspect=0.12`. A layer scaled by
@@ -505,7 +518,4 @@ ends.
 2. **Dark light past a shape.** A light layer makes alpha from brightness, so a dark halo (image's `drop_shadow`) is
    invisible; a shadow is a fill masked by the shape. Lifts when image carries alpha through its effects.
 3. **`MAX_DEPTH` (16) is a placeholder** until scenes can be layers (C4). `MAX_LAYERS` and 2^27 pixels are measured ("What is built").
-4. **A mirrored quadrilateral in `perspective`** (C2b). A homography maps the box's corners in order; corners in
-   counter-clockwise order give the layer seen from behind. Accept it (one more way to mirror) or refuse it as `InvalidError`,
-   decided with the other known-bad rows of C2b.
-5. **The cache's bound** (entries or bytes) is set when C7 measures a 15-layer A3 poster.
+4. **The cache's bound** (entries or bytes) is set when C7 measures a 15-layer A3 poster.

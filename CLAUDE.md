@@ -32,10 +32,10 @@ uv run poe full                      # `check` and the gate proofs: before a tag
 | change a gate | `pyproject.toml` (Python tools, poe tasks), `Cargo.toml` (Rust lints, tool pins); proof in `tests/tools/` |
 | keep files identical across projects | `docs/shared-files.md` |
 
-**State:** C1 and C2a done (`docs/roadmap.md`): a `Scene` of picture, drawing and fill layers with an image look on a picture, each
+**State:** C1, C2a and C2b done (`docs/roadmap.md`): a `Scene` of picture, drawing and fill layers with an image look on a picture, each
 `fit` into a box (cover, contain, stretch) and `place`d (flip, scale, aspect, skew, rotate about an anchor, move) by one warp, normal blend and opacity, rendered whole at
 any size to a float32 array (Python) and a `Raster` (Rust). What is built and where it differs from the contract is "What is built" in
-`docs/api.md`. Next: C2b (`perspective`), then masks (C3).
+`docs/api.md`. A layer can also be put on a convex quadrilateral (`perspective`). Next: masks (C3).
 
 **Setup, once:** image and vector are private git dependencies (pinned by `rev` in `Cargo.toml`, bumped in a commit of its own).
 A fetch needs git credentials for `github.com/bullterrier-studio` (a credential helper is enough; if cargo's own git client is
@@ -80,7 +80,7 @@ errors     BullterrierSceneError > InvalidError, FormatError, ReadError
 
 **Rust core:** `crates/core` (pure Rust: no PyO3, no numpy, `#![forbid(unsafe_code)]`; one file per concept): `scene` (`Scene`),
 `layer` (`Layer`), `raster` (`Raster`), `render` (size, normal blend, straight alpha), `warp` (the one resample: bilinear and area average), `placement` (`Fit`,
-`Place`, `Deg`: where a layer's box goes), `geometry` (`Rect`, `Scale`: the one rule for fractional boxes), `error` (the one error type), and `source/` (the trait with one question, "draw this part of your box at this scale", and its three answers: `fill`, `picture` (the image adapter), `drawing` (the vector adapter)). `crates/python` (PyO3 bindings
+`Place`, `Deg`: where a layer's box goes), `perspective` (`Quad`: the convex quadrilateral and its homography), `warp/footprint` (the filter of a map that does not keep the axes), `geometry` (`Rect`, `Scale`: the one rule for fractional boxes), `error` (the one error type), and `source/` (the trait with one question, "draw this part of your box at this scale", and its three answers: `fill`, `picture` (the image adapter), `drawing` (the vector adapter)). `crates/python` (PyO3 bindings
 building `bullterrier_scene._native._core`; generic: no logic of the core, only the mapping of calls, arrays and errors). A refusal
 of the core is a Python `InvalidError`, `FormatError` or `ReadError`, imported when the first one is raised. There is no other
 boundary. The Python facade turns what a caller holds (a look's dict, a drawing's JSON, a path) into the data the core takes and
