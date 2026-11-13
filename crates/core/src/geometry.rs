@@ -119,8 +119,8 @@ impl Scale {
     }
 }
 
-// Inline, because no public route reaches this: a size of a part is asked of the sources by the renderer only, and a
-// scale of a canvas with a rounded side (a whole canvas is what the public tests render) is tested by its sizes.
+// Inline, because no public route reaches this cheaply: the size of a part of a box, and the exact edge of the drawn-size limit
+// (a public test would have to draw 2^27 pixels). The rest of the rule is tested by the renders of `tests/it/placement.rs`.
 #[cfg(test)]
 mod tests {
     use super::{Rect, Scale};

@@ -1,6 +1,7 @@
 """`poe look`: the example scene it renders, and the PNG it writes."""
 
 import importlib.util
+import re
 import struct
 import zlib
 from pathlib import Path
@@ -91,9 +92,11 @@ def test_the_look_task_writes_the_pngs_it_is_given_and_prints_the_first(look, ex
     assert decode(pieces[2][3].read_bytes()).shape == (30, 48, 4)
 
 
-def test_every_piece_the_task_draws_is_where_the_gallery_and_the_look_folder_keep_it(look):
-    gallery = {path.name for _, _, _, path in look.PIECES if path.parent == look.GALLERY}
-    assert gallery == {"c1-first-picture.png", "c2-pile-of-prints.png", "c2-delivery-crop.png"}
+def test_the_gallery_page_shows_every_picture_the_task_writes_there_and_no_other(look):
+    shown = set(re.findall(r"!\[[^\]]*\]\(([^)]+\.png)\)", (look.GALLERY / "README.md").read_text(encoding="utf-8")))
+    written = {path.name for _, _, _, path in look.PIECES if path.parent == look.GALLERY}
+    assert shown == written
+    assert {path.name for path in look.GALLERY.glob("*.png")} == written  # and each is committed
     assert all((look.EXAMPLES / file).is_file() for file, _, _, _ in look.PIECES)
 
 
