@@ -3,7 +3,7 @@
 Layered type, a cut-out subject, neon, halftone, glow on chosen layers, mixed blend modes, a badge, grain and a
 vignette. One word is outlined in neon and one is filled; both sit in front of the halftone photo and behind the
 subject. Written at the level of calls: it is the acceptance piece for the whole API. Proves: type behind the
-subject, two glows that light only their own layer (and keep the subject's mask), `hard-light`, `difference`,
+subject, two glows that light only their own layer (and stay behind the subject), `hard-light`, `difference`,
 `screen`, `multiply` and `overlay` in one stack, and the space of a look: the inset's vignette and grain follow
 its own box, in design pixels.
 """
@@ -68,9 +68,14 @@ def build(photo: np.ndarray, matte: np.ndarray) -> bts.Scene:
         bts.Layer.drawing(on_canvas(ground)).named("ground"),
         bts.Layer.picture(photo).named("halftone").fit(FRAME, "cover").look(halftone).blend("hard-light").opacity(0.7),
         bts.Layer.drawing(on_canvas(*rings)).named("rings"),
-        bts.Layer.of("rings").named("rings_glow").look(glow(0.9)).alpha("light").blend("screen"),  # nothing else glows
+        bts.Layer.of("rings").named("rings_glow").look(glow(0.9)).as_light().blend("screen"),  # nothing else glows
         bts.Layer.drawing(on_canvas(outline)).named("outline").mask(behind_subject, invert=True),
-        bts.Layer.of("outline").named("outline_glow").look(glow(1.2)).alpha("light").blend("screen"),  # keeps its mask
+        bts.Layer.of("outline")
+        .named("outline_glow")
+        .look(glow(1.2))
+        .as_light()
+        .blend("screen")
+        .mask(behind_subject, invert=True),  # a reference owns its masks: the glow stays behind the subject too
         bts.Layer.text(
             "NIGHT\nSHIFT", font="bricolage_grotesque", size=520, color=YELLOW, leading=470, axes={"wght": 800}
         )

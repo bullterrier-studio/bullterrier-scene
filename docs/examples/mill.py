@@ -5,8 +5,8 @@ glow, four words landing, a 9:16 delivery crop by `fit`. Every moving value is s
 Proves: per-layer looks (the logo's glow does not light the windows), a region of image as a map, a vector
 parameter as an address, a crop without an outside tool.
 
-Where the numbers come from (a song, a clock, a slider) is the caller's business; `frame_values` takes plain
-numbers.
+Where the numbers come from (a clock, a slider, a file of numbers) is the caller's business; `frame_values` takes
+plain numbers.
 """
 
 from pathlib import Path
@@ -57,7 +57,7 @@ def box(x: float, y: float, w: float, h: float) -> bts.Layer:
 def build(photo: np.ndarray, matte: np.ndarray, logo_svg: str) -> bts.Scene:
     """The scene from the photo, the matte of the mill and the tagged SVG text of the logo."""
     maps = {"subject": matte, "windows": region(photo, matte, "windows")}  # the look sees `subject`; masks see both
-    # `crop`: 9:16 from a wide photo, the mill kept in frame by the alignment
+    # the 9:16 delivery crop of a wide photo is `fit` with "cover": `align` keeps the mill in frame
     night = (
         bts.Layer.picture(photo, maps=maps).named("night").fit((0, 0, W, H), "cover", align=(0.5, 0.4)).look(night_look)
     )
@@ -86,24 +86,25 @@ def build(photo: np.ndarray, matte: np.ndarray, logo_svg: str) -> bts.Scene:
     ]
     return bts.Scene(W, H).add(
         night,
-        # `lit`: the night photo again, bloomed, shown only where a mask says, screened over itself
+        # the night photo again (picture, fit and look inherited), bloomed, shown only where a mask says
         bts.Layer.of("night").named("windows").look(swell).mask("windows", feather=3).blend("screen"),
         bts.Layer.of("night").named("sign_glow").look(swell).mask(sign_box, feather=6).blend("screen"),
         bts.Layer.fill(PINK).named("sign").mask(sign_box).blend("multiply"),
         bts.Layer.drawing(logo).named("logo").fit((0.17 * W, 0.45 * H, 0.66 * W, 0.25 * H), "contain"),
-        # `glow`: the logo's own light; it follows the logo's parameters and lights nothing else
-        bts.Layer.of("logo").named("logo_glow").look(halo).alpha("light").blend("screen"),
+        # the logo's own light: it follows the logo's parameters and lights nothing else
+        bts.Layer.of("logo").named("logo_glow").look(halo).as_light().blend("screen"),
         *words,
     )
 
 
-def frame_values(level: float, hit: float, impact: float, ring: float, filled: float, landing: list[float]) -> dict:
+def frame_values(level: float, pulse: float, bump: float, ring: float, filled: float, landing: list[float]) -> dict:
     """The scene's addresses for one moment, from plain numbers in 0..1."""
+    swell_amount = 0.05 + 0.35 * level + 0.2 * pulse  # the windows and the sign swell together
     values: dict[str, object] = {
-        "windows.look.swell.amount": 0.05 + 0.35 * level + 0.2 * hit,
-        "sign_glow.look.swell.amount": 0.05 + 0.35 * level + 0.2 * hit,
-        "logo_glow.look.halo.amount": 0.2 + 0.2 * level + 0.3 * hit + 0.3 * impact,
-        "logo.scale": 1 + 0.28 * impact + 0.04 * hit,  # the glow follows: it is the logo's layer again
+        "windows.look.swell.amount": swell_amount,
+        "sign_glow.look.swell.amount": swell_amount,
+        "logo_glow.look.halo.amount": 0.2 + 0.2 * level + 0.3 * pulse + 0.3 * bump,
+        "logo.scale": 1 + 0.28 * bump + 0.04 * pulse,  # the glow follows: it is the logo's layer again
         "logo.drawing.ring_on": ring,
         "logo.drawing.landed": filled,
     }
@@ -118,5 +119,5 @@ if __name__ == "__main__":
         picture, segmenter="sam2", points=[(0.45, 0.4, True), (0.8, 0.62, True), (0.5, 0.01, False)]
     )
     mill = build(picture, mill_matte, Path("inputs/logo.svg").read_text(encoding="utf-8"))
-    values = frame_values(level=0.7, hit=0.4, impact=0.0, ring=1.0, filled=1.0, landing=[1, 0.6, 0.2, 0])
+    values = frame_values(level=0.7, pulse=0.4, bump=0.0, ring=1.0, filled=1.0, landing=[1, 0.6, 0.2, 0])
     imageio.save(mill.with_values(values).render(H), "mill-frame.png")

@@ -4,7 +4,7 @@ A cut-out dog stands on a neon grid floor under a striped sun, with a contact sh
 the sun only. The sky, sun and floor are vector drawings. The dog is moved and scaled by `fit`; its shadow,
 reflection and the sun's glow are reference layers (`Layer.of`), so nothing is drawn twice by hand and every value
 is set once. Proves: a subject standing in a generated world, one look on one layer, light that spills past a
-shape (`alpha("light")`).
+shape (`as_light`).
 """
 
 import bullterrier_vector as btvec
@@ -38,7 +38,8 @@ def build(photo: np.ndarray, matte: np.ndarray) -> bts.Scene:
 
     rim = Recipe([fx.rim_light(field="subject", color="#ff2bd6", width=10)], name="rim")
     glow = Recipe([fx.bloom(radius=60, threshold=0.2, amount=1.0)], name="glow")
-    # `anchor=(0.5, 1.0)` on the dog stands its paws on y = FEET; the reflection and shadow turn about the same point.
+    # `align=(0.5, 1.0)` stands the dog's paws on y = FEET; its reflection and shadow place about `anchor=(0.5, 1.0)`,
+    # the middle of its feet.
     dog = (
         bts.Layer.picture(photo, maps={"subject": matte})
         .named("dog")
@@ -51,7 +52,7 @@ def build(photo: np.ndarray, matte: np.ndarray) -> bts.Scene:
     return bts.Scene(W, H).add(
         bts.Layer.drawing(world(btvec.Path.rect(0, 0, W, HORIZON).fill(sky_paint))).named("sky"),
         bts.Layer.drawing(world(sun)).named("sun"),
-        bts.Layer.of("sun").named("sun_glow").look(glow).alpha("light").blend("screen"),  # the sun glows, nothing else
+        bts.Layer.of("sun").named("sun_glow").look(glow).as_light().blend("screen"),  # the sun glows, nothing else
         bts.Layer.drawing(world(btvec.Path.rect(0, HORIZON, W, H - HORIZON).fill("#0b0020"), *grid)).named("floor"),
         bts.Layer.of("dog")  # the dog mirrored in the floor, fading away from the paws
         .named("reflection")
@@ -60,7 +61,7 @@ def build(photo: np.ndarray, matte: np.ndarray) -> bts.Scene:
         .mask(fade_out, use="luminance"),
         bts.Layer.fill("#000000")  # the dog's outline flattened onto the floor and softened
         .named("shadow")
-        .mask(bts.Layer.of("dog").place(scale=SQUASH, aspect=1 / SQUASH, anchor=(0.5, 1.0)), feather=12)
+        .mask(bts.Layer.of("dog").place(aspect=SQUASH, anchor=(0.5, 1.0)), feather=12)
         .opacity(0.6)
         .blend("multiply"),
         dog,

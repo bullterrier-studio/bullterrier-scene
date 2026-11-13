@@ -36,19 +36,26 @@ def build(photo: np.ndarray, matte: np.ndarray) -> bts.Scene:
         btvec.Path.polyline([(260, 300), (1640, 160), (1700, 1900), (140, 2100)], closed=True).fill("#ffffff")
     )
     shapes = on_canvas(btvec.Path.circle((1380, 520), 380).fill(RED), btvec.Path.rect(0, 2000, W, 400).fill(INK))
-    dancer = bts.Layer.picture(photo, maps={"subject": matte}).fit(FRAME, "cover").look(two_inks)
+    photo_layer = (
+        bts.Layer.picture(photo, maps={"subject": matte})
+        .named("photo")
+        .fit(FRAME, "cover")
+        .look(two_inks)
+        .mask(bts.Layer.drawing(window))  # the photo shows only inside the polygon
+    )
 
     return bts.Scene(W, H).add(
         bts.Layer.fill(PAPER).named("paper"),
         bts.Layer.drawing(shapes).named("shapes"),
-        dancer.named("photo").mask(bts.Layer.drawing(window)),  # the photo shows only inside the polygon
+        photo_layer,
         bts.Layer.text(
             "MORE\nLAYERS.", font="bricolage_grotesque", size=620, color=PAPER, leading=560, axes={"wght": 800}
         )
         .named("headline")
         .place(dx=110, dy=700)
         .mask(bts.Layer.of("subject"), invert=True),  # hidden where the subject is: the type passes behind it
-        dancer.named("subject").mask("subject"),  # the same picture again, cut out by its own named map
+        # the same picture and look again, without the polygon, cut out by the map: set once, drawn twice
+        bts.Layer.of("photo").named("subject").mask("subject"),
         bts.Layer.fill("#808080").named("grain").look(grain).blend("overlay"),
     )
 

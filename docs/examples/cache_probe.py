@@ -5,6 +5,8 @@ value that only moves the headline never redraws the static layer; a changed opt
 Arrives with C7.
 """
 
+import math
+
 import numpy as np
 
 import bullterrier_scene as bts
@@ -16,7 +18,7 @@ calls: list[tuple[float, float, float, float, float]] = []
 def draw(x: float, y: float, width: float, height: float, scale: float, *, tone: float) -> np.ndarray:
     """One rectangle of the canvas (design pixels) at `scale` output pixels per design pixel: a flat grey."""
     calls.append((x, y, width, height, scale))
-    return np.full((round(height * scale), round(width * scale), 4), tone, np.float32)
+    return np.full((math.ceil(height * scale), math.ceil(width * scale), 4), tone, np.float32)
 
 
 def build(tone: float) -> bts.Scene:
