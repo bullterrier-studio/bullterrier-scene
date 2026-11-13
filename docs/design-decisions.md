@@ -229,6 +229,49 @@ beat). C2b replaces the rule for every map that is not of the **exact class**, a
   pixel; the sheared picture covers little of the canvas); under a perspective a tenth as wide at the far side, 0.50 s and
   386 MB.
 
+## The feather is three box passes, not an exact Gaussian (2026-11-13)
+
+A mask's `feather` is the standard deviation of a Gaussian blur, in design pixels, and a poster asks for a large one (300 design
+pixels on a 2,400 pixel poster). **Measured** before choosing (release build, arm64 Mac, one thread, a 2,400 by 3,200 plane of
+`f32`, separable, replicated edges, a kernel cut at 4 sigma as image's effects cut theirs; prototype in a scratch crate):
+
+| sigma | exact separable | three box passes |
+|---|---|---|
+| 3 px | 0.08 s | 0.05 s |
+| 30 px | 1.1 s | 0.05 s |
+| 300 px | 13.1 s (a feather needs a margin of its own width round the canvas, so 27 megapixels: about 50 s) | 0.06 s |
+
+The exact cost grows with sigma, the boxes' does not. **Chosen:** the plane is blurred by three passes of one box, along x and
+then along y. The box has real half-width `h`: pixels within `floor(h)` weigh 1 and the two beyond weigh `h - floor(h)`, all
+over `2h + 1`. `h` is solved (bisection, to 1e-12) so that the three passes' variance is exactly sigma squared, not the
+nearest odd width's: with whole widths a sigma of 2 comes out 9% off. Every weight is at least 0 and they sum to 1, so the
+kernel is **convex** and a mask stays within 0 to 1 without a clamp. The three passes reach `3 ceil(h)` pixels and no more (about
+3 sigma: the support is exact, not cut). Against the Gaussian the kernel's distribution function is off by at most 0.0099 (sigma
+5 to 100: 0.0091 to 0.0099; 0.0052 at sigma 2), which is the oracle's tolerance. Four passes gave 0.0074 and cost a third more:
+not taken.
+
+**Why a sum without subtraction.** A running sum (add the pixel entering, subtract the one leaving) leaves a residue of 1e-16
+where a window of zeros follows a window of ones, and a negative alpha is not a picture. Each pass takes the window sum from a
+block prefix and a block suffix of the line (both sums of non-negative numbers, accumulated in `f64`, van Herk and Gil-Werman),
+so a value of a mask never falls below 0 and a window of ones sums to exactly its length.
+
+**Edge.** A line is extended by its end value (replicated) beyond its raster. A mask drawn on the canvas is drawn on a plane
+larger than the canvas by the kernel's reach on each side (the margin), so the replicated edge is never read inside the canvas
+and a shape that crosses the canvas edge feathers as it would on a larger canvas. A map of the picture is blurred on its own
+raster, and there replication is the rule ("What is built", C3).
+
+**Crates surveyed** (crates.io, 2026-11-13). Criteria as for the warp: `f32` channels, convex, a stated edge, a licence that
+passes `deny.toml`, few dependencies.
+
+| Crate | Finding | Verdict |
+|---|---|---|
+| `libblur` 0.24.0 (Apache-2.0 or BSD-3-Clause) | `f32` Gaussian and fast-Gaussian blurs with edge modes; an integer radius (the variance of the fast kernel is not sigma squared), rayon, `novtb`, `num-complex`, `zaft`, `unsafe` SIMD | not adopted: the kernel must have a stated variance, and four more crates and a thread pool for 60 lines |
+| `fastblur` 0.1.1 (MIT) | three box passes, `u8` RGB only, 2019 | fails the first criterion |
+| `blurslice` 0.1.0 (MIT) | the same method over `u8` slices | fails the first criterion |
+| `imageproc` 0.27.0 (MIT) | exact `gaussian_blur_f32`, so the cost above; 51 crates ("Placement") | not adopted |
+
+*Cost:* an approximation of the Gaussian within 0.0099, stated in `api.md`, and a kernel of ours to keep.
+
 ## Text options are vector's, passed as data (2026-11-13)
 
 `Layer.text(content, *, font, color, **options)`: scene owns the content (a text parameter), the font and the colour; the rest
