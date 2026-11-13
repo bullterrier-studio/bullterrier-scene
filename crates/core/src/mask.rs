@@ -39,11 +39,12 @@ impl FromStr for Use {
     }
 }
 
-/// The weights of red and green in the brightness of a colour (Rec. 709). Blue's is what is left of 1 in 32-bit floats, so that
-/// white is exactly 1 (it is 0.0722 to a rounding step), and no colour is brighter than 1.
+/// The weights of red, green and blue in the brightness of a colour (Rec. 709, of sRGB values). In 32-bit floats they sum to
+/// exactly 1 (`luminance_is_the_weighted_sum_of_the_colour_times_the_alpha` pins it), so white is 1 to the bit and, rounding
+/// being monotone, no colour is brighter than 1.
 const RED: f32 = 0.2126;
 const GREEN: f32 = 0.7152;
-const BLUE: f32 = 1.0 - (RED + GREEN);
+const BLUE: f32 = 0.0722;
 
 impl Use {
     /// The mask's value at a pixel of the layer: straight `[red, green, blue, alpha]`.

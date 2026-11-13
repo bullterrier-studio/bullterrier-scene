@@ -3,7 +3,7 @@
 //! an opaque white fill changes nothing; a ramp multiplies; the weights of luminance; the Gaussian's distribution function
 //! for a blurred edge), never from the code's own arithmetic.
 
-use bullterrier_scene::{Error, Layer, MAX_DEPTH, Map, Mask, Raster, Use};
+use bullterrier_scene::{Error, Layer, MAX_DEPTH, Map, Mask, Place, Raster, Use};
 use proptest::prelude::*;
 
 use crate::common::{Outcome, pixels, rectangle, scene, solid};
@@ -162,7 +162,7 @@ fn a_mask_by_a_rectangle_covers_the_hand_counted_pixels_and_moves_with_its_own_p
             );
         }
     }
-    let moved = masked_white(rect()?.place(bullterrier_scene::Place::new().dx(1.0))?, (8, 4), 8)?;
+    let moved = masked_white(rect()?.place(Place::new().dx(1.0))?, (8, 4), 8)?;
     for (index, alpha) in moved.iter().enumerate() {
         let (x, y) = (index % 8, index / 8);
         let inside = (3..7).contains(&x) && (1..3).contains(&y);
@@ -212,7 +212,7 @@ fn every_kind_of_layer_takes_a_mask() -> Outcome {
 fn a_mask_is_in_canvas_space_whatever_the_layer_does() -> Outcome {
     let left = Layer::drawing(&rectangle((8, 2), (0.0, 0.0), (4.0, 2.0), WHITE))?;
     let band = Layer::fill(WHITE)?.fit([0.0, 0.0, 6.0, 2.0], Fit::Stretch, [0.5, 0.5])?;
-    let moved = band.place(bullterrier_scene::Place::new().dx(2.0))?.mask(left)?;
+    let moved = band.place(Place::new().dx(2.0))?.mask(left)?;
     // the band covers columns 2..8 and the mask columns 0..4: the layer shows in columns 2..4
     let got = alphas(moved, (8, 2), 8)?;
     for (index, alpha) in got.iter().enumerate() {
@@ -244,8 +244,7 @@ const WITHIN: f64 = 0.0099 + 1e-5;
 /// A tall rectangle from the canvas's left edge to column 100 of a canvas 200 wide, so far above and below the four rows that
 /// the canvas shows that its top and bottom edges do not touch them.
 fn half_plane() -> Result<Layer, Error> {
-    Layer::drawing(&rectangle((200, 200), (0.0, 0.0), (100.0, 200.0), WHITE))?
-        .place(bullterrier_scene::Place::new().dy(-100.0))
+    Layer::drawing(&rectangle((200, 200), (0.0, 0.0), (100.0, 200.0), WHITE))?.place(Place::new().dy(-100.0))
 }
 
 /// A half plane blurred by sigma equals the Gaussian's distribution function sampled at the pixel centres: the value at pixel
@@ -345,8 +344,8 @@ fn a_shape_that_ends_at_the_canvas_edge_is_soft_there() -> Outcome {
 #[test]
 fn a_shape_that_crosses_the_canvas_edge_is_blurred_as_on_a_larger_canvas() -> Outcome {
     let sigma = 12.0;
-    let wide = Layer::drawing(&rectangle((300, 200), (150.0, 0.0), (300.0, 200.0), WHITE))?
-        .place(bullterrier_scene::Place::new().dy(-100.0))?;
+    let wide =
+        Layer::drawing(&rectangle((300, 200), (150.0, 0.0), (300.0, 200.0), WHITE))?.place(Place::new().dy(-100.0))?;
     let got = masked_white(Mask::new(wide).feather(sigma), (200, 4), 200)?;
     for x in 130..200_u16 {
         let centre = f64::from(x) + 0.5;
@@ -366,10 +365,8 @@ fn a_shape_that_crosses_the_canvas_edge_is_blurred_as_on_a_larger_canvas() -> Ou
 #[test]
 fn the_feather_is_in_design_pixels_so_the_same_at_every_size() -> Outcome {
     let sigma = 8.0;
-    let half = || {
-        Layer::drawing(&rectangle((100, 100), (0.0, 0.0), (50.0, 100.0), WHITE))?
-            .place(bullterrier_scene::Place::new().dy(-50.0))
-    };
+    let half =
+        || Layer::drawing(&rectangle((100, 100), (0.0, 0.0), (50.0, 100.0), WHITE))?.place(Place::new().dy(-50.0));
     for size in [100_u16, 200] {
         let got = masked_white(Mask::new(half()?).feather(sigma), (100, 4), u32::from(size))?;
         let across = f64::from(size) / 100.0;
@@ -601,18 +598,26 @@ fn with_map(width: usize, height: usize, value: impl Fn(usize, usize) -> f32) ->
 #[test]
 fn a_map_is_cut_by_cover_with_its_picture() -> Outcome {
     let hand = |x: usize, y: usize| f32::from(u8::try_from(x + 8 * y + 1).unwrap_or(0)) / 40.0;
-    for (align, first) in [(0.0, 0), (0.5, 2), (1.0, 4)] {
-        let layer = with_map(8, 4, hand)?
-            .fit([0.0, 0.0, 4.0, 4.0], Fit::Cover, [align, 0.5])?
-            .mask("m")?;
-        let got = alphas(layer, (4, 4), 4)?;
-        for (index, alpha) in got.iter().enumerate() {
-            let (x, y) = (index % 4, index / 4);
-            assert_eq!(
-                alpha.to_bits(),
-                hand(first + x, y).to_bits(),
-                "align {align}, column {x}, row {y}"
-            );
+    let nothing = r#"{"steps": [{"effect": "grade"}]}"#;
+    // with no look the map is multiplied into the picture and the warp cuts both; with a look the map is cut to the window
+    // the picture is drawn at: the same cut
+    for looked in [false, true] {
+        for (align, first) in [(0.0, 0), (0.5, 2), (1.0, 4)] {
+            let mut layer = with_map(8, 4, hand)?
+                .fit([0.0, 0.0, 4.0, 4.0], Fit::Cover, [align, 0.5])?
+                .mask("m")?;
+            if looked {
+                layer = layer.look(nothing)?;
+            }
+            let got = alphas(layer, (4, 4), 4)?;
+            for (index, alpha) in got.iter().enumerate() {
+                let (x, y) = (index % 4, index / 4);
+                assert_eq!(
+                    alpha.to_bits(),
+                    hand(first + x, y).to_bits(),
+                    "align {align}, column {x}, row {y}, looked {looked}"
+                );
+            }
         }
     }
     Ok(())
@@ -639,20 +644,12 @@ fn a_map_follows_its_picture_through_a_stretch_a_flip_and_a_move() -> Outcome {
         );
     }
     let flipped = alphas(
-        with_map(4, 1, ramp)?
-            .mask("m")?
-            .place(bullterrier_scene::Place::new().flip_x(true))?,
+        with_map(4, 1, ramp)?.mask("m")?.place(Place::new().flip_x(true))?,
         (4, 1),
         4,
     )?;
     assert_eq!(flipped, [0.75, 0.5, 0.25, 0.0]);
-    let moved = alphas(
-        with_map(4, 1, ramp)?
-            .mask("m")?
-            .place(bullterrier_scene::Place::new().dx(1.0))?,
-        (4, 1),
-        4,
-    )?;
+    let moved = alphas(with_map(4, 1, ramp)?.mask("m")?.place(Place::new().dx(1.0))?, (4, 1), 4)?;
     assert_eq!(moved, [0.0, 0.0, 0.25, 0.5]);
     Ok(())
 }
@@ -782,5 +779,60 @@ fn a_map_feather_too_wide_to_draw_is_refused_at_render_naming_the_mask() -> Outc
         matches!(&refused, Err(Error::Invalid { address, message }) if address == "photo.mask.feather" && message.contains("134217728")),
         "{refused:?}"
     );
+    Ok(())
+}
+
+/// A feathered mask and its inverse add up to 1 everywhere, the canvas's edge included: the blur is of the mask, then the
+/// inverse is 1 minus it (an inverse taken before the blur would turn the margin's nothing into something).
+#[test]
+fn a_feathered_mask_and_its_inverse_are_complements_to_the_edge() -> Outcome {
+    for sigma in [2.0, 7.0] {
+        let plain = masked_white(Mask::new(half_plane()?).feather(sigma), (200, 4), 200)?;
+        let inverse = masked_white(Mask::new(half_plane()?).feather(sigma).invert(), (200, 4), 200)?;
+        for (x, (a, b)) in plain.iter().zip(&inverse).enumerate() {
+            assert!((a + b - 1.0).abs() <= 1e-6, "sigma {sigma}, pixel {x}: {a} + {b}");
+        }
+    }
+    Ok(())
+}
+
+/// A canvas whose design pixel is not square (100 by 4 at size 10 is 10 by 1 pixels: 0.1 across, 0.25 down) has a margin of
+/// its own along each axis: a shape that crosses the left edge and is far taller than the canvas is blurred by sigma along x
+/// as the Gaussian says, whatever the blur along y reaches.
+#[test]
+fn a_feather_on_a_canvas_with_two_scales_has_a_margin_along_each_axis() -> Outcome {
+    let sigma = 20.0;
+    // a fill (one pixel, whatever the scale) fitted to the box from x = -50 to 50 and y = -75 to 75
+    let shape = Layer::fill(WHITE)?.fit([-50.0, -75.0, 100.0, 150.0], Fit::Stretch, [0.5, 0.5])?;
+    let got = masked_white(Mask::new(shape).feather(sigma), (100, 4), 10)?;
+    assert_eq!(got.len(), 10);
+    for (x, value) in got.iter().enumerate() {
+        let centre = (f64::from(u8::try_from(x)?) + 0.5) / 0.1;
+        let expected = gauss(50.0 - centre, sigma) - gauss(-50.0 - centre, sigma);
+        assert!(
+            (f64::from(*value) - expected).abs() <= WITHIN + 1e-3,
+            "column {x}: {value} is not {expected}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn a_mask_call_leaves_the_layer_it_was_made_on_as_it_was_and_a_render_is_repeatable() -> Outcome {
+    let base = Layer::fill("#336699")?;
+    let masked = base.clone().mask(Mask::new(half_plane()?).feather(5.0))?;
+    let before = scene(200, 4, [base.clone()])?.render(200)?;
+    assert!(crate::common::all_exactly(&before, [0.2, 0.4, 0.6, 1.0]));
+    let first = scene(200, 4, [masked.clone()])?.render(200)?;
+    assert_eq!(first.pixels(), scene(200, 4, [masked])?.render(200)?.pixels());
+    assert!(
+        first
+            .pixels()
+            .iter()
+            .skip(3)
+            .step_by(4)
+            .any(|&alpha| alpha > 0.0 && alpha < 1.0)
+    );
+    assert_eq!(scene(200, 4, [base])?.render(200)?.pixels(), before.pixels());
     Ok(())
 }

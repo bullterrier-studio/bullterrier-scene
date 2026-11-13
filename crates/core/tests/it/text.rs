@@ -14,11 +14,12 @@ fn type_of(content: &str, text: &Text) -> Result<Layer, Error> {
     Layer::text(content, text)
 }
 
-/// The pixels of `raster` painted at all (alpha above 0), as `(column, row)`.
+/// The pixels of `raster` painted (an alpha above a millionth: the edge of a box that ends on a pixel's edge can leave 1e-14
+/// of rounding in the next), as `(column, row)`.
 fn painted(raster: &Raster) -> Vec<(usize, usize)> {
     pixels(raster)
         .enumerate()
-        .filter(|(_, pixel)| pixel[3] > 0.0)
+        .filter(|(_, pixel)| pixel[3] > 1e-6)
         .map(|(at, _)| (at % raster.width(), at / raster.width()))
         .collect()
 }
@@ -283,5 +284,27 @@ fn a_text_layer_draws_the_same_picture_each_time_and_the_layer_is_not_changed_by
     assert_ne!(painted(&first).len(), 0);
     assert_eq!(first.pixels(), scene(200, 100, [base])?.render(200)?.pixels());
     assert_ne!(first.pixels(), scene(200, 100, [moved])?.render(200)?.pixels());
+    Ok(())
+}
+
+/// A text fitted by `cover` into a box narrower than its bounds is cut about the middle of its bounds, whichever side of the
+/// anchor the bounds are on (right-aligned type lies to the left of its anchor): the box is filled with letters and none is
+/// outside it.
+#[test]
+fn a_text_covers_a_box_from_the_middle_of_its_bounds_wherever_the_anchor_is() -> Outcome {
+    for align in ["left", "center", "right"] {
+        let layer = type_of("MIDDLE", &Text::new(FONT).option("size", 100.0).option("align", align))?.fit(
+            [100.0, 50.0, 100.0, 100.0],
+            Fit::Cover,
+            [0.5, 0.5],
+        )?;
+        let drawn = scene(300, 200, [layer])?.render(300)?;
+        let inside = painted(&drawn)
+            .iter()
+            .filter(|&&(x, y)| (100..200).contains(&x) && (50..150).contains(&y))
+            .count();
+        assert_eq!(inside, painted(&drawn).len(), "{align}: letters outside the box");
+        assert!(inside > 1_500, "{align}: {inside} pixels of 10,000 are painted");
+    }
     Ok(())
 }

@@ -185,7 +185,7 @@ impl Lines {
 // only through the blurred values the render tests compare with the Gaussian's distribution function).
 #[cfg(test)]
 mod tests {
-    use super::{Box1, blur, reach};
+    use super::{Box1, blur, fits, reach};
 
     /// The variance of the kernel of three passes, from the weights themselves.
     fn variance_of_three_passes(kernel: Box1) -> f64 {
@@ -221,6 +221,14 @@ mod tests {
         assert_eq!(reach(0.0), 0);
         // sigma 3: t = 3, n = 2 (2 * 3 = 6 <= 9), f > 0, so each pass reaches 3 and the three reach 9
         assert_eq!(reach(3.0), 9);
+    }
+
+    #[test]
+    fn a_plane_may_have_2_pow_27_pixels_with_the_reach_and_not_one_more() {
+        // 16,384 by 8,192 is 2^27: a plane of 16,380 by 8,188 with a reach of 2 each side is exactly that
+        assert!(fits("feather", (16_380, 8_188), (2, 2)).is_ok());
+        assert!(fits("feather", (16_380, 8_189), (2, 2)).is_err());
+        assert!(fits("feather", (usize::MAX, 1), (1, 0)).is_err());
     }
 
     #[test]
