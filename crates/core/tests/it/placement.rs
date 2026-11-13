@@ -504,6 +504,53 @@ fn a_reduction_by_aspect_averages_the_pixels_it_covers() -> Outcome {
     Ok(())
 }
 
+/// The area prefilter acts along the axes of the picture that the map shrinks (the length of each column of the map is below
+/// 1), not along the strongest shrinking of the map. So 1-pixel vertical stripes (every other column white) are kept as they
+/// are at no skew, and averaged to grey once the map halves them (a scale of 0.5, whatever the skew); but at a strong skew
+/// without a scale the sheared stripes are far finer than a pixel and are not averaged: the pixels come out as the beat of
+/// the shear against the pixel grid, and nothing near grey. That last is a limit stated in `api.md`, which a rule by the
+/// singular values of the map (C2b, where perspective needs one) removes: the last half of this test changes then.
+#[test]
+fn stripes_are_averaged_along_an_axis_the_map_shrinks_and_a_strong_skew_alone_is_a_documented_limit() -> Outcome {
+    let stripes = made(64, 64, |x, _| {
+        let level = if x % 2 == 0 { 1.0 } else { 0.0 };
+        [level, level, level, 1.0]
+    })?;
+    // the interior pixels (alpha 1) around the middle, as (column, red)
+    let interior = |place: Place| -> Result<Vec<(usize, f32)>, Error> {
+        let drawn = render(Layer::picture(stripes.clone()).place(place)?, (64, 64), 64)?;
+        let around = (30..34).flat_map(|y| (24..40).map(move |x| (x, y)));
+        Ok(around
+            .map(|(x, y)| (x, pixel(&drawn, x, y)))
+            .filter(|(_, got)| got[3] > 0.999)
+            .map(|(x, got)| (x, got[0]))
+            .collect())
+    };
+    let kept = interior(Place::new())?;
+    assert_eq!(kept.len(), 4 * 16);
+    assert!(
+        kept.iter()
+            .all(|&(x, red)| (red - if x % 2 == 0 { 1.0 } else { 0.0 }).abs() < 1e-6),
+        "not kept at no skew"
+    );
+    for skew in [0.0, 80.0] {
+        let halved = interior(Place::new().scale(0.5).skew_x(Deg(skew)))?;
+        assert!(!halved.is_empty(), "skew {skew}: nothing in the middle");
+        assert!(
+            halved.iter().all(|&(_, red)| (red - 0.5).abs() < 1e-5),
+            "skew {skew}: halved stripes are not grey"
+        );
+    }
+    let sheared = interior(Place::new().skew_x(Deg(80.0)))?;
+    assert!(sheared.len() >= 32, "{} interior pixels", sheared.len());
+    let largest = sheared.iter().map(|&(_, red)| (red - 0.5).abs()).fold(0.0, f32::max);
+    assert!(
+        largest > 0.15,
+        "a skew of 80 now averages its stripes ({largest} from grey): the limit in api.md is out of date"
+    );
+    Ok(())
+}
+
 /// The rows and columns of `raster` where alpha is at least `at_least`, as `(first column, last column, first row, last
 /// row)`; `None` for none.
 fn extent(raster: &Raster, at_least: f32) -> Option<(usize, usize, usize, usize)> {

@@ -15,7 +15,10 @@
 //!   pixel's extent (one pixel across the edge) that lies inside it, so an edge between two pixels is soft in proportion
 //!   and one on the pixel grid is hard. Outside the clip nothing is drawn.
 //! * **Reduction.** A raster axis the map shrinks (the norm of its column of the map is below 1) is first averaged by area
-//!   to the pixels it will cover, so a reduction does not alias and no threshold decides it.
+//!   to the pixels it will cover, so a reduction along the axes of the raster does not alias and no threshold decides it.
+//!   Limit: the rule looks at the axes of the raster, not at the strongest shrinking of the map, so a strong skew (the
+//!   columns stay longer than 1 while the sheared raster is far finer than a pixel) can alias. A rule by the singular values
+//!   of the map, or a footprint for each pixel, removes it; perspective needs one (C2b).
 
 use std::borrow::Cow;
 use std::sync::Arc;

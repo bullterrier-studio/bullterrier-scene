@@ -161,6 +161,11 @@ pixels, so source, `fit` and `place` are one warp with no resample between them.
   of the layer (B1) lifts it.
 - **After C5.** Looks take design pixels of the canvas. The design scale handed to image is then `canvas scale x place.scale`
   (not the fit factor alone), so a halo still follows `scale`.
+- **Limit: strong skews.** The area average acts along the axes of the finished raster that the warp shrinks (a column of the
+  map shorter than 1), not along the map's strongest shrinking. A skew of 80 degrees or more, without a scale below 1 to
+  trigger it, makes a sheared picture far finer than a pixel and its fine detail aliases (1-pixel stripes come out as a beat,
+  not grey). Rotations, moderate skews, scales and `aspect` are not affected. A rule by the singular values of the map, or a
+  footprint for each pixel, removes the limit; C2b's perspective needs one and brings it.
 - **Fit.** The window `fit` shows is computed from the source's real size when the scene renders. `stretch` has a scale for
   each axis. The scale that binds (width or height) ends at the box exactly, so a layer fitted into a box of its own shape is
   not touched.
