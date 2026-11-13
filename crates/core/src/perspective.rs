@@ -34,7 +34,7 @@ impl Quad {
             return Err(Error::invalid(
                 "corners",
                 format!(
-                    "corners (top left, top right, bottom right, bottom left) make a strictly convex quadrilateral: no corner inside the others (a dart), no edges that cross (a bowtie), no three on a line, no corner twice; got {corners:?}"
+                    "the four corners (top left, top right, bottom right, bottom left) must make a strictly convex quadrilateral: no corner inside the others (a dart), no edges that cross (a bowtie), no three on a line, no corner twice; got {corners:?}"
                 ),
             ));
         }

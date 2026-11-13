@@ -545,17 +545,20 @@ fn the_near_side_of_a_perspective_is_drawn_at_its_own_scale_and_is_sharp() -> Ou
     Ok(())
 }
 
-/// A layer drawn under a perspective that would need more than 2^27 pixels is drawn at fewer, not refused (a fill takes one
-/// pixel whatever the scale, so it shows that the request, not the source, is bounded).
+/// A layer drawn under a perspective that would need more than 2^27 pixels is drawn at fewer, not refused: a drawing allocates its
+/// whole frame at the scale it is asked, 16,384 by 8,192 pixels at the cut (a frame of 4 by 2 on a quadrilateral half a million
+/// times as large), where the request without the cut would be 2 million by 1 million. The frame's red rectangle covers the middle.
 #[test]
 fn a_perspective_that_asks_for_more_than_2_pow_27_pixels_is_drawn_smaller_not_refused() -> Outcome {
-    let layer = Layer::fill("#336699")?.perspective([[-1e6, -1e6], [1e6, -1e6], [1e6, 1e6], [-1e6, 1e6]])?;
+    let layer = Layer::drawing(&rectangle((4, 2), (1.0, 0.5), (3.0, 1.5), "#ff0000"))?.perspective([
+        [-1e6, -1e6],
+        [1e6, -1e6],
+        [1e6, 1e6],
+        [-1e6, 1e6],
+    ])?;
     let drawn = render(layer, (16, 16), 16)?;
-    assert!(pixels(&drawn).all(|got| close(
-        got,
-        [0x33_u8, 0x66, 0x99, 0xff].map(|byte| f32::from(byte) / 255.0),
-        1e-6
-    )));
+    // the canvas is the middle of the quadrilateral, which the frame's rectangle covers
+    assert!(pixels(&drawn).all(|got| close(got, [1.0, 0.0, 0.0, 1.0], 1e-6)));
     // while a place that asks for as much is refused
     let refused = scene(100, 100, [Layer::fill("#ffffff")?.place(Place::new().scale(1000.0))?])?.render(100);
     assert!(refused.is_err());
@@ -664,21 +667,33 @@ fn the_slanted_edges_of_a_perspective_layer_are_soft_not_jagged() -> Outcome {
 /// A valid quadrilateral that is nearly a line renders cleanly: pixels in range, never NaN.
 #[test]
 fn a_very_flat_quadrilateral_renders_or_is_refused_but_never_gives_nan() -> Outcome {
-    for flat in [1e-3, 1e-6, 1e-9] {
+    let (mut accepted, mut refused) = (0, 0);
+    for flat in [1e-3, 1e-6, 1e-9, 1e-12, 1e-15] {
         let corners = [
             [0.0, 10.0],
             [30.0, 10.0 + flat],
             [30.0, 10.0 + 2.0 * flat],
             [0.0, 10.0 + flat],
         ];
-        if let Ok(layer) = Layer::picture(ramps(8, 8)?).perspective(corners) {
-            let drawn = render(layer, (32, 32), 32)?;
-            assert!(
-                pixels(&drawn).all(|got| got.iter().all(|value| (0.0..=1.0).contains(value))),
-                "flat {flat}"
-            );
+        match Layer::picture(ramps(8, 8)?).perspective(corners) {
+            Ok(layer) => {
+                accepted += 1;
+                let drawn = render(layer, (32, 32), 32)?;
+                assert!(
+                    pixels(&drawn).all(|got| got.iter().all(|value| (0.0..=1.0).contains(value))),
+                    "flat {flat}"
+                );
+            }
+            Err(Error::Invalid { address, message }) => {
+                refused += 1;
+                assert_eq!(address, "corners", "flat {flat}");
+                assert!(message.contains("convex"), "flat {flat}: {message}");
+            }
+            Err(other) => return Err(other.into()),
         }
     }
+    // the flattest that is still a quadrilateral renders, and the flat ones the arithmetic cannot tell from a line are refused
+    assert!(accepted >= 2 && refused >= 1, "{accepted} accepted, {refused} refused");
     Ok(())
 }
 

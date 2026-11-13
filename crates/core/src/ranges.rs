@@ -46,7 +46,7 @@ impl Range {
             Err(Error::invalid(
                 field,
                 format!(
-                    "{field} is a number from {} to {}{}, got {value}",
+                    "a number from {} to {}{} is wanted, got {value}",
                     self.low, self.high, self.unit
                 ),
             ))
@@ -61,7 +61,7 @@ impl Range {
             Err(Error::invalid(
                 field,
                 format!(
-                    "{field} is two numbers from {} to {}{}, got ({x}, {y})",
+                    "two numbers from {} to {}{} are wanted, got ({x}, {y})",
                     self.low, self.high, self.unit
                 ),
             ))

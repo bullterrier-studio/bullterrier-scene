@@ -36,7 +36,7 @@ impl FromStr for Fit {
             "stretch" => Ok(Self::Stretch),
             other => Err(Error::invalid(
                 "how",
-                format!("how is \"cover\", \"contain\" or \"stretch\", got {other:?}"),
+                format!("\"cover\", \"contain\" or \"stretch\" is wanted, got {other:?}"),
             )),
         }
     }
@@ -150,7 +150,7 @@ impl Fitting {
         if !(x.is_finite() && y.is_finite() && width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0) {
             return Err(Error::invalid(
                 "box",
-                format!("box is (x, y, width, height) with a width and a height above 0, got {area:?}"),
+                format!("(x, y, width, height) with a width and a height above 0 is wanted, got {area:?}"),
             ));
         }
         Ok(Self {
@@ -232,7 +232,7 @@ impl Placed {
             Some(angle) if !angle.is_finite() => {
                 return Err(Error::invalid(
                     "rotate",
-                    format!("rotate is a number of degrees, got {angle}"),
+                    format!("a number of degrees is wanted, got {angle}"),
                 ));
             }
             Some(angle) => angle,

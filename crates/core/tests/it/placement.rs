@@ -469,8 +469,9 @@ fn a_reduction_by_aspect_averages_the_pixels_it_covers() -> Outcome {
 /// Where the map shrinks the picture, whichever way, the pixel is the average of what its footprint covers. 1-pixel vertical
 /// stripes (every other column white) are kept as they are at no skew (the footprint is under a pixel), and are grey under
 /// a skew of 80, 86 or 89 degrees, where the sheared stripes are far finer than a pixel: the footprint is `s1` source pixels
-/// long, a box average of `s1` pixels of a square wave of period 2 is within `1 / (2 s1)` of grey, and the taps along the
-/// footprint (about one a pixel) add a little: the tolerance is that and 0.05.
+/// long, and a box average of `s1` pixels of a square wave of period 2 is within `1 / (2 s1)` of grey, the longest singular
+/// value being about `t + 1 / t` for a skew by `t`: that is the tolerance, with no allowance on top (measured: 0.020, 0.012 and
+/// 0.006 against 0.086, 0.035 and 0.0087; halved, 0.020 and 0.010 against 0.043 and 0.018, and at a quarter 0.013 against 0.021).
 #[test]
 fn stripes_are_kept_when_the_footprint_is_a_pixel_and_averaged_to_grey_under_any_skew() -> Outcome {
     let stripes = made(256, 256, |x, _| {
@@ -502,7 +503,7 @@ fn stripes_are_kept_when_the_footprint_is_a_pixel_and_averaged_to_grey_under_any
         let tolerance = if skew == 0.0 {
             1e-5
         } else {
-            0.5 / ((t + 1.0 / t) / scale) + 0.05
+            0.5 / ((t + 1.0 / t) / scale)
         };
         let largest = halved
             .iter()
@@ -516,7 +517,7 @@ fn stripes_are_kept_when_the_footprint_is_a_pixel_and_averaged_to_grey_under_any
     for skew in [80.0_f64, 86.0, 89.0] {
         // the longest singular value of a skew by `t` is about t + 1 / t
         let t = skew.to_radians().tan();
-        let tolerance = 0.5 / (t + 1.0 / t) + 0.05;
+        let tolerance = 0.5 / (t + 1.0 / t);
         let sheared = interior(Place::new().skew_x(Deg(skew)))?;
         assert!(sheared.len() >= 8, "skew {skew}: {} interior pixels", sheared.len());
         let largest = sheared
@@ -1431,6 +1432,12 @@ fn a_refusal_names_the_range_of_the_number() -> Outcome {
     for (place, words) in rows {
         let refused = refusal(Layer::fill("#ffffff")?.place(place)).unwrap_or_default();
         assert!(words.iter().all(|word| refused.contains(word)), "{refused}");
+        // the name once: `scale: a number from ...`, not `scale: scale is a number from ...`
+        let (address, message) = refused.split_once(": ").unwrap_or_default();
+        assert!(
+            !message.starts_with(address) && !message.contains(&format!("{address} is")),
+            "{refused}"
+        );
     }
     let refused =
         refusal(Layer::fill("#ffffff")?.fit([0.0, 0.0, 1.0, 1.0], Fit::Cover, [0.5, 1.5])).unwrap_or_default();
