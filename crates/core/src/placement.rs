@@ -320,6 +320,22 @@ fn multiply(left: [[f64; 2]; 2], right: [[f64; 2]; 2]) -> [[f64; 2]; 2] {
 }
 
 impl Placed {
+    /// Whether the placement only moves and zooms: no flip, no `aspect`, no skew, no turn. Its map then takes a pixel of
+    /// the raster to a pixel of the output (at the zoom the source was asked to draw at), so that a raster put on whole pixels
+    /// is copied, not resampled.
+    #[expect(
+        clippy::float_cmp,
+        reason = "a placement that is exactly the default for these fields"
+    )]
+    fn keeps_pixels(self) -> bool {
+        !self.flip_x
+            && !self.flip_y
+            && self.aspect == 1.0
+            && self.skew_x == 0.0
+            && self.skew_y == 0.0
+            && self.rotate.rem_euclid(360.0) == 0.0
+    }
+
     /// What the layer's points go through about the anchor, without the scale: the flip, the aspect, the skew along x and
     /// then along y, and the turn, as `turn x skew_y x skew_x x aspect x flip` applied to a point.
     fn linear(self) -> [[f64; 2]; 2] {
@@ -386,6 +402,7 @@ impl Layout {
                     window: self.window,
                     scale: Scale::exactly(across * fit, down * fit),
                     factor: self.factor,
+                    phase: (0.0, 0.0),
                 };
             }
         };
@@ -394,7 +411,28 @@ impl Layout {
             window: self.window,
             scale: self.scale.times(self.factor.0 * zoom, self.factor.1 * zoom),
             factor: self.factor,
+            phase: self.phase(own, placed),
         }
+    }
+
+    /// Where the top left of the box `own` falls between output pixels (`Request::phase`), worked out as `warp` works out
+    /// the translation of a raster whose top left is the box's: `(0, 0)` unless the placement only moves and zooms.
+    fn phase(&self, own: Rect, placed: Placed) -> (f64, f64) {
+        if !placed.keeps_pixels() {
+            return (0.0, 0.0);
+        }
+        let corner = [
+            (own.x - self.window.x) * self.factor.0,
+            (own.y - self.window.y) * self.factor.1,
+        ];
+        let anchor = [placed.anchor.0 * self.area.width, placed.anchor.1 * self.area.height];
+        let at = |row: usize, axis: Axis| {
+            let origin = [self.area.x, self.area.y][row];
+            let moved = [placed.dx, placed.dy][row];
+            let position = axis.pixels(origin + anchor[row] + moved + placed.scale * (corner[row] - anchor[row]));
+            position - position.floor()
+        };
+        (at(0, self.scale.x), at(1, self.scale.y))
     }
 
     /// The largest, over the four corners of the fitted box, of the output pixels a design pixel of the box has along its x
@@ -443,7 +481,7 @@ impl Layout {
         // the raster's size, as floats
         #[expect(clippy::cast_precision_loss, reason = "a side of at most 2^27 pixels")]
         let counts = [drawn.raster.width() as f64, drawn.raster.height() as f64];
-        let clip = if self.window == covers {
+        let clip = if self.window == covers || drawn.ends_at_window {
             Rect {
                 x: 0.0,
                 y: 0.0,

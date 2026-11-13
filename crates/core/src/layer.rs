@@ -95,7 +95,7 @@ impl Layer {
     /// `content` set in type: `text` says the font, the colour and vector's text options (`size`, `axes`, `tracking`, `leading`,
     /// `align`, `width`, `fit`, `features`), checked now by the linked vector crate. The layer's origin is the text's anchor,
     /// the left end, the middle or the right end of the first baseline by `align`, so `place(dx, dy)` puts it there; its box is
-    /// the glyphs' bounds rounded out to whole design pixels. It is drawn by vector at the size it will have, so it is sharp at
+    /// the glyphs' bounds. It is drawn by vector at the size it will have, so it is sharp at
     /// any `scale`.
     ///
     /// # Errors

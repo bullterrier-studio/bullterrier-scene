@@ -168,3 +168,60 @@ fn a_drawing_whose_drawn_size_passes_2_pow_27_pixels_is_refused_naming_the_layer
     );
     Ok(())
 }
+
+/// A drawing whose frame is the canvas covers the canvas whole at any size: every pixel, the edge included, is opaque. Vector
+/// draws a frame at one scale and centres it in a raster whose short side is rounded up, which left a quarter to a half pixel
+/// of slack and a translucent border (alpha 0.749 at 1,920 by 1,080 drawn at 1,000).
+#[test]
+fn a_drawing_that_fills_its_frame_is_opaque_to_the_edge_at_any_size() -> Outcome {
+    for ((width, height), size) in [
+        ((1920, 1080), 1000),
+        ((1081, 1350), 1000),
+        ((1000, 707), 900),
+        ((1800, 2400), 1234),
+        ((40, 20), 61),
+    ] {
+        let layer = Layer::drawing(&rectangle(
+            (width, height),
+            (0.0, 0.0),
+            (f64::from(width), f64::from(height)),
+            "#ff0000",
+        ))?;
+        let drawn = scene(width, height, [layer])?.render(size)?;
+        let faint = pixels(&drawn).filter(|pixel| pixel[3] < 1.0 - 1e-6).count();
+        assert_eq!(
+            faint,
+            0,
+            "{width} x {height} at {size}: {faint} of {} pixels are not opaque",
+            drawn.width() * drawn.height()
+        );
+    }
+    Ok(())
+}
+
+/// `stretch` stretches a drawing as it does a picture: a square drawing fitted to a box twice as wide covers all of it.
+#[test]
+fn a_drawing_stretched_into_a_box_covers_the_box() -> Outcome {
+    let layer = Layer::drawing(&rectangle((100, 100), (0.0, 0.0), (100.0, 100.0), "#ff0000"))?.fit(
+        [0.0, 0.0, 200.0, 100.0],
+        bullterrier_scene::Fit::Stretch,
+        [0.5, 0.5],
+    )?;
+    let drawn = scene(200, 100, [layer])?.render(200)?;
+    assert!(
+        pixels(&drawn).all(|pixel| close(pixel, RED, 1e-6)),
+        "the box is not covered"
+    );
+    // the half that is not red stays clear: a drawing of the left half only is stretched to the left half of the box
+    let half = Layer::drawing(&rectangle((100, 100), (0.0, 0.0), (50.0, 100.0), "#ff0000"))?.fit(
+        [0.0, 0.0, 200.0, 100.0],
+        bullterrier_scene::Fit::Stretch,
+        [0.5, 0.5],
+    )?;
+    let drawn = scene(200, 100, [half])?.render(200)?;
+    for (index, pixel) in pixels(&drawn).enumerate() {
+        let expected = if index % 200 < 100 { RED } else { [0.0; 4] };
+        assert!(close(pixel, expected, 1e-6), "pixel {index}: {pixel:?}");
+    }
+    Ok(())
+}

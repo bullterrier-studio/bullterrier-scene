@@ -272,13 +272,21 @@ beat). C2b replaces the rule for every map that is not of the **exact class**, a
   its own arguments in its own words, and scene restates none. *Why not vector's typed `Text` builder:* it would name each of
   vector's options in scene. *Why not a document written here:* a bundled font's bytes are not public, and its entry in a
   document is named by a digest scene cannot compute. The text is measured (its glyph bounds with the anchor at the origin),
-  then set again with its anchor where the bounds start, in a frame of the bounds rounded out to whole design pixels, so that
-  the layer's box is the bounds and its origin the anchor. A font file is read at the call, not at `render`: the box needs the font.
+  then set again with its anchor where the bounds start, in a frame of exactly the bounds, so that the layer's box is the
+  bounds and its origin the anchor. A font file is read at the call, not at `render`: the box needs the font.
 - **Codegen units.** The kernel of the warp is generic over its sink and is instantiated at its caller, but its small helpers
   (`share`, `taps`, `edge`) were plain functions: adding modules to the crate moved them into another codegen unit and every
   blended pixel paid a call (1,000 fills 0.67 s then 0.80 s, found by the regression measurement). They are `#[inline]` now.
-- **Found in C3, not fixed:** a drawing drawn at two scales (`stretch`, or a canvas whose design pixel is not square) is
-  letterboxed by vector's one-scale view ("What is built", A drawing and `stretch`).
+- **A drawing is drawn to the pixel (review of C3).** Vector draws a frame at one scale (`min` of the two ratios), centred, in a
+  raster whose short side is rounded up: a quarter to a half pixel of slack, so a full-frame drawing had a translucent border and
+  `stretch` letterboxed. The adapter makes the raster the frame: the shapes are scaled by the density along each axis over the
+  mean density (about 1.00x, or the two densities of `stretch`) with vector's own `scale` step, moved by `translate` by the
+  fraction of a pixel the box starts at (`Request::phase`, worked out by `Layout` for a placement that only moves and zooms), and
+  the frame is set to the raster over the mean density, so vector's one scale is the mean on both axes. The raster covers the box
+  from that fraction before its top left, so the warp copies it onto whole pixels, and `ends_at_window` tells the warp not to cut
+  the drawing's own antialiased edge again by coverage (a pixel at an edge of a text was counted twice: 0.81 for 0.9). A text's
+  box is now exactly its bounds. *Cost:* a stroke, shadow offset or halftone pitch follows the mean density, not each axis, and a
+  gradient, clip or mask of the drawing stays in its own frame (vector's own rule: "set the paint after the transforms").
 - **"Invert before feather" is not a mutant that can be killed:** the kernel is linear and its weights sum to 1, so blurring
   `1 - v` is `1 - blur(v)` to rounding, margin and replicated edge included.
 

@@ -35,54 +35,102 @@ fn extent(raster: &Raster) -> Option<(usize, usize, usize, usize)> {
     ))
 }
 
-/// Vector's own picture of "Hi" at 100 design pixels with its anchor at (40, 140) on a frame of 400 by 200, filled `#336699`,
-/// at one output pixel to the design pixel.
-fn vectors_own() -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+/// Vector's own picture of "Hi" at 100 design pixels with its anchor at `anchor` on a frame of `canvas`, filled `#336699`, at
+/// `size` on the long side: the pixels a text layer placed at that anchor must match.
+fn vectors_own(
+    anchor: (f64, f64),
+    canvas: (u32, u32),
+    size: u32,
+) -> Result<(Vec<f32>, usize), Box<dyn std::error::Error>> {
     let font = Font::bundled(FONT)?;
-    let drawing = bullterrier_vector::text(
-        "Hi",
-        bullterrier_vector::Text::new(&font).size(100.0).anchor((40.0, 140.0)),
-    )
-    .fill(Color::parse("#336699")?);
-    let framed = Drawing::new([drawing]).with_size(400.0, 200.0);
-    let bytes = framed.to_rgba(Size::px(400.0, 200.0), &Values::new())?;
-    Ok(bytes.iter().map(|&byte| f32::from(byte) / 255.0).collect())
+    let drawing = bullterrier_vector::text("Hi", bullterrier_vector::Text::new(&font).size(100.0).anchor(anchor))
+        .fill(Color::parse("#336699")?);
+    let framed = Drawing::new([drawing]).with_size(f64::from(canvas.0), f64::from(canvas.1));
+    let long = f64::from(canvas.0.max(canvas.1));
+    let (columns, rows) = (
+        (f64::from(canvas.0) * f64::from(size) / long).ceil(),
+        (f64::from(canvas.1) * f64::from(size) / long).ceil(),
+    );
+    let bytes = framed.to_rgba(Size::px(columns, rows), &Values::new())?;
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a side of at most a few thousand pixels"
+    )]
+    Ok((
+        bytes.iter().map(|&byte| f32::from(byte) / 255.0).collect(),
+        columns as usize,
+    ))
+}
+
+/// `pixels` (straight RGBA) as premultiplied: where a pixel is nearly clear its straight colour is a quantisation of nothing
+/// (a byte of alpha holds colour to a few levels), so layers and vector are compared as the light they carry.
+fn premultiplied(pixels: &[f32]) -> Vec<f32> {
+    pixels
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .flat_map(|&[red, green, blue, alpha]| [red * alpha, green * alpha, blue * alpha, alpha])
+        .collect()
 }
 
 /// The layer is vector's own text drawing, offset by the anchor: placed by `dx`, `dy` it is the same picture as vector's with the
-/// anchor at that point. Vector rasterises in 32-bit floats, so the same outline at another offset may differ by one level of
-/// its 8-bit output in a few edge pixels.
+/// anchor at that point, at whole and at fractional anchors and at whole and at fractional output scales (the canvases are
+/// chosen so that vector's own picture has no slack either: its design pixel is the same on both axes). Vector's picture is
+/// 8-bit, so the two are the same to a level or so: measured, at most 0.05% of the premultiplied values differ by more than one
+/// level of 255 and none by more than 1.25 levels, on and off the whole pixels of anchor and scale.
 #[test]
 fn a_text_layer_is_vectors_own_text_drawing_offset_by_the_anchor() -> Outcome {
-    let layer = type_of("Hi", &Text::new(FONT).option("size", 100.0).color("#336699"))?
-        .place(Place::new().dx(40.0).dy(140.0))?;
-    let drawn = scene(400, 200, [layer])?.render(400)?;
-    let own = vectors_own()?;
-    assert_eq!(drawn.pixels().len(), own.len());
-    let differences: Vec<f32> = drawn
-        .pixels()
-        .iter()
-        .zip(&own)
-        .map(|(got, expected)| (got - expected).abs())
-        .collect();
-    let worst = differences.iter().copied().fold(0.0, f32::max);
-    let differing = differences.iter().filter(|&&difference| difference > 1e-6).count();
-    assert!(
-        worst <= 1.0 / 255.0 + 1e-6,
-        "the layer differs from vector's drawing by {worst}"
-    );
-    // at most 1 value in 200 of the painted pixels' four
-    assert!(
-        differing * 200 <= differences.len(),
-        "{differing} of {} values differ",
-        differences.len()
-    );
-    assert!(painted(&drawn).len() > 500);
+    // (anchor, canvas, size)
+    type Row = ((f64, f64), (u32, u32), u32);
+    let rows: [Row; 9] = [
+        ((40.0, 140.0), (400, 200), 400),
+        ((10.3, 140.7), (400, 200), 400),
+        ((10.5, 140.0), (400, 200), 400),
+        ((10.0, 140.5), (400, 200), 400),
+        ((10.3, 140.7), (400, 200), 600),
+        ((10.3, 140.7), (400, 200), 500),
+        ((10.3, 140.7), (400, 200), 300),
+        ((10.3, 140.7), (400, 400), 437),
+        ((40.0, 140.0), (400, 400), 437),
+    ];
+    let level = 1.0 / 255.0;
+    for (anchor, canvas, size) in rows {
+        let layer = type_of("Hi", &Text::new(FONT).option("size", 100.0).color("#336699"))?
+            .place(Place::new().dx(anchor.0).dy(anchor.1))?;
+        let drawn = premultiplied(scene(canvas.0, canvas.1, [layer])?.render(size)?.pixels());
+        let own = premultiplied(&vectors_own(anchor, canvas, size)?.0);
+        assert_eq!(drawn.len(), own.len(), "{anchor:?} at {size}");
+        let differences: Vec<f32> = drawn
+            .iter()
+            .zip(&own)
+            .map(|(got, expected)| (got - expected).abs())
+            .collect();
+        let worst = differences.iter().copied().fold(0.0, f32::max);
+        let differing = differences
+            .iter()
+            .filter(|&&difference| difference > level + 1e-6)
+            .count();
+        assert!(
+            worst <= 1.25 * level,
+            "{anchor:?} at {size}: the layer differs from vector's drawing by {}",
+            worst / level
+        );
+        assert!(
+            differing * 2000 <= differences.len(),
+            "{anchor:?} at {size}: {differing} of {} values differ",
+            differences.len()
+        );
+        assert!(
+            drawn.chunks(4).filter(|pixel| pixel[3] > 0.5).count() > 100,
+            "{anchor:?} at {size}"
+        );
+    }
     Ok(())
 }
 
 /// What is painted lies inside the box: contained in a box, the letters fill it along the axis that binds (the box is the
-/// glyphs' bounds rounded out to whole design pixels, so within two pixels of each edge) and none is outside it.
+/// glyphs' bounds, so within a pixel of each edge) and none is outside it.
 #[test]
 fn what_a_text_paints_fills_its_box_and_does_not_leave_it() -> Outcome {
     let layer = type_of("Hi", &Text::new(FONT).option("size", 100.0))?.fit(
@@ -306,5 +354,23 @@ fn a_text_covers_a_box_from_the_middle_of_its_bounds_wherever_the_anchor_is() ->
         assert_eq!(inside, painted(&drawn).len(), "{align}: letters outside the box");
         assert!(inside > 1_500, "{align}: {inside} pixels of 10,000 are painted");
     }
+    Ok(())
+}
+
+/// A text `fit` with `stretch` fills its box: the letters span it, from within a pixel of one edge to within a pixel of the
+/// other, and none is outside it (the box is the glyphs' bounds).
+#[test]
+fn a_text_stretched_into_a_box_spans_the_box() -> Outcome {
+    let layer = type_of("Hi", &Text::new(FONT).option("size", 100.0))?.fit(
+        [0.0, 0.0, 400.0, 60.0],
+        Fit::Stretch,
+        [0.5, 0.5],
+    )?;
+    let drawn = scene(400, 60, [layer])?.render(400)?;
+    let (left, right, top, bottom) = extent(&drawn).ok_or("nothing is painted")?;
+    assert!(
+        left <= 1 && right >= 398 && top <= 1 && bottom >= 58,
+        "{left} {right} {top} {bottom}"
+    );
     Ok(())
 }

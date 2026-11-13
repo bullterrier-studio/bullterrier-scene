@@ -153,9 +153,8 @@ class Layer:
         `width` and `fit` are vector's: the width the text wraps or fits to, not a placement (`fit(...)` on the layer
         is the placement). `anchor`, `inside`, `runs`, expressions and Params are an `InvalidError`: scene places
         the text. The layer's origin is the text's anchor, the left end, middle or right end of the first baseline by
-        `align`, so `place(dx=100, dy=420)` puts it there; its box is the glyphs' bounds rounded out to whole design
-        pixels. An unknown bundled font is an `InvalidError` listing the fonts there are; a font file that cannot be
-        read, a `ReadError`.
+        `align`, so `place(dx=100, dy=420)` puts it there; its box is the glyphs' bounds. An unknown bundled font is
+        an `InvalidError` listing the fonts there are; a font file that cannot be read, a `ReadError`.
         """
         if not isinstance(content, str):
             raise TypeError(f"content: text is wanted, got {type(content).__name__} {_shown(content)}")

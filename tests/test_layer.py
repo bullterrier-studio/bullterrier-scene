@@ -761,7 +761,8 @@ def test_a_text_layer_is_painted_in_its_colour_where_the_letters_are_and_transpa
 def test_the_text_options_are_vectors_and_the_text_is_set_where_place_puts_its_anchor():
     plain = Scene(300, 100).add(typeset("Hi", size=60).place(dx=10, dy=70)).render(300)[..., 3]
     moved = Scene(300, 100).add(typeset("Hi", size=60).place(dx=110, dy=70)).render(300)[..., 3]
-    assert np.array_equal(plain[:, :190], moved[:, 100:290])
+    # a move by whole pixels: the same picture, to the rounding of the fraction the box starts at (1e-14 of a pixel)
+    assert np.allclose(plain[:, :190], moved[:, 100:290], atol=2 / 255)
     wide = Scene(300, 100).add(typeset("Hi", size=60, tracking=400).place(dx=10, dy=70)).render(300)[..., 3]
     assert (wide > 0).any(axis=0).nonzero()[0].max() > (plain > 0).any(axis=0).nonzero()[0].max()
 

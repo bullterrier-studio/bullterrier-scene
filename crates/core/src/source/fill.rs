@@ -42,6 +42,7 @@ impl Source for Fill {
             Ok(Drawn {
                 raster: Arc::new(Raster::made(1, 1, self.rgba.to_vec())),
                 covers: canvas,
+                ends_at_window: false,
             })
         }))
     }

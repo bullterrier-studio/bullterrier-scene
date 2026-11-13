@@ -343,7 +343,11 @@ impl Source for Picture {
                     let factors = self.factors(size, density, &values)?;
                     Arc::new(multiplied(&own, &factors))
                 };
-                return Ok(Drawn { raster, covers: whole });
+                return Ok(Drawn {
+                    raster,
+                    covers: whole,
+                    ends_at_window: false,
+                });
             }
             let window = request.window;
             let (columns, rows) = request.scale.size(window)?;
@@ -373,6 +377,7 @@ impl Source for Picture {
             Ok(Drawn {
                 raster: placed,
                 covers: window,
+                ends_at_window: false,
             })
         }))
     }

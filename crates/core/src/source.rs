@@ -46,6 +46,11 @@ pub(crate) struct Request {
     /// The design pixels of the canvas a design pixel of the box is once the layer is fitted, along x and y: what a length
     /// in the layer's own space (a feather) is measured in.
     pub(crate) factor: (f64, f64),
+    /// Where the top left of the source's whole box falls between two output pixels, as the fractions (from 0 to 1) of a pixel
+    /// along x and y, when the layer's map keeps the raster's pixels (a move and a zoom, nothing turned, skewed, flipped
+    /// or put in perspective); `(0, 0)` otherwise. A source that draws a raster with its content moved by these fractions,
+    /// and says so in `covers`, has the warp put the raster on whole pixels: no resample, no soft edge.
+    pub(crate) phase: (f64, f64),
 }
 
 /// What a source answers.
@@ -57,6 +62,9 @@ pub(crate) struct Drawn {
     /// it can (a picture without a look hands over its own pixels, a fill one pixel). Its density is the raster's size over
     /// this.
     pub(crate) covers: Rect,
+    /// Whether the raster already ends, antialiased, where the window it was asked for ends, so that the warp does not cut it
+    /// there again by coverage (a drawing's edge is drawn by vector: cutting it too would count the same pixel's cover twice).
+    pub(crate) ends_at_window: bool,
 }
 
 /// A source that has said how big its box is and waits to be told what to draw. The renderer decides the request (and
