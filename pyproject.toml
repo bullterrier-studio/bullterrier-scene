@@ -136,6 +136,9 @@ rust-test = { cmd = "python tools/run_capped.py -- cargo test --workspace --lock
 # A crate's Rust integration tests are one binary (tests/it/main.rs); tools/check_rust_test_layout.py, the table [tool.rust-tests.own-binaries]
 rust-test-layout = { cmd = "python tools/check_rust_test_layout.py", help = "Check that the Rust integration tests are one binary per crate (tests/it/)" }
 dead-code = { cmd = "vulture src", help = "Find dead code in src (vulture)" }
+# Something to look at (docs/roadmap.md, "How we work", 7): renders docs/examples/c1_first_picture.py to dist/look/c1.png (git-ignored)
+# and to the gallery piece docs/gallery/c1-first-picture.png, and prints the first path
+look = { cmd = "python tools/look.py", help = "Render the example scene to dist/look/c1.png and the gallery piece, and print the path to open" }
 # The project's own gates and the steps only `full` runs: the template ships these two lines as no-ops and never changes
 # them again, so a project replaces each with a sequence of its tasks without a conflict at the next update
 project-gates = { cmd = "python -c pass", help = "The project's own gates, run last by check and full (none yet)" }
