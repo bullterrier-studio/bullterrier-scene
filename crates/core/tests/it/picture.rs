@@ -323,3 +323,23 @@ fn a_raster_shows_its_size_and_not_its_pixels_when_printed() -> Outcome {
     );
     Ok(())
 }
+
+/// A file with three channels has no alpha: it comes out opaque, in the exact colour it holds (values that are whole
+/// multiples of 1/255, which an 8-bit file keeps).
+#[test]
+fn a_picture_file_with_three_channels_is_opaque_and_keeps_its_exact_colour() -> Outcome {
+    let source = varied(5, 3)?;
+    let rgb: Vec<f32> = source
+        .pixels()
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .flat_map(|&[red, green, blue, _]| [red, green, blue])
+        .collect();
+    let folder = tempfile::tempdir()?;
+    let path = folder.path().join("photo.png");
+    bullterrier_image::write(&path, &bullterrier_image::Image::new(3, 5, &rgb)?)?;
+    let drawn = scene(5, 3, [Layer::picture_file(&path)])?.render(5)?;
+    assert_eq!(drawn.pixels(), source.pixels());
+    Ok(())
+}

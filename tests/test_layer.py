@@ -40,14 +40,14 @@ class Sibling:
 
 
 def png(path: Path, pixels: np.ndarray) -> Path:
-    """An 8-bit RGBA PNG of `pixels` (uint8, height, width, 4), written with the standard library."""
-    height, width, _ = pixels.shape
+    """An 8-bit PNG of `pixels` (uint8, height, width, 3 or 4), written with the standard library."""
+    height, width, channels = pixels.shape
 
     def chunk(kind: bytes, data: bytes) -> bytes:
         return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
 
     rows = b"".join(b"\x00" + row.tobytes() for row in pixels)
-    header = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+    header = struct.pack(">IIBBBBB", width, height, 8, 2 if channels == 3 else 6, 0, 0, 0)
     path.write_bytes(
         b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
     )
@@ -154,6 +154,13 @@ def test_a_picture_file_draws_what_the_same_array_draws(tmp_path):
     from_file = Scene(2, 2).add(Layer.picture(png(tmp_path / "photo.png", pixels))).render(4)
     from_array = Scene(2, 2).add(Layer.picture(pixels)).render(4)
     assert np.allclose(from_file, from_array, atol=1e-6)
+
+
+def test_a_picture_file_with_three_channels_is_opaque_and_keeps_its_exact_colour(tmp_path):
+    pixels = np.array([[[255, 0, 0], [0, 128, 0]], [[0, 0, 255], [51, 102, 153]]], np.uint8)
+    drawn = Scene(2, 2).add(Layer.picture(png(tmp_path / "photo.png", pixels))).render(2)
+    assert np.array_equal(drawn[..., 3], np.ones((2, 2), np.float32))
+    assert np.array_equal(drawn[..., :3], pixels.astype(np.float32) / 255)
 
 
 def test_a_picture_file_that_cannot_be_read_is_a_read_error_naming_the_layer_and_the_file(tmp_path):
