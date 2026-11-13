@@ -29,7 +29,8 @@ impl Layer {
     }
 
     /// A picture: its box is its pixels, one design pixel each, at the canvas origin; what lies outside the canvas is cut.
-    /// It is resampled once to the output size, by bilinear interpolation of premultiplied colour.
+    /// It is resampled once to the output size, by bilinear interpolation of premultiplied colour, or by an area average
+    /// where it is reduced.
     #[must_use]
     pub fn picture(raster: Raster) -> Self {
         Self::of(Picture::held(raster))

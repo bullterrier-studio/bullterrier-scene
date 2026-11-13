@@ -1,9 +1,11 @@
 //! A vector drawing as a layer, and the one place that knows how the vector crate reads and draws a document.
 
+use std::sync::Arc;
+
 use bullterrier_vector::{Inputs, Size, Values};
 
-use super::Source;
-use crate::geometry::{Rect, Scale};
+use super::{Drawn, Request, Source};
+use crate::geometry::Rect;
 use crate::{Error, Raster};
 
 /// A drawing with a frame. Its box is the frame at the canvas origin, one design pixel to a pixel of the frame.
@@ -45,8 +47,15 @@ impl Drawing {
 }
 
 impl Source for Drawing {
-    fn draw(&self, rect: Rect, scale: Scale) -> Result<Raster, Error> {
-        let (width, height) = scale.layer_size(self.width, self.height)?;
+    /// The whole frame at the asked scale: vector draws no part of a frame yet.
+    fn draw(&self, _canvas: Rect, plan: &dyn Fn(Rect) -> Result<Request, Error>) -> Result<Drawn, Error> {
+        let own = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: self.width,
+            height: self.height,
+        };
+        let (width, height) = plan(own)?.scale.size(own)?;
         #[expect(clippy::cast_precision_loss, reason = "a side of at most 65,000 pixels")]
         let size = Size::px(width as f64, height as f64);
         let bytes = self
@@ -54,12 +63,10 @@ impl Source for Drawing {
             .to_rgba(size, &Values::new())
             .map_err(|error| Error::invalid("drawing", error.to_string()))?;
         let pixels = bytes.iter().map(|&byte| f32::from(byte) / 255.0).collect();
-        let placed = Raster::made(width, height, pixels);
-        Ok(placed.window(
-            scale.at(rect.x),
-            scale.at(rect.y),
-            scale.len(rect.width),
-            scale.len(rect.height),
-        ))
+        Ok(Drawn {
+            raster: Arc::new(Raster::made(width, height, pixels)),
+            own,
+            covers: own,
+        })
     }
 }

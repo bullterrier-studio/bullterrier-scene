@@ -12,9 +12,9 @@ mod geometry;
 mod layer;
 mod raster;
 mod render;
-mod resample;
 mod scene;
 mod source;
+mod warp;
 
 pub use error::Error;
 pub use layer::Layer;

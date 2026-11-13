@@ -1,7 +1,9 @@
 //! A flat colour over the canvas.
 
-use super::Source;
-use crate::geometry::{Rect, Scale};
+use std::sync::Arc;
+
+use super::{Drawn, Request, Source};
+use crate::geometry::Rect;
 use crate::{Error, Raster};
 
 /// One straight RGBA colour, everywhere.
@@ -34,8 +36,13 @@ impl Fill {
 }
 
 impl Source for Fill {
-    fn draw(&self, rect: Rect, scale: Scale) -> Result<Raster, Error> {
-        let (width, height) = (scale.len(rect.width), scale.len(rect.height));
-        Ok(Raster::made(width, height, self.rgba.repeat(width * height)))
+    /// One pixel: a flat colour is the same at any scale, so it is the one place that draws less than it was asked.
+    fn draw(&self, canvas: Rect, plan: &dyn Fn(Rect) -> Result<Request, Error>) -> Result<Drawn, Error> {
+        plan(canvas)?;
+        Ok(Drawn {
+            raster: Arc::new(Raster::made(1, 1, self.rgba.to_vec())),
+            own: canvas,
+            covers: canvas,
+        })
     }
 }

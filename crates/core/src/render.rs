@@ -2,6 +2,8 @@
 //! given back as straight alpha.
 
 use crate::geometry::{MAX_PIXELS, Rect, Scale};
+use crate::source::Request;
+use crate::warp::{Affine, warp};
 use crate::{Error, Layer, Raster};
 
 /// The longest side of a picture, in output pixels.
@@ -28,7 +30,7 @@ pub(crate) fn render(width: u32, height: u32, layers: &[Layer], size: i128) -> R
             ),
         ));
     }
-    let scale = Scale::new(size, long);
+    let scale = Scale::of_canvas(columns, rows, width, height);
     let canvas = Rect {
         x: 0.0,
         y: 0.0,
@@ -39,13 +41,47 @@ pub(crate) fn render(width: u32, height: u32, layers: &[Layer], size: i128) -> R
     let mut joined = vec![0.0_f32; columns * rows * 4];
     for (index, layer) in layers.iter().enumerate() {
         let name = layer.name.clone().unwrap_or_else(|| format!("layer{}", index + 1));
-        let drawn = layer
-            .source
-            .draw(canvas, scale)
-            .map_err(|error| error.in_layer(&name))?;
+        let drawn = drawn(layer, canvas, scale, (columns, rows)).map_err(|error| error.in_layer(&name))?;
         over(&mut joined, drawn.pixels(), layer.opacity);
     }
     Ok(Raster::made(columns, rows, straight(joined)))
+}
+
+/// `layer` as a picture of the output's size: its source drawn at the scale it will have, then put where it belongs by one
+/// warp.
+fn drawn(layer: &Layer, canvas: Rect, scale: Scale, (columns, rows): (usize, usize)) -> Result<Raster, Error> {
+    let plan = |own: Rect| {
+        let request = Request { window: own, scale };
+        request.scale.size(request.window)?;
+        Ok(request)
+    };
+    let drawn = layer.source.draw(canvas, &plan)?;
+    let request = plan(drawn.own)?;
+    let (source_columns, source_rows) = (drawn.raster.width(), drawn.raster.height());
+    // the raster's pixels per design pixel of its box, along each axis
+    #[expect(clippy::cast_precision_loss, reason = "a side of at most 2^27 pixels")]
+    let (across, down) = (
+        source_columns as f64 / drawn.covers.width,
+        source_rows as f64 / drawn.covers.height,
+    );
+    let window = request.window;
+    let clip = Rect {
+        x: (window.x - drawn.covers.x) * across,
+        y: (window.y - drawn.covers.y) * down,
+        width: window.width * across,
+        height: window.height * down,
+    };
+    #[expect(clippy::cast_precision_loss, reason = "a side of at most 2^27 pixels")]
+    let (source_columns, source_rows) = (source_columns as f64, source_rows as f64);
+    let map = Affine {
+        a: scale.x.pixels(drawn.covers.width) / source_columns,
+        b: 0.0,
+        c: scale.x.pixels(drawn.covers.x),
+        d: 0.0,
+        e: scale.y.pixels(drawn.covers.height) / source_rows,
+        f: scale.y.pixels(drawn.covers.y),
+    };
+    Ok(warp(&drawn.raster, map, clip, columns, rows))
 }
 
 /// `above` (straight RGBA, at `opacity` of its alpha) laid over `joined` (premultiplied): the "over" of Porter and Duff,

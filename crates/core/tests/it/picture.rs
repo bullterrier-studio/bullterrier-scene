@@ -1,5 +1,5 @@
 //! A picture as a layer: one design pixel to a source pixel at the canvas origin, resampled once to the output size by
-//! bilinear interpolation of premultiplied colour, cut at the canvas. Expected values are worked out by hand.
+//! bilinear interpolation of premultiplied colour (an area average where it is reduced), cut at the canvas. Expected values are worked out by hand.
 
 use bullterrier_scene::{Error, Layer, Raster};
 use proptest::prelude::*;
@@ -115,6 +115,37 @@ fn a_picture_that_does_not_fit_whole_pixels_is_stretched_onto_the_next_whole_siz
     Ok(())
 }
 
+/// A reduction averages the pixels each output pixel covers (an area average), whatever the ratio: a picture whose every
+/// fourth column is white and the rest black is a quarter grey at a quarter of the width, and a third of the pixels lit
+/// is a third grey at a third of the width. Bilinear sampling alone would read two of the four columns.
+#[test]
+fn a_reduction_is_the_average_of_the_pixels_it_covers() -> Outcome {
+    for (period, lit) in [(4_usize, 0.25_f32), (3, 1.0 / 3.0), (6, 1.0 / 6.0)] {
+        let width = period * 4;
+        let levels: Vec<f32> = (0..width)
+            .flat_map(|x| {
+                let level = if x % period == 0 { 1.0 } else { 0.0 };
+                [level, level, level, 1.0]
+            })
+            .collect();
+        let size = u32::try_from(width / period)?;
+        let drawn = scene(
+            u32::try_from(width)?,
+            1,
+            [Layer::picture(Raster::rgba(width, 1, levels)?)],
+        )?
+        .render(size)?;
+        assert_eq!(drawn.width(), width / period);
+        for got in pixels(&drawn) {
+            assert!(
+                close(got, [lit, lit, lit, 1.0], 1e-6),
+                "period {period}: {got:?} is not {lit}"
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Colour is interpolated premultiplied: a transparent pixel adds no colour. An opaque red beside a transparent blue,
 /// at 2x: the pixel at source position 0.25 is 0.75 red and 0.25 clear, so alpha 0.75 and a straight colour of pure red.
 #[test]
@@ -216,11 +247,12 @@ proptest! {
         }
     }
 
-    /// A ramp across a picture of `width` pixels, on a canvas that is just that row, at any size: output pixel `i` of `size`
-    /// looks at `(i + 0.5) * width / size - 0.5` among the pixel centres (an edge outside), where a linear ramp is its own
-    /// position over `width - 1`.
+    /// A ramp across a picture of `width` pixels, on a canvas that is just that row, at a size of at least its width: output
+    /// pixel `i` of `size` looks at `(i + 0.5) * width / size - 0.5` among the pixel centres (an edge outside), where a
+    /// linear ramp is its own position over `width - 1`.
     #[test]
-    fn a_ramp_is_stretched_onto_exactly_the_output_at_any_size(width in 2_usize..40, size in 1_u32..120) {
+    fn a_ramp_is_stretched_onto_exactly_the_output_when_it_is_enlarged(width in 2_usize..40, extra in 0_u32..100) {
+        let size = u32::try_from(width)? + extra;
         let last = u8::try_from(width - 1)?;
         let levels: Vec<f32> = (0..=last).flat_map(|x| [f32::from(x) / f32::from(last), 0.0, 0.0, 1.0]).collect();
         let drawn = scene(u32::try_from(width)?, 1, [Layer::picture(Raster::rgba(width, 1, levels)?)])?.render(size)?;
@@ -231,6 +263,30 @@ proptest! {
             let expected = at / (width_f - 1.0);
             let got = f64::from(pixel(&drawn, x, 0)[0]);
             prop_assert!((got - expected).abs() <= 1e-6, "column {x}: {got} is not {expected}");
+        }
+    }
+
+    /// The same ramp at a size below its width: output pixel `i` is the mean of the source pixels under its extent
+    /// `[i k, (i + 1) k]`, `k` = `width / size`, each weighed by the length of the extent it covers (the definition of an area
+    /// average, counted here pixel by pixel).
+    #[test]
+    fn a_ramp_is_averaged_by_area_when_it_is_reduced(width in 2_usize..40, size_from_width in 1_u32..40) {
+        let size = size_from_width.min(u32::try_from(width)? - 1);
+        let last = u8::try_from(width - 1)?;
+        let levels: Vec<f32> = (0..=last).flat_map(|x| [f32::from(x) / f32::from(last), 0.0, 0.0, 1.0]).collect();
+        let drawn = scene(u32::try_from(width)?, 1, [Layer::picture(Raster::rgba(width, 1, levels)?)])?.render(size)?;
+        prop_assert_eq!(drawn.width(), usize::try_from(size)?);
+        let step = f64::from(u32::try_from(width)?) / f64::from(size);
+        for x in 0..drawn.width() {
+            let (start, end) = (f64::from(u32::try_from(x)?) * step, f64::from(u32::try_from(x + 1)?) * step);
+            let mut sum = 0.0;
+            for source in 0..width {
+                let overlap = (end.min(f64::from(u32::try_from(source + 1)?)) - start.max(f64::from(u32::try_from(source)?))).max(0.0);
+                sum += overlap * f64::from(u32::try_from(source)?) / f64::from(u32::from(last));
+            }
+            let expected = sum / step;
+            let got = f64::from(pixel(&drawn, x, 0)[0]);
+            prop_assert!((got - expected).abs() <= 1e-5, "column {x}: {got} is not {expected}");
         }
     }
 
