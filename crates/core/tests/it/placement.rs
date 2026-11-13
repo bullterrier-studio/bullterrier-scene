@@ -504,22 +504,21 @@ fn a_reduction_by_aspect_averages_the_pixels_it_covers() -> Outcome {
     Ok(())
 }
 
-/// The area prefilter acts along the axes of the picture that the map shrinks (the length of each column of the map is below
-/// 1), not along the strongest shrinking of the map. So 1-pixel vertical stripes (every other column white) are kept as they
-/// are at no skew, and averaged to grey once the map halves them (a scale of 0.5, whatever the skew); but at a strong skew
-/// without a scale the sheared stripes are far finer than a pixel and are not averaged: the pixels come out as the beat of
-/// the shear against the pixel grid, and nothing near grey. That last is a limit stated in `api.md`, which a rule by the
-/// singular values of the map (C2b, where perspective needs one) removes: the last half of this test changes then.
+/// Where the map shrinks the picture, whichever way, the pixel is the average of what its footprint covers. 1-pixel vertical
+/// stripes (every other column white) are kept as they are at no skew (the footprint is under a pixel), and are grey under
+/// a skew of 80, 86 or 89 degrees, where the sheared stripes are far finer than a pixel: the footprint is `s1` source pixels
+/// long, a box average of `s1` pixels of a square wave of period 2 is within `1 / (2 s1)` of grey, and the taps along the
+/// footprint (about one a pixel) add a little: the tolerance is that and 0.05.
 #[test]
-fn stripes_are_averaged_along_an_axis_the_map_shrinks_and_a_strong_skew_alone_is_a_documented_limit() -> Outcome {
-    let stripes = made(64, 64, |x, _| {
+fn stripes_are_kept_when_the_footprint_is_a_pixel_and_averaged_to_grey_under_any_skew() -> Outcome {
+    let stripes = made(256, 256, |x, _| {
         let level = if x % 2 == 0 { 1.0 } else { 0.0 };
         [level, level, level, 1.0]
     })?;
     // the interior pixels (alpha 1) around the middle, as (column, red)
     let interior = |place: Place| -> Result<Vec<(usize, f32)>, Error> {
-        let drawn = render(Layer::picture(stripes.clone()).place(place)?, (64, 64), 64)?;
-        let around = (30..34).flat_map(|y| (24..40).map(move |x| (x, y)));
+        let drawn = render(Layer::picture(stripes.clone()).place(place)?, (256, 256), 256)?;
+        let around = (127..130).flat_map(|y| (100..156).map(move |x| (x, y)));
         Ok(around
             .map(|(x, y)| (x, pixel(&drawn, x, y)))
             .filter(|(_, got)| got[3] > 0.999)
@@ -527,27 +526,46 @@ fn stripes_are_averaged_along_an_axis_the_map_shrinks_and_a_strong_skew_alone_is
             .collect())
     };
     let kept = interior(Place::new())?;
-    assert_eq!(kept.len(), 4 * 16);
+    assert_eq!(kept.len(), 3 * 56);
     assert!(
         kept.iter()
             .all(|&(x, red)| (red - if x % 2 == 0 { 1.0 } else { 0.0 }).abs() < 1e-6),
         "not kept at no skew"
     );
-    for skew in [0.0, 80.0] {
-        let halved = interior(Place::new().scale(0.5).skew_x(Deg(skew)))?;
+    // halved: exactly grey where the map keeps the axes (the exact area average), within the tolerance where it does not
+    for (skew, scale) in [(0.0_f64, 0.5_f64), (80.0, 0.5), (86.0, 0.5), (80.0, 0.25)] {
+        let halved = interior(Place::new().scale(scale).skew_x(Deg(skew)))?;
         assert!(!halved.is_empty(), "skew {skew}: nothing in the middle");
+        let t = skew.to_radians().tan();
+        let tolerance = if skew == 0.0 {
+            1e-5
+        } else {
+            0.5 / ((t + 1.0 / t) / scale) + 0.05
+        };
+        let largest = halved
+            .iter()
+            .map(|&(_, red)| f64::from((red - 0.5).abs()))
+            .fold(0.0, f64::max);
         assert!(
-            halved.iter().all(|&(_, red)| (red - 0.5).abs() < 1e-5),
-            "skew {skew}: halved stripes are not grey"
+            largest < tolerance,
+            "skew {skew} at {scale}: a pixel is {largest} from grey, more than {tolerance}"
         );
     }
-    let sheared = interior(Place::new().skew_x(Deg(80.0)))?;
-    assert!(sheared.len() >= 32, "{} interior pixels", sheared.len());
-    let largest = sheared.iter().map(|&(_, red)| (red - 0.5).abs()).fold(0.0, f32::max);
-    assert!(
-        largest > 0.15,
-        "a skew of 80 now averages its stripes ({largest} from grey): the limit in api.md is out of date"
-    );
+    for skew in [80.0_f64, 86.0, 89.0] {
+        // the longest singular value of a skew by `t` is about t + 1 / t
+        let t = skew.to_radians().tan();
+        let tolerance = 0.5 / (t + 1.0 / t) + 0.05;
+        let sheared = interior(Place::new().skew_x(Deg(skew)))?;
+        assert!(sheared.len() >= 8, "skew {skew}: {} interior pixels", sheared.len());
+        let largest = sheared
+            .iter()
+            .map(|&(_, red)| f64::from((red - 0.5).abs()))
+            .fold(0.0, f64::max);
+        assert!(
+            largest < tolerance,
+            "skew {skew}: a pixel is {largest} from grey, more than {tolerance}"
+        );
+    }
     Ok(())
 }
 

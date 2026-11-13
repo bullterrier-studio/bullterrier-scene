@@ -14,11 +14,13 @@
 //! * **Edges.** The alpha of an output pixel is the raster's times its coverage by the clip rectangle: the length of the
 //!   pixel's extent (one pixel across the edge) that lies inside it, so an edge between two pixels is soft in proportion
 //!   and one on the pixel grid is hard. Outside the clip nothing is drawn.
-//! * **Reduction.** A raster axis the map shrinks (the norm of its column of the map is below 1) is first averaged by area
-//!   to the pixels it will cover, so a reduction along the axes of the raster does not alias and no threshold decides it.
-//!   Limit: the rule looks at the axes of the raster, not at the strongest shrinking of the map, so a strong skew (the
-//!   columns stay longer than 1 while the sheared raster is far finer than a pixel) can alias. A rule by the singular values
-//!   of the map, or a footprint for each pixel, removes it; perspective needs one (C2b).
+//! * **Reduction, two classes of map.** Where the map keeps the axes of the raster (a move, a scale, a flip, `aspect`, a
+//!   quarter turn, each column of the map having one entry that is not 0) the footprint of an output pixel is a rectangle
+//!   along the raster's axes, and each axis the map shrinks is first averaged by area to the pixels it will cover: the exact
+//!   area average, with no threshold. Every other map (a turn by another angle, a skew, a perspective) has a footprint that
+//!   is a parallelogram of any direction: see `footprint`, whose rule replaces the area average there.
+
+mod footprint;
 
 use std::borrow::Cow;
 use std::sync::Arc;
@@ -133,7 +135,30 @@ pub(crate) fn warp_into(
     warp_through(source, map, clip, (columns, rows), keeps_axes(map), put);
 }
 
+/// Whether the footprint of an output pixel under `map` is a rectangle along the raster's axes: each column of the map has
+/// one entry that is not 0.
+fn is_exact_class(map: Affine) -> bool {
+    (map.a != 0.0) != (map.d != 0.0) && (map.b != 0.0) != (map.e != 0.0)
+}
+
 fn warp_through(
+    source: &Raster,
+    map: Affine,
+    clip: Rect,
+    (columns, rows): (usize, usize),
+    aligned: bool,
+    put: &mut impl FnMut(usize, [f32; 4]),
+) {
+    if is_exact_class(map) {
+        exact_through(source, map, clip, (columns, rows), aligned, put);
+    } else {
+        footprint::through(source, map, clip, (columns, rows), put);
+    }
+}
+
+/// [`warp_through`] for a map whose footprint is a rectangle along the raster's axes: area average by the column norms, then
+/// bilinear.
+fn exact_through(
     source: &Raster,
     map: Affine,
     clip: Rect,
@@ -188,12 +213,12 @@ fn warp_through(
         // a one-pixel raster (a flat colour) needs no taps: every pixel is that one with its alpha scaled by the cover
         let flat = (width == 1 && height == 1).then(|| [pixels[0], pixels[1], pixels[2], pixels[3]]);
         for (row, (y_taps, share_y)) in (first_row..last_row).zip(down) {
-            if share_y <= 0.0 {
+            if !is_drawn(share_y) {
                 continue;
             }
             for (column, (x_taps, share_x)) in (first_column..last_column).zip(&across) {
                 let cover = share_x * share_y;
-                if cover <= 0.0 {
+                if !is_drawn(cover) {
                     continue;
                 }
                 let pixel = match flat {
@@ -211,7 +236,7 @@ fn warp_through(
                 let (x, y) = inverse.at(centre_x, centre_y);
                 let cover = share((x - low_x) / across_x, (high_x - x) / across_x)
                     * share((y - low_y) / across_y, (high_y - y) / across_y);
-                if cover <= 0.0 {
+                if !is_drawn(cover) {
                     continue;
                 }
                 let pixel = sample(
@@ -224,6 +249,12 @@ fn warp_through(
             }
         }
     }
+}
+
+/// Whether a coverage puts anything on the output: a number above 0. A coverage that is NaN (a pixel the map cannot place)
+/// draws nothing, and is not mistaken for one that does.
+fn is_drawn(cover: f64) -> bool {
+    matches!(cover.partial_cmp(&0.0), Some(std::cmp::Ordering::Greater))
 }
 
 /// A count of pixels as a float: at most 2^27, so exact.
@@ -276,23 +307,42 @@ fn sample(pixels: &[f32], width: usize, [x, y]: [(usize, usize, f32); 2], cover:
         let [red, green, blue, alpha] = at(y.0, x.0);
         return [red, green, blue, alpha * cover];
     }
-    // colour and alpha are summed in the same order with a colour never above its alpha, and rounding is monotone, so the
-    // mixed colour is never above the mixed alpha and the quotient is at most 1; weights that sum a step over 1 are met
-    // by the minimum below. The alpha is divided by the sum of the weights, added in the same order: an opaque picture is
-    // exactly opaque, though four weights of 32-bit floats may sum to a step under 1.
     let mut mixed = [0.0_f32; 4];
     let mut total = 0.0_f32;
+    accumulate(pixels, width, [x, y], 1.0, &mut mixed, &mut total);
+    finish(mixed, total, cover)
+}
+
+/// Adds to `mixed` (premultiplied red, green, blue and alpha) and `total` (the weights) the four taps `[x, y]` of the raster
+/// `pixels`, bilinear, each at `tap_weight` times its bilinear weight. Colour and alpha are summed in the same order with a
+/// colour never above its alpha, and rounding is monotone, so the mixed colour is never above the mixed alpha and the
+/// quotient is at most 1.
+fn accumulate(
+    pixels: &[f32],
+    width: usize,
+    [x, y]: [(usize, usize, f32); 2],
+    tap_weight: f32,
+    mixed: &mut [f32; 4],
+    total: &mut f32,
+) {
     for (row, weight_row) in [(y.0, 1.0 - y.2), (y.1, y.2)] {
         for (column, weight_column) in [(x.0, 1.0 - x.2), (x.1, x.2)] {
-            let weight = weight_row * weight_column;
-            let [red, green, blue, alpha] = at(row, column);
+            let weight = tap_weight * (weight_row * weight_column);
+            let at = (row * width + column) * 4;
+            let [red, green, blue, alpha] = [pixels[at], pixels[at + 1], pixels[at + 2], pixels[at + 3]];
             mixed[0] += weight * (red * alpha);
             mixed[1] += weight * (green * alpha);
             mixed[2] += weight * (blue * alpha);
             mixed[3] += weight * alpha;
-            total += weight;
+            *total += weight;
         }
     }
+}
+
+/// The straight pixel that the premultiplied sums `mixed` and the sum of weights `total` make, its alpha scaled by `cover`.
+/// The alpha is divided by the sum of the weights, added in the same order: an opaque picture is exactly opaque, though
+/// weights of 32-bit floats may sum to a step under 1.
+fn finish(mixed: [f32; 4], total: f32, cover: f32) -> [f32; 4] {
     let alpha = mixed[3];
     let colour = |value: f32| if alpha > 0.0 { value / alpha } else { 0.0 };
     [

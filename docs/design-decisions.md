@@ -143,8 +143,7 @@ transparent outside the source, a stated pixel-centre convention, sub-pixel accu
 | `tiny-skia` 0.12.0 (BSD-3-Clause, 2026-02) | affine and bilinear draws, but a `Pixmap` is premultiplied 8-bit | fails the first criterion |
 
 **Chosen:** one kernel in `warp.rs` (about 200 lines of code): backward mapping in `f64`, premultiplied `f32`, bilinear where a source
-pixel is larger than an output pixel and an area average (a separable box, applied first) along any source axis whose scale
-is below 1 (no threshold: the column norm of the map decides), colour from the clamped edge and an alpha coverage by the
+pixel is larger than an output pixel and the average of the output pixel's footprint where the map shrinks ("One footprint rule"), colour from the clamped edge and an alpha coverage by the
 distance of the pixel centre to the box edge, transparent outside. *Reason:* the properties placement is tested on (a
 whole-pixel move, a 90 degree turn and a flip are exact permutations; a half pixel is the average of two neighbours; the
 area of a layer scales with the square of `scale`) hold by construction only when the arithmetic is ours. *Cost:* a kernel to
@@ -182,6 +181,36 @@ source hands over its own pixels and the warp is the only resample (source, fit 
 that can be cached (C7 relies on it). A large `scale` on a big layer meets the 2^27 drawn-size limit even where little of it
 shows: window drawing (B1) lifts it, and it is not worked around. After C5 gives looks design pixels, the scale handed to
 image is `canvas scale x place.scale`, so a halo still follows `scale`.
+
+## One footprint rule for a warp that is not an axis-aligned scale (2026-11-13)
+
+C2a prefiltered by the length of each column of the map: right where the map keeps the raster's axes, wrong for a skew (a skew
+of 80 degrees keeps both columns longer than 1 while the sheared stripes are far finer than a pixel, and they came out as a
+beat). C2b replaces the rule for every map that is not of the **exact class**, and keeps C2a's for it.
+
+- **Exact class:** an affine map each column of which has one entry that is not 0 (a move, a scale, `aspect`, a flip, a quarter
+  turn, stretch, any product of them). The footprint of an output pixel is a rectangle along the raster's axes, and C2a's
+  separable area average is it computed exactly; the tests that pin that (`a_reduction_is_the_average_of_the_pixels_it_covers`,
+  `a_ramp_is_averaged_by_area_when_it_is_reduced`, the stripes of `aspect`, `stretch_fills_the_box_with_a_scale_for_each_axis`,
+  the cover crops that reduce) hold to 1e-5 and 1e-6 against a pixel-by-pixel box average. *A pyramid for these would break
+  them*: its levels are 2, 4, 8... pixels, and a reduction by 3 or 1.56 is a blend of two levels, not the box average.
+- **Every other map** (a turn by another angle, a skew, a perspective) gets the footprint of the inverse Jacobian, per pixel
+  for a perspective: singular values `s1 >= s2` (raster pixels per output pixel along the major and minor axes) and the
+  major axis. `s1` at most 1 (up to `ROUNDING`, the one tolerance of the geometry: a 17 degree turn computes 1.0000000000000002):
+  plain bilinear, so a turn at scale 1 is as sharp as in C2a. Otherwise `n = ceil(s1 / max(s2, 1))` taps along the major axis,
+  each trilinear between the two levels around `log2(max(s2, 1))` of a pyramid of 2 by 2 area averages (made when first
+  asked for), equal weights, so the filter stays convex. The minor axis is filtered to its length and the major one is covered
+  by taps no more than a level pixel apart.
+- **No tap cap.** The only bound on `n` is the raster: a footprint longer than its diagonal reads the edge past it. The taps of
+  a layer total about its pixels over `s2`; a 12 megapixel picture under a skew of 89 degrees needs 57 taps a pixel and
+  the sheared picture is mostly outside the canvas.
+- **Isotropic level** (`log2(s1)`, no taps) was weighed: it needs no taps but blurs a skewed or tilted picture by `s1 / s2`
+  along its minor axis, which is the far side of every perspective floor.
+- **Measured** (release, arm64 Mac, 12 megapixel picture on a 12 megapixel canvas; C2a, then C2b): turned 17 degrees and
+  scaled 0.9, 0.19 s then 0.32 s; turned 17 and scaled 0.5, 0.08 s then 0.10 s; skewed 80 degrees, 0.07 s then 0.23 s; skewed 89,
+  0.05 s then 0.20 s; peak memory 386 to 530 MB in both (the pyramid adds a third of the raster, made only where a
+  footprint is larger than a pixel). A turn that shrinks is slower because each pixel is a trilinear sample of two levels,
+  where C2a averaged the raster once first.
 
 ## Text options are vector's, passed as data (2026-11-13)
 
