@@ -741,3 +741,79 @@ def test_masks_nest_to_max_depth_and_one_deeper_is_an_invalid_error():
 def test_mask_is_keyword_only_after_by():
     with pytest.raises(TypeError):
         Layer.fill("#ffffff").mask(Layer.fill("#ffffff"), "luminance")  # type: ignore[call-arg]  # on purpose
+
+
+# --- text ----------------------------------------------------------------------------------------------------------
+
+
+def typeset(content="Hi", **options) -> Layer:
+    return Layer.text(content, font="bricolage_grotesque", **options)
+
+
+def test_a_text_layer_is_painted_in_its_colour_where_the_letters_are_and_transparent_elsewhere():
+    drawn = Scene(200, 100).add(typeset(size=60, color="#336699").place(dx=20, dy=70)).render(200)
+    painted = drawn[..., 3] > 0
+    assert 200 < painted.sum() < 0.3 * painted.size
+    assert np.allclose(drawn[drawn[..., 3] == 1][:, :3], np.array([0x33, 0x66, 0x99]) / 255, atol=1e-6)
+    assert not drawn[~painted].any()
+
+
+def test_the_text_options_are_vectors_and_the_text_is_set_where_place_puts_its_anchor():
+    plain = Scene(300, 100).add(typeset("Hi", size=60).place(dx=10, dy=70)).render(300)[..., 3]
+    moved = Scene(300, 100).add(typeset("Hi", size=60).place(dx=110, dy=70)).render(300)[..., 3]
+    assert np.array_equal(plain[:, :190], moved[:, 100:290])
+    wide = Scene(300, 100).add(typeset("Hi", size=60, tracking=400).place(dx=10, dy=70)).render(300)[..., 3]
+    assert (wide > 0).any(axis=0).nonzero()[0].max() > (plain > 0).any(axis=0).nonzero()[0].max()
+
+
+@pytest.mark.parametrize(
+    ("options", "match"),
+    [
+        pytest.param({"size": -1}, "size", id="a negative size"),
+        pytest.param({"bogus": 1}, "bogus", id="an unknown option"),
+        pytest.param({"align": "middle"}, "align", id="a word that is no alignment"),
+        pytest.param({"anchor": [1, 2]}, "anchor", id="an anchor"),
+        pytest.param({"inside": "M0 0 L9 0 L9 9 Z"}, "inside", id="a shape"),
+        pytest.param({"size": {"param": "s"}}, "size", id="an expression"),
+        pytest.param({"color": "red"}, "color", id="a colour that is none"),
+    ],
+)
+def test_a_text_option_vector_or_scene_refuses_is_an_invalid_error_naming_it(options, match):
+    with pytest.raises(InvalidError, match=match):
+        typeset(**options)
+
+
+def test_a_font_that_is_not_there_is_refused_by_name_or_by_file(tmp_path):
+    with pytest.raises(InvalidError, match=r"no_such_font.*bricolage_grotesque"):
+        Layer.text("Hi", font="no_such_font")
+    with pytest.raises(ReadError, match=r"none\.ttf"):
+        Layer.text("Hi", font=tmp_path / "none.ttf")
+    (tmp_path / "bad.ttf").write_bytes(b"not a font")
+    with pytest.raises(InvalidError, match=r"font.*bad\.ttf"):
+        Layer.text("Hi", font=tmp_path / "bad.ttf")
+
+
+@pytest.mark.parametrize(
+    ("call", "match"),
+    [
+        pytest.param(lambda: Layer.text("Hi"), "font", id="no font"),  # type: ignore[call-arg]  # on purpose
+        pytest.param(lambda: Layer.text("Hi", font=3), "font", id="a number for the font"),  # type: ignore[arg-type]  # on purpose
+        pytest.param(
+            lambda: Layer.text(3, font="bricolage_grotesque"),  # type: ignore[arg-type]  # on purpose
+            "content",
+            id="a number for the content",
+        ),
+        pytest.param(lambda: typeset(color=0), "color", id="a number for the colour"),
+    ],
+)
+def test_a_text_of_the_wrong_type_is_a_type_error_naming_the_argument(call, match):
+    with pytest.raises(TypeError, match=match):
+        call()
+
+
+def test_options_that_are_not_plain_data_are_an_invalid_error_and_a_text_masks():
+    with pytest.raises(InvalidError, match="text"):
+        typeset(size={1, 2})
+    letters = typeset("Hi", size=60).place(dx=20, dy=70)
+    clipped = Scene(200, 100).add(Layer.fill("#ff0000").mask(letters)).render(200)
+    assert np.array_equal(clipped[..., 3], Scene(200, 100).add(letters).render(200)[..., 3])

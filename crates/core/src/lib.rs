@@ -20,6 +20,7 @@ mod raster;
 mod render;
 mod scene;
 mod source;
+mod text;
 mod warp;
 
 pub use error::Error;
@@ -29,3 +30,4 @@ pub use mask::{Mask, MaskBy, Use};
 pub use placement::{Deg, Fit, Place};
 pub use raster::Raster;
 pub use scene::{MAX_LAYERS, Scene};
+pub use text::Text;

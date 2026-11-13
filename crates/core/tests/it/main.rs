@@ -15,3 +15,4 @@ mod perspective;
 mod picture;
 mod placement;
 mod structure;
+mod text;

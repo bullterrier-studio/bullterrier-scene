@@ -145,6 +145,30 @@ class Layer:
         return cls(_core.Layer.drawing(text))
 
     @classmethod
+    def text(cls, content: str, *, font: str | Path, color: str = "#000000", **text_options: Any) -> Self:
+        """`content` set in type: a bundled font's name (a `str`) or a `Path` to a font file read now, and a colour.
+
+        `text_options` are vector's `text` arguments as plain data (`size`, `axes`, `tracking`, `leading`, `align`,
+        `width`, `fit`, `features`), checked by the linked vector crate now; scene restates none of its defaults.
+        `width` and `fit` are vector's: the width the text wraps or fits to, not a placement (`fit(...)` on the layer
+        is the placement). `anchor`, `inside`, `runs`, expressions and Params are an `InvalidError`: scene places
+        the text. The layer's origin is the text's anchor, the left end, middle or right end of the first baseline by
+        `align`, so `place(dx=100, dy=420)` puts it there; its box is the glyphs' bounds rounded out to whole design
+        pixels. An unknown bundled font is an `InvalidError` listing the fonts there are; a font file that cannot be
+        read, a `ReadError`.
+        """
+        if not isinstance(content, str):
+            raise TypeError(f"content: text is wanted, got {type(content).__name__} {_shown(content)}")
+        if not isinstance(color, str):
+            raise TypeError(f'color: a text like "#rrggbb" is wanted, got {type(color).__name__} {_shown(color)}')
+        options = _document("text", text_options)
+        if isinstance(font, Path):
+            return cls(_core.Layer.text_file(content, font, color, options))
+        if isinstance(font, str):
+            return cls(_core.Layer.text(content, font, color, options))
+        raise TypeError(f"font: a bundled font's name or a Path to a font file is wanted, got {type(font).__name__}")
+
+    @classmethod
     def fill(cls, color: str) -> Self:
         """A flat colour over the whole canvas: `"#rrggbb"` or `"#rrggbbaa"`, sRGB values, straight alpha."""
         return cls(_core.Layer.fill(color))

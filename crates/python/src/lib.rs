@@ -10,7 +10,7 @@ use numpy::{Element, PyArray1, PyArray3, PyArrayMethods, PyReadonlyArrayDyn, PyU
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 
-use bullterrier_scene::{Deg, Fit, Map, Mask, Place, Raster, Use};
+use bullterrier_scene::{Deg, Fit, Map, Mask, Place, Raster, Text, Use};
 
 /// bullterrier-scene's Rust core.
 #[pymodule]
@@ -148,6 +148,19 @@ fn wrap<T>(py: Python<'_>, result: Result<T, bullterrier_scene::Error>) -> PyRes
     result.map_err(|failure| error::raised(py, &failure))
 }
 
+/// The text layer of `content` in `text`, in `color`, with each member of the JSON object `options` as a vector text option.
+fn typeset(py: Python<'_>, content: &str, text: Text, color: &str, options: &str) -> PyResult<Layer> {
+    let serde_json::Value::Object(options) = serde_json::from_str(options)
+        .map_err(|failure| error::invalid(py, format!("text: the options are not JSON: {failure}")))?
+    else {
+        return Err(error::invalid(py, "text: the options are a JSON object".to_owned()));
+    };
+    let text = options
+        .into_iter()
+        .fold(text.color(color), |text, (name, value)| text.option(&name, value));
+    wrap(py, bullterrier_scene::Layer::text(content, &text)).map(Layer)
+}
+
 /// `layer` with `mask` set to read `uses` ("alpha" or "luminance"), blurred by `feather` design pixels and inverted if `invert`.
 fn masked(
     layer: &bullterrier_scene::Layer,
@@ -179,6 +192,18 @@ impl Layer {
     #[staticmethod]
     fn drawing(py: Python<'_>, json: &str) -> PyResult<Self> {
         wrap(py, bullterrier_scene::Layer::drawing(json)).map(Self)
+    }
+
+    /// `content` set in the bundled font `font`, in `color`, with the vector text options of the JSON object `options`.
+    #[staticmethod]
+    fn text(py: Python<'_>, content: &str, font: &str, color: &str, options: &str) -> PyResult<Self> {
+        typeset(py, content, Text::new(font), color, options)
+    }
+
+    /// `content` set in the font file `path`, in `color`, with the vector text options of the JSON object `options`.
+    #[staticmethod]
+    fn text_file(py: Python<'_>, content: &str, path: PathBuf, color: &str, options: &str) -> PyResult<Self> {
+        typeset(py, content, Text::from_file(path), color, options)
     }
 
     /// A flat colour over the whole canvas: `#rrggbb` or `#rrggbbaa`.

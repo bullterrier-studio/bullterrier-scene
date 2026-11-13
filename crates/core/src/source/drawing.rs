@@ -2,16 +2,22 @@
 
 use std::sync::Arc;
 
-use bullterrier_vector::{Inputs, Size, Values};
+use bullterrier_vector::{Font, Inputs, Size, Values};
+use serde_json::{Value, json};
 
 use super::{Drawn, Opened, Source};
 use crate::geometry::Rect;
+use crate::text::{Face, Text};
 use crate::{Error, Raster};
 
-/// A drawing with a frame. Its box is the frame at the canvas origin, one design pixel to a pixel of the frame.
+/// A drawing with a frame. Its box is the frame, one design pixel to a pixel of the frame, at the canvas origin or, for a
+/// text, where the text's anchor makes it.
 #[derive(Debug)]
 pub(crate) struct Drawing {
     document: bullterrier_vector::Drawing,
+    /// The top left of the box in the layer's space: `(0, 0)` for a drawing, the glyphs' bounds for a text.
+    x: f64,
+    y: f64,
     width: f64,
     height: f64,
 }
@@ -40,9 +46,131 @@ impl Drawing {
         })?;
         Ok(Self {
             document,
+            x: 0.0,
+            y: 0.0,
             width,
             height,
         })
+    }
+
+    /// `content` set in the type `text` says: a vector text drawing whose frame is the glyphs' bounds rounded out to whole
+    /// design pixels, and whose box sits where the text's anchor (the left end, the middle or the right end of the first
+    /// baseline, by `align`) is the layer's origin.
+    pub(crate) fn text(content: &str, text: &Text) -> Result<Self, Error> {
+        for (name, value) in &text.options {
+            check_option(name, value)?;
+        }
+        let (font, inputs) = match &text.face {
+            Face::Bundled(name) => (
+                Font::bundled(name).map_err(|error| Error::invalid("font", error.to_string()))?,
+                Inputs::new(),
+            ),
+            Face::File(path) => {
+                let bytes = std::fs::read(path).map_err(|error| Error::Read {
+                    path: path.display().to_string(),
+                    message: format!("the font cannot be read: {error}"),
+                })?;
+                let font = Font::new(bytes.clone())
+                    .and_then(|font| font.named("font"))
+                    .map_err(|error| Error::invalid("font", format!("{}: {error}", path.display())))?;
+                (font, Inputs::new().set("font", bytes))
+            }
+        };
+        // vector writes the document of a text in this font; the options are put in as the plain data they are and vector's
+        // reader checks them, so scene restates none of its arguments or defaults
+        let skeleton = bullterrier_vector::text(content, bullterrier_vector::Text::new(&font))
+            .to_json()
+            .map_err(|error| text_refused(&error))?;
+        let mut document: Value =
+            serde_json::from_str(&skeleton).map_err(|error| Error::invalid("text", error.to_string()))?;
+        let missing = || Error::invalid("text", "vector wrote a text drawing in a form this scene does not know");
+        let node = document
+            .pointer_mut("/root/0/text")
+            .and_then(Value::as_object_mut)
+            .ok_or_else(missing)?;
+        for (name, value) in &text.options {
+            node.insert(name.clone(), value.clone());
+        }
+        document
+            .pointer_mut("/root")
+            .and_then(Value::as_array_mut)
+            .ok_or_else(missing)?
+            .push(json!({"fill": {"color": text.color}}));
+        let read = |document: &Value| {
+            bullterrier_vector::Drawing::from_json(&document.to_string(), &inputs).map_err(|error| text_refused(&error))
+        };
+        // the bounds of the glyphs with the anchor at the origin, then the same text with its anchor where those bounds
+        // start, so that its frame is the bounds
+        let bounds = read(&document)?.bounds(&Values::new()).map_err(|_| {
+            Error::invalid(
+                "content",
+                "the text has no glyph to draw: its content is empty, or only spaces",
+            )
+        })?;
+        let (x, y) = (bounds.x.floor(), bounds.y.floor());
+        let (width, height) = (
+            (bounds.x + bounds.width).ceil() - x,
+            (bounds.y + bounds.height).ceil() - y,
+        );
+        document
+            .pointer_mut("/root/0/text")
+            .and_then(Value::as_object_mut)
+            .ok_or_else(missing)?
+            .insert("anchor".to_owned(), json!([-x, -y]));
+        Ok(Self {
+            document: read(&document)?.with_size(width, height),
+            x,
+            y,
+            width,
+            height,
+        })
+    }
+}
+
+/// `error` of the vector crate as a refused text option: the last part of its pointer (`/root/0/text/size`) names the option.
+fn text_refused(error: &bullterrier_vector::Error) -> Error {
+    match error {
+        bullterrier_vector::Error::Format { pointer, message } => Error::invalid(
+            pointer
+                .rsplit('/')
+                .next()
+                .filter(|last| !last.is_empty())
+                .unwrap_or("text"),
+            message.clone(),
+        ),
+        other => Error::invalid("text", other.to_string()),
+    }
+}
+
+/// An option scene does not pass on: the ones it owns or places itself, and anything that is not plain data (an expression, a
+/// Param, a list).
+fn check_option(name: &str, value: &Value) -> Result<(), Error> {
+    let refusal = match name {
+        "content" | "font" => Some("scene owns the content and the font: they are arguments of the layer"),
+        "anchor" => Some("scene places the text: its origin is its anchor, and `place` moves it"),
+        "inside" | "runs" => {
+            Some("a text in a shape or in runs is a drawing: build it with vector and use `Layer::drawing`")
+        }
+        _ => None,
+    };
+    if let Some(reason) = refusal {
+        return Err(Error::invalid(name, reason));
+    }
+    let numbers = |entries: &serde_json::Map<String, Value>| entries.values().all(Value::is_number);
+    let plain = match value {
+        Value::Number(_) | Value::String(_) => true,
+        Value::Object(entries) => matches!(name, "axes" | "features") && numbers(entries),
+        _ => false,
+    };
+    if plain {
+        Ok(())
+    } else {
+        Err(Error::invalid(
+            name,
+            format!(
+                "a text option is a number or a text (`axes` and `features` an object of numbers): expressions and Params are not taken, got {value}"
+            ),
+        ))
     }
 }
 
@@ -50,8 +178,8 @@ impl Source for Drawing {
     /// The whole frame at the asked scale: vector draws no part of a frame yet.
     fn open(&self, _canvas: Rect) -> Result<Opened<'_>, Error> {
         let own = Rect {
-            x: 0.0,
-            y: 0.0,
+            x: self.x,
+            y: self.y,
             width: self.width,
             height: self.height,
         };

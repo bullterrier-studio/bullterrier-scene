@@ -11,6 +11,7 @@ use crate::source::drawing::Drawing;
 use crate::source::fill::Fill;
 use crate::source::picture::{Picture, recipe_file};
 use crate::source::{Given, MapMask, Source};
+use crate::text::Text;
 use crate::{Error, Map, Raster};
 
 /// The deepest masks nest: a layer's mask layer, that layer's own mask layers, and so on. A layer with no masks has depth 0
@@ -89,6 +90,20 @@ impl Layer {
     /// not read included; [`Error::Invalid`] naming `drawing` for a drawing without a frame.
     pub fn drawing(json: &str) -> Result<Self, Error> {
         Ok(Self::of(Drawing::parse(json)?))
+    }
+
+    /// `content` set in type: `text` says the font, the colour and vector's text options (`size`, `axes`, `tracking`, `leading`,
+    /// `align`, `width`, `fit`, `features`), checked now by the linked vector crate. The layer's origin is the text's anchor,
+    /// the left end, the middle or the right end of the first baseline by `align`, so `place(dx, dy)` puts it there; its box is
+    /// the glyphs' bounds rounded out to whole design pixels. It is drawn by vector at the size it will have, so it is sharp at
+    /// any `scale`.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `font` for a bundled font that does not exist (the message lists them) or a file that is no
+    /// font, `content` for a text with no glyph to draw, the option for one vector refuses (in its words) and for `anchor`,
+    /// `inside`, `runs`, expressions and Params; [`Error::Read`] for a font file that cannot be read.
+    pub fn text(content: &str, text: &Text) -> Result<Self, Error> {
+        Ok(Self::of(Drawing::text(content, text)?))
     }
 
     /// A flat colour over the whole canvas: `#rrggbb` or `#rrggbbaa`, in sRGB values; the alpha is straight.

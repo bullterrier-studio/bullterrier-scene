@@ -156,6 +156,7 @@ dependencies = [
  "bullterrier-scene",
  "numpy",
  "pyo3",
+ "serde_json",
 ]
 
 [[package]]
