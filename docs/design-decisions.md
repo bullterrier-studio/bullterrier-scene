@@ -201,9 +201,15 @@ beat). C2b replaces the rule for every map that is not of the **exact class**, a
   `ceil(max(s2, 1))` bilinear taps over the rectangle `s1` by `s2` along the footprint's axes, equal weights, so the filter
   stays convex. The taps are never more than a raster pixel apart, so the mean is the raster's average over the footprint
   whatever its direction.
-- **No tap cap.** The only bound is the raster: a footprint longer than its diagonal reads the edge past it. The footprints of
-  the pixels of a row tile the raster, so the taps of a layer total about its pixels (a skew of 89 degrees needs 57 taps a pixel,
-  and the sheared picture is mostly off the canvas).
+- **No tap cap.** The only bound is the raster: a footprint longer than its diagonal reads the edge past it. Where both axes
+  of a footprint are at least a pixel the footprints tile the raster, so the taps of a layer total about its pixels. Where the
+  minor axis is under a pixel (a skew) each output pixel takes `ceil(s1)` taps and the total is about the output pixels
+  times `ceil(s1)`: a skew of 89 degrees takes 57 taps a pixel (the sheared picture is mostly off the canvas, so the
+  measured render is 0.22 s), and a degenerate quadrilateral takes at most the raster's diagonal each way for the few
+  pixels it covers (12 megapixel degenerate quads were measured in review at 0.5 s).
+- **Known limit: moire at mid-distance.** The lattice is a box average with bilinear taps, not an ideal low-pass: on the
+  checker floor of `c2b_perspective.py` a faint set of arcs remains at mid-distance, where the checks are about two pixels. An
+  isotropic or elliptical (EWA) filter with a smooth kernel is the later improvement; the kernel is not changed for it now.
 - **Pyramid weighed and not taken.** The first build of C2b was a pyramid of 2 by 2 averages, trilinear at `log2(s2)`, with taps
   along the major axis only. Measured on the receding checker floor of `c2b_perspective.py` against a brute-force 8 by 8
   supersample of the continuous checker (mean absolute error per channel, the far rows near the horizon, then the middle): the

@@ -13,9 +13,11 @@
 //!
 //! Every weight is at least 0, so the filter is convex like the rest of the warp. Every number comes from the singular
 //! values; there is no threshold and no cap on the taps but the size of the raster (a footprint longer than its diagonal
-//! reads the edge past it). The footprints of the pixels of a row tile the raster, so the taps of a layer total about its
-//! pixels, and the worst cases are measured in the decision entry, where a pyramid of 2 by 2 averages with taps along the
-//! major axis only is weighed against it.
+//! reads the edge past it). Where both axes of the footprint are at least a pixel the footprints of the pixels tile the raster,
+//! so the taps of a layer total about its pixels; where the minor axis is under a pixel (a skew) each output pixel takes
+//! `ceil(s1)` taps, so the total is about the output pixels times `ceil(s1)`: 57 a pixel at a skew of 89 degrees. The worst
+//! cases are measured in the decision entry, where a pyramid of 2 by 2 averages with taps along the major axis only is
+//! weighed against it.
 
 use super::{Affine, Projective, Rect, accumulate, finish, is_positive, lossless, reach, sample, share, taps};
 use crate::Raster;
