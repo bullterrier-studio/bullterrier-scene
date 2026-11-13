@@ -112,7 +112,7 @@ is built on two sibling packages that are themselves not released; it opens up w
 
 bullterrier-scene is one of six packages in [Bullterrier Studio](https://github.com/bullterrier-studio). Unlike its
 siblings it is not stand-alone: it draws its layers with `bullterrier-image` (photos and their effects) and
-`bullterrier-vector` (shapes and type), and it can read control signals from `bullterrier-control` to drive a value.
+`bullterrier-vector` (shapes and type), and knows no other sibling: a value it is given is a plain number, however it was made.
 `bullterrier-video` uses it in turn. Ecosystem: [docs/ecosystem.md](docs/ecosystem.md).
 
 ## Development

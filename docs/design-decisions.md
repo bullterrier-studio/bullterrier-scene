@@ -33,3 +33,14 @@ when a page needs it.
 Vector blends sRGB values and returns straight alpha; the W3C spec blends the same way. *Reason:* a drawing must look the same
 alone and in a scene. *Consequence:* linear-light blending, if wanted, is an explicit option; the scene premultiplies only
 inside.
+
+## Scene does not depend on control (2026-11-13)
+
+Scene depends on image and vector only. Values reach it as plain numbers, text and pictures through `render(size, values)`; a caller
+that holds a control signal passes `signal.at(t)`. *Reason:* control answers "what is this value at time t?", and scene has no time
+(a parameter is a state), so no scene type could hold a signal; the parameter description format is image's, not control's; the
+mapping from signals to parameters is video's. A signal-or-number parameter would give two ways to pass a value, put a clock into the
+cache key of C7, and make the render depend on a package nothing in it uses. *Consequence:* the design README and the ecosystem pages
+say "scene knows image and vector"; no batch reads a control type. Adding the dependency later is additive and non-breaking; removing
+it after a release is breaking. *Reopen when* something other than a caller must sample a scene parameter over time, and say then
+which package owns it.

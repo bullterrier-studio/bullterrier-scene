@@ -139,14 +139,13 @@ needing time, footage or sound is video's) has to be held; and image and vector 
 
 ## Dependencies on the siblings
 
+Image and vector only. Scene does not depend on control (`docs/design-decisions.md`): a value is a plain number.
+
 Image and vector are not published; scene takes them as git dependencies pinned to a revision and bumps the pin in the batch
 that needs a newer one. The first batch to need each is in the roadmap table.
 
 ## Open questions
 
-0. Whether scene depends on control. The ecosystem page says scene "knows image, vector and control", but no batch reads a control
-   type: values arrive as numbers through `with_values`, and the parameter description format is image's. Proposal: scene does not
-   depend on control; video connects the two. The owner decides before C6.
 1. Whether a browser build is wanted for scene, and what it asks of image's crate.
 2. How a scene refers to image looks and vector drawings: embedded data or a file.
 3. Print colour (CMYK, ICC, bleed, PDF) is output and belongs here; when to build it is open.
