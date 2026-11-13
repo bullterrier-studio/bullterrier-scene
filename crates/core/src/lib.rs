@@ -12,6 +12,7 @@ mod geometry;
 mod layer;
 mod raster;
 mod render;
+mod resample;
 mod scene;
 mod source;
 

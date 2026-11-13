@@ -7,4 +7,5 @@ mod common;
 mod architecture;
 mod compose;
 mod data_boundary;
+mod picture;
 mod structure;

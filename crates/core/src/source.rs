@@ -7,6 +7,7 @@ use crate::geometry::{Rect, Scale};
 use crate::{Error, Raster};
 
 pub(crate) mod fill;
+pub(crate) mod picture;
 
 /// Something a layer draws.
 pub(crate) trait Source: Send + Sync + fmt::Debug {

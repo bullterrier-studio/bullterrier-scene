@@ -38,4 +38,13 @@ impl Scale {
             output.max(0.0) as usize
         }
     }
+
+    /// The output pixel a position of `design` design pixels falls on, rounded down.
+    pub(crate) fn at(self, design: f64) -> i64 {
+        let output = (design * f64::from(self.size) / f64::from(self.long)).floor();
+        #[expect(clippy::cast_possible_truncation, reason = "a position within the canvas")]
+        {
+            output as i64
+        }
+    }
 }

@@ -73,4 +73,40 @@ impl Raster {
     pub fn into_pixels(self) -> Vec<f32> {
         self.pixels
     }
+
+    /// A transparent picture of `width` by `height` pixels.
+    pub(crate) fn clear(width: usize, height: usize) -> Self {
+        Self::made(width, height, vec![0.0; width * height * 4])
+    }
+
+    /// The `width` by `height` part of this picture whose top left pixel is at (`x`, `y`); transparent where the part
+    /// reaches past the picture.
+    pub(crate) fn window(&self, x: i64, y: i64, width: usize, height: usize) -> Self {
+        let mut part = Self::clear(width, height);
+        let (from_column, to_column, columns) = overlap(x, width, self.width);
+        let (from_row, to_row, rows) = overlap(y, height, self.height);
+        for row in 0..rows {
+            let from = ((from_row + row) * self.width + from_column) * 4;
+            let to = ((to_row + row) * width + to_column) * 4;
+            part.pixels[to..to + columns * 4].copy_from_slice(&self.pixels[from..from + columns * 4]);
+        }
+        part
+    }
+}
+
+/// Where `wanted` positions from `offset` meet a line of `have`: the first position in the line, the first in the part,
+/// and how many.
+fn overlap(offset: i64, wanted: usize, have: usize) -> (usize, usize, usize) {
+    let wanted = i64::try_from(wanted).unwrap_or(i64::MAX);
+    let have = i64::try_from(have).unwrap_or(i64::MAX);
+    let (start, end) = (offset.max(0), offset.saturating_add(wanted).min(have));
+    if end <= start {
+        return (0, 0, 0);
+    }
+    let count = usize::try_from(end - start).unwrap_or_default();
+    (
+        usize::try_from(start).unwrap_or_default(),
+        usize::try_from(start - offset).unwrap_or_default(),
+        count,
+    )
 }

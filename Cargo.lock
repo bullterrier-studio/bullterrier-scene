@@ -146,6 +146,7 @@ dependencies = [
  "bullterrier-vector",
  "proptest",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

@@ -1,10 +1,13 @@
 //! A layer: a source and how it joins what is below it.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::Error;
+use crate::Raster;
 use crate::source::Source;
 use crate::source::fill::Fill;
+use crate::source::picture::Picture;
 
 /// One layer of a scene: a source, and how it joins the layers below it. A layer is an immutable value: every call
 /// returns a new one, and a layer can be used in several scenes, or twice in one.
@@ -22,6 +25,20 @@ impl Layer {
             opacity: 1.0,
             source: Arc::new(source),
         }
+    }
+
+    /// A picture: its box is its pixels, one design pixel each, at the canvas origin; what lies outside the canvas is cut.
+    /// It is resampled once to the output size, by bilinear interpolation of premultiplied colour.
+    #[must_use]
+    pub fn picture(raster: Raster) -> Self {
+        Self::of(Picture::Held(raster))
+    }
+
+    /// A picture read from a file when the scene renders: as [`Layer::picture`] draws it, upright, in sRGB values, with its
+    /// alpha if it has one. A file that cannot be read is an [`Error::Read`] at `render`, naming the layer.
+    #[must_use]
+    pub fn picture_file(path: impl Into<PathBuf>) -> Self {
+        Self::of(Picture::File(path.into()))
     }
 
     /// A flat colour over the whole canvas: `#rrggbb` or `#rrggbbaa`, in sRGB values; the alpha is straight.

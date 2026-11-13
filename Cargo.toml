@@ -20,6 +20,7 @@ bullterrier-scene = { path = "crates/core" }
 bullterrier-image = { git = "https://github.com/bullterrier-studio/bullterrier-image", rev = "f319f138ffe11c7764f857f09c5610c367deb4bc" }
 bullterrier-vector = { git = "https://github.com/bullterrier-studio/bullterrier-vector", rev = "05debff5f3cddb73602315262c86bd27fc97b296" }
 proptest = "1.12"
+tempfile = "3.27"
 # abi3-py312: one wheel per platform serves every Python from 3.12 (the oldest the package supports)
 pyo3 = { version = "0.30", features = ["abi3-py312"] }
 serde_json = { version = "1", features = ["preserve_order"] }  # a recipe's order is data (image's own setting)

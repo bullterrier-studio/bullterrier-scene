@@ -49,3 +49,25 @@ pub(crate) fn close(got: [f32; 4], expected: [f32; 4], tolerance: f32) -> bool {
         .zip(expected)
         .all(|(got, expected)| (got - expected).abs() <= tolerance)
 }
+
+/// A `width` by `height` picture of one colour.
+pub(crate) fn solid(width: usize, height: usize, rgba: [f32; 4]) -> Result<Raster, Error> {
+    Raster::rgba(width, height, rgba.repeat(width * height))
+}
+
+/// The red, green, blue and alpha of the pixel at column `x`, row `y`.
+pub(crate) fn pixel(raster: &Raster, x: usize, y: usize) -> [f32; 4] {
+    let at = (y * raster.width() + x) * 4;
+    let mut found = [0.0; 4];
+    found.copy_from_slice(&raster.pixels()[at..at + 4]);
+    found
+}
+
+/// A picture whose every pixel differs, opaque, with values that are whole multiples of 1/255 (so that a file keeps them).
+pub(crate) fn varied(width: usize, height: usize) -> Result<Raster, Error> {
+    let levels = (0..width * height).flat_map(|index| {
+        let level = |step: usize| f32::from(u8::try_from(index * step % 256).unwrap_or(0)) / 255.0;
+        [level(37), level(91), level(151), 1.0]
+    });
+    Raster::rgba(width, height, levels.collect())
+}
