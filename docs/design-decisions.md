@@ -77,32 +77,39 @@ recorded. R1 (the release and the first push) is the owner's. Storage precision 
 
 ## A layer drawn again is a reference, not a copy (2026-11-13)
 
-`Layer.of("logo")` draws the named layer of the same scene again with its own looks, masks, place, opacity, blend and alpha
-choice; the source and placement parameters stay at the named layer's address. *Reason:* a copy (`logo.look(bloom)`) has its
+`Layer.of("logo")` draws the named layer of the same scene again. It inherits that layer's source, `fit`, looks, own-map masks
+and `place` (so those parameters stay at the named layer's address) and owns its layer masks, light, opacity and blend, with
+looks, masks and a `place` of its own added after. *Reason:* a copy (`logo.look(bloom)`) has its
 own addresses, so a caller sets every moving value twice and a forgotten one makes the glow drift from the logo; a reference
-cannot. A shadow, a reflection, a glow and a mask by the subject are the same move. *Consequence:* references are resolved at
+cannot. *Why masks are not inherited:* layer masks are scene composition, like opacity and blend; inheriting them made a cutout
+of a clipped photo carry the clip, and let a mask lead back to the layer it masks. A shadow, a reflection, a glow and a mask by the subject are the same move. *Consequence:* references are resolved at
 `add` (unknown names and cycles refused by an iterative walk, so no recursion depth is promised); a reference has no source and
 no `fit`; things that must move together as one rig are an inner scene used with `Layer.scene`.
 
-## Alpha is an explicit choice, not a rule on the blend name (2026-11-13)
+## Light is an explicit choice, not a rule on the blend name (2026-11-13)
 
-A layer's alpha is `source` (default) or `light`: with `light` it is the brightness of the look's colour over black, so a bloom
-shows past the shape. *Reason:* tying spill to `screen` made masks and the alpha of the source disappear for one blend name and
-hid why a halo showed; a named choice is one parameter (`<layer>.alpha`) that a slider can switch. *Consequence:* dark light
-past a shape (a drop shadow) still needs image to carry alpha through effects; a shadow is a fill masked by the shape.
+A layer is light or not (`as_light`, the parameter `<layer>.light`): a light layer's alpha is the largest of R, G, B of its
+look's colour over black, so a bloom shows past the shape. *Reason:* tying spill to `screen` made masks and the alpha of the
+source disappear for one blend name and hid why a halo showed; a named choice is one parameter (`<layer>.light`) that a
+switch can set. *Consequence:* dark light past a shape (a drop shadow) still needs image to carry alpha through effects; a
+shadow is a fill masked by the shape.
 
 ## A mask is a layer or a named map of the layer's own picture (2026-11-13)
 
 `mask(by)`: `by` is a `Layer` (canvas space, possibly `Layer.of`) or the name of one of the layer's own `maps` (picture space,
-cut with the picture). *Reason:* a raw array in a mask could belong to another layer's picture and moves with the wrong
-layer; passing the matte once, with the picture, keeps it aligned and in the saved form. A mask that is a layer needs no new
+cut with the picture). A map is a parameter of kind `picture` (`<layer>.map.<name>`), so a footage frame with its matte, or a
+template's cut-out, is driven by `with_values`. *Reason:* a raw array in a mask could belong to another layer's picture and
+moves with the wrong layer; passing the matte once, with the picture, keeps it aligned, addressed and in the saved form. A mask that is a layer needs no new
 kind: anything that can be drawn can mask. *Consequence:* a mask layer is owned by its layer and outside the scene's names.
 
 ## Placement is fixed fields with valid ranges (2026-11-13)
 
-`place` sets `dx`, `dy`, `scale`, `aspect`, `rotate`, `skew`, `flip` and `anchor`; the order of application is fixed. *Reason:*
+`place` sets `dx`, `dy`, `scale`, `aspect` (the height ratio), `rotate`, `skew`, `flip` and `anchor`; the order of application is
+fixed, and the finished raster is resampled once. A layer is looked at its fitted size, so a look's `px` is a canvas pixel as
+the layer is fitted and `place` scales a halo with its layer. *Reason:*
 every placement number has an address (a chain of verbs cannot), and every range holds only valid values, so a slider built
-from `parameters()` cannot ask for an error (a zero or negative scale, a flip as a negative number). `fit`'s slack is `align`,
+from `parameters()` cannot ask for an error by itself (a zero or negative scale, a flip as a negative number; skew is applied
+x then y, so its bound of 89 degrees is enough). A rule across two numbers of an embedded look is the sibling's. `fit`'s slack is `align`,
 the pivot of `place` is `anchor`: one name per concept. `scale` is one number because it is what an animation drives.
 
 ## Text options are vector's, passed as data (2026-11-13)

@@ -102,6 +102,9 @@ Image and vector each made sensible choices alone; a scene puts their output sid
 
 ## Memory
 
+Bands are batch B1, deferred ([design-decisions.md](design-decisions.md), "Where the entire work ends"): `render` draws the whole
+picture until then, and the interface is final without them.
+
 A stack of full-size float pictures is the wrong way to render a poster: one 12-megapixel float32 RGB picture is about
 144 MB, an A3 poster at 300 dpi about 200 MB a layer. So:
 
