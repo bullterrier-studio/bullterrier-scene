@@ -1,7 +1,7 @@
 # Design
 
 What bullterrier-scene is and how it is built. Reasons for single choices: [design-decisions.md](design-decisions.md).
-The batches, in order: [roadmap.md](roadmap.md). Status: draft for review, 2026-11-08.
+The batches, in order: [roadmap.md](roadmap.md). The calls: [api.md](api.md). Status: draft for review, 2026-11-08; module shape and open questions updated 2026-11-13 (A1).
 
 ## What it is
 
@@ -50,15 +50,21 @@ animation affordable, and video is scene plus the clock.
 **Code first, JSON second.** The scene is built in code (Rust, Python); JSON is the same tree written down, never the other
 way round.
 
+**Looks and drawings are data at the boundary.** Scene links its own copy of the image and vector crates, so the Python facade
+takes a look or a drawing by its serialised form (`to_dict()`, `to_json()`), not the other package's object, and a saved scene
+embeds them. The Rust public API takes serialised data too: the pinned crates' types stay inside the two adapter files and out
+of scene's semver. A raster is an array in code and a path with a digest in JSON.
+
 ## The shape of the module
 
-One deep module, `Scene`, with a small interface:
+One deep module, `Scene`, with a small interface, and one value, `Layer`. Both are immutable: every call returns a new one.
 
 ```
 Scene::new(width, height)                 the design canvas: what a design pixel means
-scene.add(layer)                          a layer is a value: source, placement, mask, blend, opacity, look
-scene.render(size, values) -> Image       the whole picture; values set the scene's parameters
-scene.parameters()                        the description of every parameter
+scene.add(layers)                         a layer is a value: source, placement, mask, blend, opacity, look
+scene.with_values({address: value})       the only way to set a value (a number, colour, text or picture)
+scene.render(size) -> Image               the whole picture, size the long side in output pixels
+scene.parameters()                        the description of every parameter, by address
 ```
 
 A caller never sees what `render` does to answer: cut the canvas into bands, ask every layer for the rectangle it
@@ -147,7 +153,8 @@ that needs a newer one. The first batch to need each is in the roadmap table.
 ## Open questions
 
 1. Whether a browser build is wanted for scene, and what it asks of image's crate.
-2. How a scene refers to image looks and vector drawings: embedded data or a file.
+2. ~~How a scene refers to image looks and vector drawings.~~ Settled in A1: embedded data is the default and the saved form; a
+   path is read-only convenience ([api.md](api.md), "Data in").
 3. Print colour (CMYK, ICC, bleed, PDF) is output and belongs here; when to build it is open.
-4. Command line in Rust or Python: image plans a Rust binary in its wheel; scene decides at P1 and should follow it.
+4. ~~Command line in Rust or Python.~~ Settled in A1: a Rust command line that the Python console script runs, as image does (P1).
 5. Stamped brush marks along a path (spray, scribbles) are raster, so a layer type here, with vector giving the path.
