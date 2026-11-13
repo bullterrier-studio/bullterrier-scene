@@ -1,8 +1,9 @@
 # The code API
 
-Status: A1, designed from the example programs in [examples/](examples/); C1 (the walking skeleton) is built, the rest is
-not. What C1 makes real, and where it differs from the contract below, is "C1: what is built". Every other signature is
-what batches C2 to C7 make real, and each example is the acceptance material of the batch that makes it run. Reasons:
+Status: A1, designed from the example programs in [examples/](examples/); C1 (the walking skeleton) and C2a (`fit` and the
+affine `place`) are built, the rest is not. What they make real, and where they differ from the contract below, is "What is
+built". Every other signature is what batches C2b to C7 make real, and each example is the acceptance material of the batch
+that makes it run. Reasons:
 [design-decisions.md](design-decisions.md). The JSON form of a scene is "Saved scene" below.
 
 Signatures are Python's; "Languages" gives the Rust form. The library is imported under the alias `bts` in every language.
@@ -11,43 +12,52 @@ Signatures are Python's; "Languages" gives the Rust form. The library is importe
 import bullterrier_scene as bts
 ```
 
-## C1: what is built
+## What is built
 
-Python: `Scene(width, height)`, `add`, `layers`, `width`, `height`, `render`; `Layer.picture` (an array or a `Path`),
+**C1.** Python: `Scene(width, height)`, `add`, `layers`, `width`, `height`, `render`; `Layer.picture` (an array or a `Path`),
 `Layer.drawing`, `Layer.fill`, `named`, `opacity`, `look`; `InvalidError`, `FormatError`, `ReadError`; `MAX_LAYERS`. Rust:
 `Scene::{new, add, layers, width, height, render}`, `Layer::{picture, picture_file, drawing, fill, named, opacity, look,
-look_file}` (`look` and `drawing` take the document as text), `Raster::rgba`, `Error`, `MAX_LAYERS`. Nothing else below exists
-yet. Each call is as written below, except:
+look_file}` (`look` and `drawing` take the document as text), `Raster::rgba`, `Error`, `MAX_LAYERS`.
 
-| Where | C1 | Changes with |
+**C2a** adds `Layer.fit`, `Layer.place` (Python) and `Layer::{fit, place}`, `Fit`, `Place`, `Deg` (Rust: `layer.fit([x, y, width,
+height], Fit::Cover, [0.5, 0.5])?` takes all three, `layer.place(Place::new().dx(100.0).rotate(Deg(-4.0)))?` sets the fields
+named). `perspective` is C2b; references (`Layer.of`) are not built. Nothing else below exists yet. Each call is as written
+below, except:
+
+| Where | Built | Changes with |
 |---|---|---|
-| Boxes | A picture's box is its pixels and a drawing's its frame, one design pixel each, at the canvas origin; a fill covers the canvas; what lies outside the canvas is cut. No `fit`, `place` or `perspective`. A box that is not whole in output pixels is drawn at the next whole size, stretched onto it | C2 |
-| Resampling | Once, bilinear, on premultiplied colour, no prefilter: a reduction by more than 2 aliases | C2 |
-| A look | Only a picture layer takes one (a fill or a drawing is `InvalidError` naming `look`). It runs on the picture at the output size, on its straight colour with the alpha left as it is: the contract's "colour over black" for an opaque picture, which is all C1 tests. A look's `px` are image's own, a pixel of the layer's output picture whose long side is 480, not yet pixels of the canvas; the tests keep to canvas-sized pictures so that C5 does not rewrite them. Image refuses a look on a picture of more than 2^26 pixels, in its words | C5 |
+| Boxes | A picture's box is its pixels and a drawing's its frame, one design pixel each, at the canvas origin; a fill covers the canvas; `fit` and `place` move them. What lies outside the canvas is cut. The picture covers the canvas exactly: a side that is not whole in output pixels at that `size` is rounded up and stretched onto whole pixels, so a design pixel is `columns / width` by `rows / height` output pixels (within one pixel over the canvas of `size / long side`) and a layer that covers the canvas covers it whole at any size. A box that ends between two output pixels covers the pixel it ends in in part | |
+| Resampling | One warp per layer ([design-decisions.md](design-decisions.md), "Placement"): bilinear on premultiplied colour, an area average along any axis the map shrinks, no negative weight (a bicubic upgrade must restore a clamp); nothing outside the fitted box is drawn and an edge between two pixels is soft by coverage; a move by whole pixels, a quarter turn and a flip are exact copies | |
+| `fit`, `place` | `anchor` outside 0 to 1, and `dx` or `dy` outside -1e6 to 1e6 (the range of the parameters), are `InvalidError` naming the field. A call that sets a number the call refuses leaves the layer as it was. `fit` is resolved when the scene renders | |
+| A look | Only a picture layer takes one (a fill or a drawing is `InvalidError` naming `look`). It runs on the fitted raster at the size the layer has: the source drawn at `output scale x fit factor x scale` (see "How a layer is drawn"), on its straight colour with the alpha left as it is: the contract's "colour over black" for an opaque picture, which is all C1 tests. A look's `px` are image's own, a pixel of the layer's drawn picture whose long side is 480, not yet pixels of the canvas; the tests keep to canvas-sized pictures so that C5 does not rewrite them. Image refuses a look on a picture of more than 2^26 pixels, in its words | C5 |
 | `format` of a look | `Recipe.to_dict()` writes none, and image's reader refuses a top-level `format`. A document that carries one is checked against a copy of image's list (1, 2, 3; image keeps it private, a test fails when a bump of the pin changes it) and the key is removed. The refusal names the version found and the versions read, not the crate's version, which neither crate publishes | image: a public list and version |
-| A drawing | `inputs` (font bytes) is not built: no layer needs a font yet. A document vector cannot read is `FormatError` under `/drawing` in vector's words, a version skew included, without the crate's version | C6, text layers |
+| A drawing | `inputs` (font bytes) is not built: no layer needs a font yet. A document vector cannot read is `FormatError` under `/drawing` in vector's words, a version skew included, without the crate's version. Vector draws the whole frame, not a part (B1) | C6, text layers |
 | Errors | The address of an error of a layer in a scene starts with its name (`photo.look`), a layer without one `layer1`; at the call that made it, before the layer has a place, it is the field (`look`) | |
 | Python paths | `Layer.picture(Path)` is read at `render`; `Layer.drawing(Path)` and `Layer.look(Path)` at the call | |
 | Equality | Not built: `==` on a scene or layer is identity in Python, and the Rust types have no `PartialEq` | C6 |
 
-**For C2 and later** (what the C1 review found about fit; none is built): a look lives in the picture source, so C5, which gives
-every layer looks, moves it to the layer and needs a third adapter file for image; the `Source` trait and the `Layer` fields are
-`pub(crate)`, and a plugin layer (C7) needs a public trait; `Scale::at` (floor) with `Scale::len` (ceil) cannot say a rectangle
-whose edge falls between output pixels, so `place` and `fit` must hand a source fractional rectangles.
+**For C5 and later** (what the C1 review found): a look lives in the picture source, so C5, which gives every layer looks,
+moves it to the layer and needs a third adapter file for image; the `Source` trait and the `Layer` fields are `pub(crate)`, and
+a plugin layer (C7) needs a public trait. The trait is now "draw this part of your box at this scale" and answers with the
+raster and the part of the box it shows, so a fill answers with one pixel and a picture without a look with its own pixels.
 
 **Limits, measured** (release build, 2026-11-13, arm64 Mac, peak resident memory of a whole render):
 
 | Render | Peak |
 |---|---|
 | nothing drawn, 2^27 pixels (16,384 by 8,192) | 2.1 GB |
-| one fill, 2^27 pixels | 2.8 GB |
-| one canvas-sized picture, 2^26 pixels (8,192 squared), 1.1 s | 3.3 GB; with a look (3.1 s) 4.2 GB |
-| one canvas-sized picture, 11,585 squared (2^27 pixels), 3.5 s | 5.5 GB |
-| 1,000 fills on 1,024 by 1,024, 1.9 s | 63 MB |
+| one fill, 2^27 pixels, 1.2 s | 4.3 GB (C1: 2.8 GB; the fill is a pixel warped onto a raster of its own, which `over` then reads) |
+| one canvas-sized picture, 2^26 pixels (8,192 squared), 0.25 s | 3.2 GB; with a look (3.1 s) 4.2 GB (C1, not measured again); turned 17 degrees and scaled 0.9 (1.0 s) 3.2 GB |
+| one canvas-sized picture, 11,585 squared (2^27 pixels), 3.5 s | 5.5 GB (C1, not measured again; an unplaced layer is not warped) |
+| 1,000 fills on 1,024 by 1,024, 5.1 s (C1: 1.9 s; each fill is warped, about 5 ns a pixel) | 36 MB |
+| C2a: one 12 megapixel picture on a 12 megapixel canvas, placed (turned 17 degrees and scaled 0.9: 0.18 s; moved: 0.09 s; unplaced: 0.05 s) | 580 MB |
+| C2a: the same picture cut by `cover` into 720 by 1,280, 0.03 s | 340 MB |
 
-`MAX_LAYERS` (1,000) and the 2^27 pixels stay. The 2^27 applies to the output and to every layer's drawn size (its own size
-times the scale, rounded up: a layer that is large on a small canvas is `InvalidError` naming the layer and the size, before it
-is drawn). A render holds the picture, the one layer being drawn and its working copies, not one picture per layer, so peak
+`MAX_LAYERS` (1,000) and the 2^27 pixels stay. The 2^27 applies to the output and to every layer's drawn size (its box at
+the scale it is drawn at, `ceil(width x scale)` by `ceil(height x scale)`, the scale being `output scale x fit factor x
+scale`: a layer that is large on a small canvas is `InvalidError` naming the layer and the size, before it is drawn). A large
+`scale` on a big layer meets it even where only a part of the layer shows: drawing a window (B1) lifts that, and it is not
+worked around. A render holds the picture, the one layer being drawn and its working copies, not one picture per layer, so peak
 memory does not grow with the layers. A picture at the limit takes 5.5 GB; there is no promise
 that a machine has it, and bands (B1) are what lift it. `MAX_DEPTH` waits for scenes as layers (C4).
 
@@ -59,6 +69,7 @@ Each program is a `build(...)` function that returns a `Scene` from its inputs (
 | Program | Shows |
 |---|---|
 | [c1_first_picture.py](examples/c1_first_picture.py) | C1 (runs now: `uv run poe look`): a synthetic photo with one image look and a vector headline over it, rendered at two sizes |
+| [c2_prints.py](examples/c2_prints.py) | C2a (runs now: `uv run poe look`): a pile of synthetic snapshots, each `fit` (cover, contain, stretch) and placed (turned, skewed, mirrored, scaled), and one tall photo cut three ways into a 9:16 frame |
 | [poster_two_ink.py](examples/poster_two_ink.py) | M1: a photo in two inks clipped into a polygon, type behind a cut-out subject, flat shapes, grain, three sizes |
 | [cover_template.py](examples/cover_template.py), [.rs](examples/cover_template.rs) | C6: one scene, a photo, a title and a colour set by `with_values`; saved as JSON and read back; six covers |
 | [frame_sequence.py](examples/frame_sequence.py) | C7: a headline sliding in over 24 frames, one value set per frame |
@@ -114,10 +125,10 @@ serialised form). Equal scenes with equal values render equal pictures.
 
 ### How a layer is drawn
 
-A layer is drawn at its fitted size at the output density (a design pixel is `size / max(width, height)` output pixels),
-looked at that size, and then placed as a finished raster. One order, whatever the order of the calls; the calls matter
-only in the order of looks and in the numbering of masks (`mask`, `mask#2`). Each stage names its space: the layer's space
-is its own fitted raster, the canvas is the scene's.
+A layer is drawn at the scale it will have (see "The scale a layer is drawn at"), looked at that size, and then put on the
+canvas as a finished raster by one warp. One order, whatever the order of the calls; the calls matter only in the order of
+looks and in the numbering of masks (`mask`, `mask#2`). Each stage names its space: the layer's space is its own fitted
+raster, the canvas is the scene's.
 
 1. **Source.** The layer's picture is drawn at its box (layer space).
 2. **Fit.** `fit` scales and crops it into its box; without `fit` it stays one design pixel per source pixel.
@@ -126,14 +137,33 @@ is its own fitted raster, the canvas is the scene's.
    the layer's colour over black. **Room:** the fitted box grows by the look's footprint, so a halo or a bloom is not cut at
    the box's edge; the room is transparent unless the layer is light (stage 7).
 4. **Own-map masks** (`mask("name")`): layer space; the map is cut and fitted with the picture.
-5. **Place.** The finished raster is flipped, stretched, scaled, skewed and rotated about `anchor`, then moved by `dx`, `dy`
-   (or `perspective`), in one resample. A `scale` of 1.32 scales a halo with it.
+5. **Place.** The finished raster is flipped, stretched along y by `aspect`, skewed and rotated about `anchor`, then moved by
+   `dx`, `dy` (or `perspective`), by one warp. Its `scale` is in the drawing: the source drew at that scale and the look ran
+   at that size, so a `scale` of 1.32 scales a halo with it.
 6. **Layer masks** (`mask(Layer)`): canvas space, multiplied.
 7. **Light** (`as_light`): the layer's alpha is made from the brightness of its colour.
 8. **Opacity.**
 9. **Blend** over what is below.
 
 A `Layer.of` inherits stages 1 to 5 of the layer it names and owns stages 6 to 9 ("Reference").
+
+**The scale a layer is drawn at.** A source draws the part of its box that `fit` shows (all of it without `fit`, the cut part
+for cover) at `output scale x fit factor x place.scale`, in output pixels per design pixel along each axis: a vector headline
+at `scale=3` is sharp, not an enlarged raster, and its look runs at the size the layer has. `aspect`, flip, skew, rotate,
+`dx`, `dy` and `perspective` are not in it: they are the one warp of the finished raster onto the canvas, which samples
+each output pixel's centre from it (bilinear, averaged by area along any axis the warp shrinks), draws nothing outside the
+fitted box, and leaves a pixel an edge crosses covered in part. For a picture with no look the source hands over its own
+pixels, so source, `fit` and `place` are one warp with no resample between them.
+
+- **Cost.** An animated `scale` draws the source and runs its look again every frame. `dx`, `dy`, `rotate`, `skew`, `flip`
+  and `aspect` only warp a raster that did not change, which is what C7 caches.
+- **Zoom limit.** A large `scale` on a big layer meets the 2^27 drawn-size limit even where only a part shows; drawing a window
+  of the layer (B1) lifts it.
+- **After C5.** Looks take design pixels of the canvas. The design scale handed to image is then `canvas scale x place.scale`
+  (not the fit factor alone), so a halo still follows `scale`.
+- **Fit.** The window `fit` shows is computed from the source's real size when the scene renders. `stretch` has a scale for
+  each axis. The scale that binds (width or height) ends at the box exactly, so a layer fitted into a box of its own shape is
+  not touched.
 
 ### Sources
 
@@ -175,14 +205,14 @@ any layer (`opacity`, `blend`, `light`, the placement fields) and its looks: `lo
 | Call | Signature | Promise | Errors |
 |---|---|---|---|
 | `named` | `named(name)` | the layer called `name`: letters, digits and `_`, starting with a letter, unique in its scene. A layer without a name is `layer1`, `layer2`... by its place in the scene, which shifts when a layer is inserted: name every layer you set values on or refer to. `layer<n>` is refused as a name for any other place | `InvalidError` |
-| `fit` | `fit(box, how="cover", *, align=(0.5, 0.5))` | the layer's box fitted into `box` = `(x, y, width, height)`, design pixels. `"cover"`: scaled, aspect kept, to fill `box`, the overflow cut off at `box`'s edge; `"contain"`: scaled to lie wholly inside; `"stretch"`: `box` exactly, aspect not kept. `align` (fractions 0..1 of the layer's box) says which part stays when cover cuts and where a contained layer sits in the slack. Resolved at render from the picture's real size, so a hole's picture of any size fills the same box; cover is the delivery crop. Not a parameter | `InvalidError`: `how` another word, `box` with a size not above 0, `align` outside 0..1 |
-| `place` | `place(*, dx=None, dy=None, scale=None, aspect=None, rotate=None, skew=None, flip=None, anchor=None)` | sets the fields it names and keeps the others; `flip=(x, y)` sets `flip_x` and `flip_y`, `skew=(x, y)` sets `skew_x` and `skew_y`. The finished raster is flipped by `flip` (`(x, y)` booleans), scaled by `scale` (uniform) and by `aspect` on y (the height ratio: y scale is `scale` times `aspect`, x scale is `scale`), skewed by `skew` (degrees: `skew_x`, then `skew_y`, one after the other, so the transform's determinant stays 1 and the bound below is enough) and rotated by `rotate` (degrees clockwise, any size, wrapping), all about `anchor` (fractions 0..1 of the fitted box, default the centre), then moved by `dx`, `dy` design pixels. Defaults: no change | `InvalidError`: `scale` or `aspect` outside 0.001..1000, a skew outside -89..89, a non-finite number |
-| `perspective` | `perspective(corners)` | the four corners of the fitted box land on `corners` (top left, top right, bottom right, bottom left; design pixels), replacing `place`'s transform (the last of the two called wins). Not a parameter | `InvalidError`: corners that cross or are collinear |
+| `fit` | `fit(box, how="cover", *, align=(0.5, 0.5))` | the layer's box fitted into `box` = `(x, y, width, height)`, design pixels. `"cover"`: scaled, aspect kept, to fill `box`, the overflow cut off at `box`'s edge; `"contain"`: scaled to lie wholly inside; `"stretch"`: `box` exactly, aspect not kept. `align` (fractions 0..1 of the layer's box) says which part stays when cover cuts and where a contained layer sits in the slack. Resolved at render from the picture's real size, so a hole's picture of any size fills the same box; cover is the delivery crop. `place` acts on the fitted box: the cut `box` for cover, the contained rectangle for contain. The cut is a hard clip of the layer's own raster, not a mask. Not a parameter | `InvalidError`: `how` another word, `box` with a size not above 0 or a number that is not finite, `align` outside 0..1 |
+| `place` | `place(*, dx=None, dy=None, scale=None, aspect=None, rotate=None, skew=None, flip=None, anchor=None)` | sets the fields it names and keeps the others; `flip=(x, y)` sets `flip_x` and `flip_y`, `skew=(x, y)` sets `skew_x` and `skew_y`. The finished raster is flipped by `flip` (`(x, y)` booleans), scaled by `scale` (uniform) and by `aspect` on y (the height ratio: y scale is `scale` times `aspect`, x scale is `scale`), skewed by `skew` (degrees: `skew_x`, then `skew_y`, one after the other, so the transform's determinant stays 1 and the bound below is enough) and rotated by `rotate` (degrees clockwise, any size, wrapping), all about `anchor` (fractions 0..1 of the fitted box, default the centre), then moved by `dx`, `dy` design pixels (not turned with the layer). Defaults: no change. A rotation by a multiple of 90 degrees, a flip and a move by whole output pixels are exact copies of the pixels (about an anchor on the pixel grid) | `InvalidError`: `scale` or `aspect` outside 0.001..1000, a skew outside -89..89, `dx` or `dy` outside -1e6..1e6, an `anchor` outside 0..1, a non-finite number |
+| `perspective` | `perspective(corners)` | **C2b, not built.** The four corners of the fitted box land on `corners` (top left, top right, bottom right, bottom left; design pixels), replacing `place`'s transform (the last of the two called wins). Not a parameter | `InvalidError`: a homography maps a rectangle only to a convex quadrilateral, so corners that make a non-convex one (a dart), cross (a bowtie) or are collinear are refused. Open: whether corners in counter-clockwise order (a mirrored quadrilateral) are accepted, `flip` being the other way to mirror: decided in C2b (Open questions) |
 
 `place`'s fields are parameters: `dx`, `dy` (px), `scale`, `aspect` (ratio), `rotate` (degrees, cyclic), `skew_x`, `skew_y`
-(degrees), `flip_x`, `flip_y` (bool). `scale` is the zoom of an animation; a flat shadow is `aspect=0.12`. The finished
-raster is resampled once by `place`, so a layer scaled by `place` is scaled with its looks: a halo grows with it, and a
-draft and a print differ in detail only.
+(degrees), `flip_x`, `flip_y` (bool). `scale` is the zoom of an animation; a flat shadow is `aspect=0.12`. A layer scaled by
+`place` is scaled with its looks: a halo grows with it, and a draft and a print differ in detail only. "How a layer is drawn"
+says at what scale it is drawn, and what an animated `scale` costs.
 
 ### Joining the layers below
 
@@ -222,7 +252,7 @@ writes, or a `Path` to a recipe file; a `str` is `TypeError` (pass `Path(...)`).
 - **Design pixels.** A `px` value of a look is a pixel of the scene's canvas as the layer is fitted, before `place`: 2 px grain
   on a small inset is as coarse as on the photo behind it, whatever the inset's size. `render(size)` multiplies it, as
   image's `render(size=)` does. A layer that `place` then scales takes its grain and its halo with it. (C1: image's own
-  convention, a pixel of the layer's output picture whose long side is 480: see "C1: what is built".)
+  convention, a pixel of the layer's drawn picture whose long side is 480: see "What is built".)
 - **Light that spills.** A look sees the layer's colour over black and the layer's box grows by the look's footprint (the
   room). A layer that is not light keeps its source's alpha, so the halo a bloom adds outside the shape is cut. A light layer
   shows it, and may extend past its box. A glow is a reference made light:
@@ -310,7 +340,8 @@ spelling for both (`meaning`, `min`, `max`; `deg` is `degrees`, `cycle` is `cycl
 `render(size)`: `size` is the long side in output pixels (image's convention), a whole number from 1 to 65,000 with at most
 2^27 pixels in all (a float32 RGBA array that size is 2 GiB; larger prints wait for bands and O1); another is `InvalidError`
 naming `size`. The canvas keeps its aspect: a canvas of 720 by 1280 at `size=1280` is 720 by 1280 pixels; each design pixel
-is `size / max(width, height)` output pixels.
+is `size / max(width, height)` output pixels, and where a side is not whole at that size it is rounded up and the picture
+stretched onto whole pixels ("What is built", Boxes).
 
 The result is a new float32 array (height, width, 4), 0..1, rows top to bottom, straight alpha, transparent where nothing is
 drawn. Colours are sRGB values. A smaller size shows the same picture in less detail. `render` reads the files the scene names
@@ -439,7 +470,7 @@ Every row of "What the demos and the experiment asked of scene" in [roadmap.md](
 
 Each has its reason in [design-decisions.md](design-decisions.md): immutable values; looks and drawings enter as data; one way
 to set values; addresses are the layer name and the sibling's address verbatim; a reference layer instead of a copy; alpha is
-an explicit choice; a mask is a layer or a named map; placement is fixed fields with valid ranges; text options are vector's;
+an explicit choice; a mask is a layer or a named map; placement is fixed fields with valid ranges; one hand-written warp, and a layer drawn at the scale it will have; text options are vector's;
 one shared in-process cache; a group is a scene; one picture layer with a hole; gradients are vector's; where the entire work
 ends.
 
@@ -463,5 +494,8 @@ ends.
    push a name into them. See "Needs from others". Until then a colour is a Python constant.
 2. **Dark light past a shape.** A light layer makes alpha from brightness, so a dark halo (image's `drop_shadow`) is
    invisible; a shadow is a fill masked by the shape. Lifts when image carries alpha through its effects.
-3. **`MAX_DEPTH` (16) is a placeholder** until scenes can be layers (C4). `MAX_LAYERS` and 2^27 pixels are measured ("C1: what is built").
-4. **The cache's bound** (entries or bytes) is set when C7 measures a 15-layer A3 poster.
+3. **`MAX_DEPTH` (16) is a placeholder** until scenes can be layers (C4). `MAX_LAYERS` and 2^27 pixels are measured ("What is built").
+4. **A mirrored quadrilateral in `perspective`** (C2b). A homography maps the box's corners in order; corners in
+   counter-clockwise order give the layer seen from behind. Accept it (one more way to mirror) or refuse it as `InvalidError`,
+   decided with the other known-bad rows of C2b.
+5. **The cache's bound** (entries or bytes) is set when C7 measures a 15-layer A3 poster.

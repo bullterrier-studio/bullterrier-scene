@@ -72,8 +72,9 @@ A caller never sees what `render` does to answer: cut the canvas into bands, ask
 contributes at the output scale, premultiply, resample, mask, blend, cache what did not change, convert back to straight
 alpha. Those are hidden behind the one call; none is a public type.
 
-- **A layer source is a trait with one question:** "draw this rectangle of the canvas at this scale". Pictures, drawings,
-  fields and nested scenes each answer it. The scene never learns how: a picture is resampled, a drawing is rasterised by
+- **A layer source is a trait with one question:** "draw this part of your box at this scale". Pictures, drawings,
+  fields and nested scenes each answer it, with the raster and the part of the box it shows (a fill answers with one pixel,
+  a picture without a look with its own). The scene never learns how: a picture is resampled, a drawing is rasterised by
   vector at that scale, a look runs through image. This is what makes bands possible.
 - **One module per sibling crate** (`source/picture.rs` for image, `source/drawing.rs` for vector). Everything the scene knows
   about image's or vector's API is in those two files, so a change in either, or a different pinned version, touches one

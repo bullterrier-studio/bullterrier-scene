@@ -124,8 +124,8 @@ kind: anything that can be drawn can mask. *Consequence:* a mask layer is owned 
 ## Placement is fixed fields with valid ranges (2026-11-13)
 
 `place` sets `dx`, `dy`, `scale`, `aspect` (the height ratio), `rotate`, `skew`, `flip` and `anchor`; the order of application is
-fixed, and the finished raster is resampled once. A layer is looked at its fitted size, so a look's `px` is a canvas pixel as
-the layer is fitted and `place` scales a halo with its layer. *Reason:*
+fixed, and the finished raster is put on the canvas by one warp ("Placement: a hand-written warp"). A layer is looked at its
+fitted size, so a look's `px` is a canvas pixel as the layer is fitted and `place` scales a halo with its layer. *Reason:*
 every placement number has an address (a chain of verbs cannot), and every range holds only valid values, so a slider built
 from `parameters()` cannot ask for an error by itself (a zero or negative scale, a flip as a negative number; skew is applied
 x then y, so its bound of 89 degrees is enough). A rule across two numbers of an embedded look is the sibling's. `fit`'s slack is `align`,
@@ -142,13 +142,15 @@ transparent outside the source, a stated pixel-centre convention, sub-pixel accu
 | `fast_image_resize` 6.1.0 (MIT or Apache-2.0, 2026-07) | `f32` RGBA with alpha handling and fractional crops, SIMD; it scales and crops, with no rotation, skew or translation by a fraction | dropped: sources draw at the placed density, so scene never scales a finished picture up |
 | `tiny-skia` 0.12.0 (BSD-3-Clause, 2026-02) | affine and bilinear draws, but a `Pixmap` is premultiplied 8-bit | fails the first criterion |
 
-**Chosen:** one kernel in `warp.rs` (about 200 lines): backward mapping in `f64`, premultiplied `f32`, bilinear where a source
+**Chosen:** one kernel in `warp.rs` (about 200 lines of code): backward mapping in `f64`, premultiplied `f32`, bilinear where a source
 pixel is larger than an output pixel and an area average (a separable box, applied first) along any source axis whose scale
 is below 1 (no threshold: the column norm of the map decides), colour from the clamped edge and an alpha coverage by the
 distance of the pixel centre to the box edge, transparent outside. *Reason:* the properties placement is tested on (a
 whole-pixel move, a 90 degree turn and a flip are exact permutations; a half pixel is the average of two neighbours; the
 area of a layer scales with the square of `scale`) hold by construction only when the arithmetic is ours. *Cost:* a kernel to
-keep, no SIMD (a 12 megapixel placement is measured in the batch report, not promised).
+keep, no SIMD and one thread: measured in a release build on an arm64 Mac, a 12 megapixel picture on a 12 megapixel canvas
+takes 0.05 s unplaced, 0.09 s moved or turned by 90 degrees and 0.18 s turned by 17 degrees and scaled, at 580 MB peak, and
+cutting it into 720 by 1280 takes 0.03 s (not promised, `api.md` "Limits, measured").
 
 **Convex kernels only** (bilinear, area; no negative lobes). Scene's colours are exactly 0 to 1 with no clamp in the render
 (see "Image's range is nominal"); that holds because every weight is at least 0 and the colour and the alpha are summed in the
@@ -163,7 +165,9 @@ side)` pixels, stretched, so a design length is `columns / width` output pixels 
 two differ by less than one pixel over the canvas, and are equal whenever the canvas is whole at that size). A rectangle of
 design pixels drawn at a density is `ceil(width x density)` by `ceil(height x density)` pixels that divide it evenly, and the
 warp puts that raster where its true rectangle falls, so a box between two output pixels is exact and the extra pixel is
-never a stretch. A layer that covers the canvas covers it whole, at any size.
+never a stretch. A layer that covers the canvas covers it whole, at any size. A length that is whole in exact arithmetic but a few units in the
+last place over it in a float (a fit factor times a zoom) is not rounded up a pixel (a relative error of 1e-12 is allowed:
+`whole_up`). The binding axis of a `fit` ends at the box exactly, not at a product.
 
 **Drawn at the placed density.** A source draws at `output scale x fit factor x place.scale`, so a vector headline at
 `scale=3` is sharp (not an upsampled raster) and a look runs at the size the layer has, which is what makes a halo follow

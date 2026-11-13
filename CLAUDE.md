@@ -15,7 +15,7 @@ public: no absolute paths, no references to folders outside the repository.
 uv sync && uv run poe setup          # once per clone: environment (builds the Rust extension: needs rustup), git hooks, commit template, cargo tools
 uv run pytest tests/test_scene.py -n 0   # the tests near your change, while you work
 cargo test -p bullterrier-scene --test it compose::  # one Rust area (inline: cargo test -p bullterrier-scene --lib raster::)
-uv run poe look                      # render the example scene to dist/look/c1.png and the gallery piece, and print the path
+uv run poe look                      # render the example scenes to dist/look/ and the gallery pieces, and print the first path
 uv run poe fast                      # the inner loop, as often as you like: format, lint, types, quick tests
 uv run poe check                     # the gate, before you report or merge (then `uv run lint-imports`)
 uv run poe full                      # `check` and the gate proofs: before a tag (`poe release` runs it) and in CI
@@ -32,10 +32,10 @@ uv run poe full                      # `check` and the gate proofs: before a tag
 | change a gate | `pyproject.toml` (Python tools, poe tasks), `Cargo.toml` (Rust lints, tool pins); proof in `tests/tools/` |
 | keep files identical across projects | `docs/shared-files.md` |
 
-**State:** C1 done (the walking skeleton, `docs/roadmap.md`): a `Scene` of picture, drawing and fill layers with an image look on a
-picture, normal blend and opacity, rendered whole at any size to a float32 array (Python) and a `Raster` (Rust); the template's
-`scale` is gone. What is built and where it differs from the contract is "C1: what is built" in `docs/api.md`. Next: C2
-(placement and `fit`).
+**State:** C1 and C2a done (`docs/roadmap.md`): a `Scene` of picture, drawing and fill layers with an image look on a picture, each
+`fit` into a box (cover, contain, stretch) and `place`d (flip, scale, aspect, skew, rotate about an anchor, move) by one warp, normal blend and opacity, rendered whole at
+any size to a float32 array (Python) and a `Raster` (Rust). What is built and where it differs from the contract is "What is built" in
+`docs/api.md`. Next: C2b (`perspective`), then masks (C3).
 
 **Setup, once:** image and vector are private git dependencies (pinned by `rev` in `Cargo.toml`, bumped in a commit of its own).
 A fetch needs git credentials for `github.com/bullterrier-studio` (a credential helper is enough; if cargo's own git client is
@@ -56,7 +56,7 @@ package that knows both (each in one adapter file), and video builds on scene. P
 
 Conventions that bind every batch (`docs/design.md`): a `px` value is a pixel of the scene's design canvas; blend in sRGB values;
 straight alpha at the boundary, premultiplied inside; a layer's room follows its effects' footprint. A layer source answers one
-question ("draw this rectangle at this scale"); bands, caching and resampling stay behind `render`.
+question ("draw this part of your box at this scale"); bands, caching and resampling stay behind `render`.
 
 ## Names
 
@@ -79,9 +79,8 @@ errors     BullterrierSceneError > InvalidError, FormatError, ReadError
 ```
 
 **Rust core:** `crates/core` (pure Rust: no PyO3, no numpy, `#![forbid(unsafe_code)]`; one file per concept): `scene` (`Scene`),
-`layer` (`Layer`), `raster` (`Raster`), `render` (size, normal blend, straight alpha), `resample` (bilinear), `geometry` (`Rect`,
-`Scale`), `error` (the one error type), and `source/` (the trait with one question, "draw this rectangle of the canvas at this
-scale", and its three answers: `fill`, `picture` (the image adapter), `drawing` (the vector adapter)). `crates/python` (PyO3 bindings
+`layer` (`Layer`), `raster` (`Raster`), `render` (size, normal blend, straight alpha), `warp` (the one resample: bilinear and area average), `placement` (`Fit`,
+`Place`, `Deg`: where a layer's box goes), `geometry` (`Rect`, `Scale`: the one rule for fractional boxes), `error` (the one error type), and `source/` (the trait with one question, "draw this part of your box at this scale", and its three answers: `fill`, `picture` (the image adapter), `drawing` (the vector adapter)). `crates/python` (PyO3 bindings
 building `bullterrier_scene._native._core`; generic: no logic of the core, only the mapping of calls, arrays and errors). A refusal
 of the core is a Python `InvalidError`, `FormatError` or `ReadError`, imported when the first one is raised. There is no other
 boundary. The Python facade turns what a caller holds (a look's dict, a drawing's JSON, a path) into the data the core takes and
