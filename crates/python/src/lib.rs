@@ -10,7 +10,7 @@ use numpy::{Element, PyArray1, PyArray3, PyArrayMethods, PyReadonlyArrayDyn, PyU
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 
-use bullterrier_scene::Raster;
+use bullterrier_scene::{Deg, Fit, Place, Raster};
 
 /// bullterrier-scene's Rust core.
 #[pymodule]
@@ -137,6 +137,50 @@ impl Layer {
     /// This layer at `value` of its own alpha, from 0 to 1.
     fn opacity(&self, py: Python<'_>, value: f64) -> PyResult<Self> {
         wrap(py, self.0.clone().opacity(value)).map(Self)
+    }
+
+    /// This layer's box fitted into `area` = (x, y, width, height) design pixels: `how` is "cover", "contain" or "stretch";
+    /// `align` is two fractions from 0 to 1.
+    fn fit(&self, py: Python<'_>, area: [f64; 4], how: &str, align: [f64; 2]) -> PyResult<Self> {
+        let how: Fit = wrap(py, how.parse())?;
+        wrap(py, self.0.clone().fit(area, how, align)).map(Self)
+    }
+
+    /// This layer with the placement fields given set and the others kept; a pair is `flip` (x, y), `skew` (x, y) or
+    /// `anchor` (x, y).
+    #[pyo3(signature = (*, dx=None, dy=None, scale=None, aspect=None, rotate=None, skew=None, flip=None, anchor=None))]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the fields of a placement, as keyword arguments"
+    )]
+    fn place(
+        &self,
+        py: Python<'_>,
+        dx: Option<f64>,
+        dy: Option<f64>,
+        scale: Option<f64>,
+        aspect: Option<f64>,
+        rotate: Option<f64>,
+        skew: Option<[f64; 2]>,
+        flip: Option<[bool; 2]>,
+        anchor: Option<[f64; 2]>,
+    ) -> PyResult<Self> {
+        let mut place = Place::new();
+        place = dx.into_iter().fold(place, Place::dx);
+        place = dy.into_iter().fold(place, Place::dy);
+        place = scale.into_iter().fold(place, Place::scale);
+        place = aspect.into_iter().fold(place, Place::aspect);
+        place = rotate.into_iter().fold(place, |place, angle| place.rotate(Deg(angle)));
+        if let Some([x, y]) = skew {
+            place = place.skew_x(Deg(x)).skew_y(Deg(y));
+        }
+        if let Some([x, y]) = flip {
+            place = place.flip_x(x).flip_y(y);
+        }
+        if let Some([x, y]) = anchor {
+            place = place.anchor(x, y);
+        }
+        wrap(py, self.0.clone().place(place)).map(Self)
     }
 
     /// This layer with the image look written as the recipe document `json`.

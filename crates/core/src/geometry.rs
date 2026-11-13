@@ -37,6 +37,14 @@ impl Axis {
         design * self.pixels / self.design
     }
 
+    /// This scale times `factor`: a source drawn at a part (a fit, a zoom) of the output scale.
+    fn times(self, factor: f64) -> Self {
+        Self {
+            pixels: self.pixels * factor,
+            design: self.design,
+        }
+    }
+
     /// The whole pixels that divide `design` design pixels at this scale.
     fn count(self, design: f64) -> usize {
         whole_up(self.pixels(design))
@@ -83,6 +91,14 @@ impl Scale {
         }
     }
 
+    /// This scale with x multiplied by `x` and y by `y`: the scale a source is asked to draw at once it is fitted and zoomed.
+    pub(crate) fn times(self, x: f64, y: f64) -> Self {
+        Self {
+            x: self.x.times(x),
+            y: self.y.times(y),
+        }
+    }
+
     /// The size in pixels, as `(columns, rows)`, of `rect` drawn at this scale: `ceil(width x scale)` by `ceil(height x
     /// scale)`.
     ///
@@ -125,6 +141,12 @@ mod tests {
         assert_eq!(scale.size(rect(3.0, 1.0)).ok(), Some((5, 2)));
         assert_eq!(scale.size(rect(1.0, 0.5)).ok(), Some((2, 1)));
         assert_eq!(scale.size(rect(0.0, 0.0)).ok(), Some((0, 0)));
+    }
+
+    #[test]
+    fn a_factor_changes_the_scale_and_a_whole_factor_keeps_a_whole_size_whole() {
+        let scale = Scale::of_canvas(8, 6, 8, 6).times(2.0, 0.5);
+        assert_eq!(scale.size(rect(8.0, 6.0)).ok(), Some((16, 3)));
     }
 
     #[test]

@@ -10,4 +10,5 @@ mod data_boundary;
 mod drawing;
 mod look;
 mod picture;
+mod placement;
 mod structure;

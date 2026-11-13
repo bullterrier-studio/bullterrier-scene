@@ -331,3 +331,119 @@ def test_a_look_that_overshoots_images_nominal_range_by_rounding_gives_a_picture
     assert drawn.min() >= 0
     assert drawn.max() <= 1
     assert Layer.picture(drawn) is not None
+
+
+# --- fit and place ---------------------------------------------------------------------------------------------
+
+
+def numbered(height: int, width: int) -> np.ndarray:
+    """An opaque picture whose every pixel differs, in multiples of 1/64 (exact in a float)."""
+    index = np.arange(height * width, dtype=np.float32).reshape(height, width)
+    return np.stack([index / 64, (index * 3 % 64) / 64, (index * 7 % 64) / 64, np.ones_like(index)], axis=-1)
+
+
+def canvas_of(layer: Layer, size: int) -> np.ndarray:
+    return Scene(size, size).add(layer).render(size)
+
+
+@pytest.mark.parametrize(
+    ("turns", "numpy_turns"),
+    [
+        pytest.param(90, -1, id="90 is one clockwise quarter"),
+        pytest.param(180, 2, id="180"),
+        pytest.param(270, 1, id="270"),
+    ],
+)
+def test_a_quarter_turn_is_numpys_rot90_of_the_picture(turns: int, numpy_turns: int):
+    picture = numbered(6, 6)
+    turned = canvas_of(Layer.picture(picture).place(rotate=turns), 6)
+    assert np.array_equal(turned, np.rot90(picture, numpy_turns))
+
+
+@pytest.mark.parametrize(
+    ("flip", "expected"),
+    [
+        pytest.param((True, False), np.fliplr, id="across x"),
+        pytest.param((False, True), np.flipud, id="across y"),
+        pytest.param((True, True), lambda picture: np.flipud(np.fliplr(picture)), id="both"),
+        pytest.param((False, False), lambda picture: picture, id="neither"),
+    ],
+)
+def test_a_flip_is_numpys_flip(flip, expected):
+    picture = numbered(6, 6)
+    assert np.array_equal(canvas_of(Layer.picture(picture).place(flip=flip), 6), expected(picture))
+
+
+def test_a_move_by_whole_pixels_shifts_the_picture_and_leaves_the_rest_clear():
+    picture = numbered(4, 4)
+    moved = canvas_of(Layer.picture(picture).place(dx=3, dy=2), 8)
+    expected = np.zeros((8, 8, 4), np.float32)
+    expected[2:6, 3:7] = picture
+    assert np.array_equal(moved, expected)
+
+
+@pytest.mark.parametrize("align", [0.0, 0.5, 1.0])
+def test_cover_cuts_the_taller_photo_where_align_says(align: float):
+    photo = numbered(10, 4)
+    cut = canvas_of(Layer.picture(photo).fit((0, 0, 4, 4), "cover", align=(0.5, align)), 4)
+    first = round(6 * align)
+    assert np.array_equal(cut, photo[first : first + 4])
+
+
+def test_contain_places_the_narrower_photo_in_the_slack_by_align():
+    photo = numbered(4, 2)
+    placed = Scene(8, 4).add(Layer.picture(photo).fit((0, 0, 8, 4), "contain", align=(1.0, 0.0))).render(8)
+    expected = np.zeros((4, 8, 4), np.float32)
+    expected[:, 6:] = photo
+    assert np.array_equal(placed, expected)
+
+
+def test_fit_and_place_return_new_layers():
+    layer = Layer.picture(numbered(4, 4))
+    before = canvas_of(layer, 4)
+    layer.place(dx=2)
+    layer.fit((0, 0, 2, 2), "contain")
+    assert np.array_equal(canvas_of(layer, 4), before)
+
+
+@pytest.mark.parametrize(
+    ("call", "field"),
+    [
+        pytest.param(lambda layer: layer.place(scale=0), "scale", id="scale 0"),
+        pytest.param(lambda layer: layer.place(scale=1000.5), "scale", id="scale above 1000"),
+        pytest.param(lambda layer: layer.place(aspect=-1), "aspect", id="negative aspect"),
+        pytest.param(lambda layer: layer.place(skew=(90, 0)), "skew_x", id="skew x of 90"),
+        pytest.param(lambda layer: layer.place(skew=(0, -89.5)), "skew_y", id="skew y below -89"),
+        pytest.param(lambda layer: layer.place(dx=float("nan")), "dx", id="NaN dx"),
+        pytest.param(lambda layer: layer.place(dy=2e6), "dy", id="dy past 1e6"),
+        pytest.param(lambda layer: layer.place(rotate=float("inf")), "rotate", id="infinite rotate"),
+        pytest.param(lambda layer: layer.place(anchor=(0.5, 1.5)), "anchor", id="anchor past 1"),
+        pytest.param(lambda layer: layer.fit((0, 0, 0, 5)), "box", id="a box of width 0"),
+        pytest.param(lambda layer: layer.fit((0, 0, 5, float("nan"))), "box", id="a NaN box"),
+        pytest.param(lambda layer: layer.fit((0, 0, 5, 5), "fill"), "how", id="another word"),
+        pytest.param(lambda layer: layer.fit((0, 0, 5, 5), align=(1.5, 0)), "align", id="align above 1"),
+    ],
+)
+def test_a_bad_value_is_an_invalid_error_naming_the_field(call, field: str):
+    with pytest.raises(InvalidError, match=field):
+        call(Layer.fill("#ffffff"))
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param(lambda layer: layer.place(2), id="a positional place"),
+        pytest.param(lambda layer: layer.place(flip=True), id="a flip that is no pair"),
+        pytest.param(lambda layer: layer.place(flip=(1, 0)), id="a flip of numbers"),
+        pytest.param(lambda layer: layer.place(dx="2"), id="a text number"),
+        pytest.param(lambda layer: layer.fit((0, 0, 5, 5), align=0.5), id="an align that is no pair"),
+    ],
+)
+def test_a_wrong_type_is_a_type_error(call):
+    with pytest.raises(TypeError):
+        call(Layer.fill("#ffffff"))
+
+
+def test_a_box_of_the_wrong_length_is_a_plain_value_error():
+    with pytest.raises(ValueError, match="length 4"):
+        Layer.fill("#ffffff").fit((0, 0, 5))  # type: ignore[arg-type]  # the point: a box of three

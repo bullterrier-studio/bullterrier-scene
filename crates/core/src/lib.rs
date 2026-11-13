@@ -10,6 +10,7 @@
 mod error;
 mod geometry;
 mod layer;
+mod placement;
 mod raster;
 mod render;
 mod scene;
@@ -18,5 +19,6 @@ mod warp;
 
 pub use error::Error;
 pub use layer::Layer;
+pub use placement::{Deg, Fit, Place};
 pub use raster::Raster;
 pub use scene::{MAX_LAYERS, Scene};

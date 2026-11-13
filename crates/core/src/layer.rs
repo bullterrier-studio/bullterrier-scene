@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use crate::Error;
 use crate::Raster;
+use crate::placement::{Fit, Fitting, Place, Placed};
 use crate::source::Source;
 use crate::source::drawing::Drawing;
 use crate::source::fill::Fill;
@@ -17,6 +18,8 @@ pub struct Layer {
     pub(crate) name: Option<String>,
     pub(crate) opacity: f32,
     pub(crate) source: Arc<dyn Source>,
+    pub(crate) fit: Option<Fitting>,
+    pub(crate) placed: Placed,
 }
 
 impl Layer {
@@ -25,6 +28,8 @@ impl Layer {
             name: None,
             opacity: 1.0,
             source: Arc::new(source),
+            fit: None,
+            placed: Placed::default(),
         }
     }
 
@@ -103,6 +108,33 @@ impl Layer {
             ));
         }
         self.name = Some(name.to_owned());
+        Ok(self)
+    }
+
+    /// This layer's box fitted into `area` = `[x, y, width, height]` (design pixels of the canvas); the last `fit` wins.
+    /// `Fit::Cover` scales it, its aspect kept, to fill `area`, and what overflows is cut off at `area`'s edge;
+    /// `Fit::Contain` scales it to lie wholly inside; `Fit::Stretch` fills `area` exactly, its aspect not kept. `align` is
+    /// two fractions from 0 to 1 of the layer's box: which part stays when cover cuts, and where a contained layer sits in
+    /// the slack. It is resolved when the scene renders, from the source's real size, so a picture of any size fills the
+    /// same area; `place` then acts on the fitted box (the cut `area` for cover, the contained rectangle for contain).
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `box` for a size not above 0 or a number that is not finite, and `align` for a fraction
+    /// outside 0 to 1.
+    pub fn fit(mut self, area: [f64; 4], how: Fit, align: [f64; 2]) -> Result<Self, Error> {
+        self.fit = Some(Fitting::new(area, how, align)?);
+        Ok(self)
+    }
+
+    /// This layer with the fields `place` sets changed and the others kept: see [`Place`] for what each does and the order
+    /// they apply in. The result is one resample of the finished raster; the source is drawn at the size it will have, so
+    /// a drawing at `scale` 3 is sharp and a look grows with it.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming the field for a `scale` or `aspect` outside 0.001 to 1000, a skew outside -89 to 89, a `dx`
+    /// or `dy` outside -1e6 to 1e6, an `anchor` outside 0 to 1, or a number that is not finite.
+    pub fn place(mut self, place: Place) -> Result<Self, Error> {
+        self.placed = self.placed.with(place)?;
         Ok(self)
     }
 

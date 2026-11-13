@@ -2,8 +2,8 @@
 //! given back as straight alpha.
 
 use crate::geometry::{MAX_PIXELS, Rect, Scale};
-use crate::source::Request;
-use crate::warp::{Affine, warp};
+use crate::placement::Layout;
+use crate::warp::warp;
 use crate::{Error, Layer, Raster};
 
 /// The longest side of a picture, in output pixels.
@@ -50,37 +50,14 @@ pub(crate) fn render(width: u32, height: u32, layers: &[Layer], size: i128) -> R
 /// `layer` as a picture of the output's size: its source drawn at the scale it will have, then put where it belongs by one
 /// warp.
 fn drawn(layer: &Layer, canvas: Rect, scale: Scale, (columns, rows): (usize, usize)) -> Result<Raster, Error> {
+    let layout = |own: Rect| Layout::new(layer.fit, layer.placed, own, scale);
     let plan = |own: Rect| {
-        let request = Request { window: own, scale };
+        let request = layout(own).request();
         request.scale.size(request.window)?;
         Ok(request)
     };
     let drawn = layer.source.draw(canvas, &plan)?;
-    let request = plan(drawn.own)?;
-    let (source_columns, source_rows) = (drawn.raster.width(), drawn.raster.height());
-    // the raster's pixels per design pixel of its box, along each axis
-    #[expect(clippy::cast_precision_loss, reason = "a side of at most 2^27 pixels")]
-    let (across, down) = (
-        source_columns as f64 / drawn.covers.width,
-        source_rows as f64 / drawn.covers.height,
-    );
-    let window = request.window;
-    let clip = Rect {
-        x: (window.x - drawn.covers.x) * across,
-        y: (window.y - drawn.covers.y) * down,
-        width: window.width * across,
-        height: window.height * down,
-    };
-    #[expect(clippy::cast_precision_loss, reason = "a side of at most 2^27 pixels")]
-    let (source_columns, source_rows) = (source_columns as f64, source_rows as f64);
-    let map = Affine {
-        a: scale.x.pixels(drawn.covers.width) / source_columns,
-        b: 0.0,
-        c: scale.x.pixels(drawn.covers.x),
-        d: 0.0,
-        e: scale.y.pixels(drawn.covers.height) / source_rows,
-        f: scale.y.pixels(drawn.covers.y),
-    };
+    let (map, clip) = layout(drawn.own).warp(&drawn);
     Ok(warp(&drawn.raster, map, clip, columns, rows))
 }
 

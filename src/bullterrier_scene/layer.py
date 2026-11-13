@@ -96,6 +96,54 @@ class Layer:
         """
         return type(self)(self._core.named(name))
 
+    def fit(
+        self, box: tuple[float, float, float, float], how: str = "cover", *, align: tuple[float, float] = (0.5, 0.5)
+    ) -> Self:
+        """This layer's box fitted into `box` = `(x, y, width, height)` in design pixels; the last `fit` wins.
+
+        `how`: `"cover"` scales it, its aspect kept, to fill `box` and cuts the overflow off at `box`'s edge (the
+        delivery crop); `"contain"` scales it to lie wholly inside; `"stretch"` fills `box` exactly, its aspect not
+        kept. `align` is two fractions from 0 to 1 of the layer's box: which part stays when cover cuts, and where a
+        contained layer sits in the slack. It is resolved when the scene renders, from the source's real size. `place`
+        then acts on the fitted box. `InvalidError` for another word, a `box` with a width or height not above 0 or
+        a number that is not finite, an `align` outside 0 to 1.
+        """
+        return type(self)(self._core.fit(box, how, align))
+
+    def place(
+        self,
+        *,
+        dx: float | None = None,
+        dy: float | None = None,
+        scale: float | None = None,
+        aspect: float | None = None,
+        rotate: float | None = None,
+        skew: tuple[float, float] | None = None,
+        flip: tuple[bool, bool] | None = None,
+        anchor: tuple[float, float] | None = None,
+    ) -> Self:
+        """This layer with the placement fields given set and the others kept.
+
+        The finished raster is flipped by `flip` `(x, y)` (booleans), scaled by `scale` and by `aspect` along y (the
+        height ratio: y scales by `scale` times `aspect`), skewed by `skew` `(x, y)` degrees (x, then y), and rotated
+        by `rotate` (degrees clockwise, any size, wrapping), all about `anchor` (fractions 0 to 1 of the fitted box,
+        default the centre), then moved by `dx`, `dy` design pixels. Defaults: no change. `InvalidError` for a `scale`
+        or `aspect` outside 0.001 to 1000, a skew outside -89 to 89, a `dx` or `dy` outside -1e6 to 1e6, an `anchor`
+        outside 0 to 1, or a number that is not finite.
+        """
+        return type(self)(
+            self._core.place(
+                dx=dx,
+                dy=dy,
+                scale=scale,
+                aspect=aspect,
+                rotate=rotate,
+                skew=skew,
+                flip=flip,
+                anchor=anchor,
+            )
+        )
+
     def opacity(self, value: float) -> Self:
         """This layer at `value` of its own alpha, from 0 (hidden) to 1 (the default); `InvalidError` outside it."""
         return type(self)(self._core.opacity(value))
