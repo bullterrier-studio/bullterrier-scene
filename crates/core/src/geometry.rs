@@ -53,7 +53,7 @@ impl Axis {
 
 /// The relative error a length may have and still count as the whole number it should be: 1e-12, about 4,500 times the
 /// rounding of a product of two numbers. A fit factor times a zoom (0.1 x 3 is 0.30000000000000004) is a few units in the
-/// last place off the whole number it is in exact arithmetic, and must not draw a pixel more.
+/// last place off the whole number it is in exact arithmetic, and must not draw a pixel more. The same allowance says a singular value is 1, and a sum of corners is 0.
 pub(crate) const ROUNDING: f64 = 1e-12;
 
 /// The least whole number of pixels that holds `length` pixels, allowing a relative error of [`ROUNDING`], as a float.

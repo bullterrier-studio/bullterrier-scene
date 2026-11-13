@@ -1,6 +1,7 @@
 //! A quadrilateral the fitted box is put on, and the homography that does it.
 
 use crate::Error;
+use crate::geometry::ROUNDING;
 use crate::placement::TRAVEL;
 
 /// Four corners on the canvas, in design pixels, the places the fitted box's top left, top right, bottom right and bottom left
@@ -47,7 +48,12 @@ impl Quad {
     pub(crate) fn matrix(&self) -> [[f64; 3]; 3] {
         let [[x0, y0], [x1, y1], [x2, y2], [x3, y3]] = self.corners;
         let (sum_x, sum_y) = (x0 - x1 + x2 - x3, y0 - y1 + y2 - y3);
-        if sum_x == 0.0 && sum_y == 0.0 {
+        // a sum that is 0 up to the rounding of the numbers added (a rectangle given in decimals is off by a few units in
+        // the last place) makes a parallelogram all the same
+        let negligible = |sum: f64, at: [f64; 4]| {
+            sum.abs() <= ROUNDING * at.iter().fold(0.0, |most, value| f64::max(most, value.abs()))
+        };
+        if negligible(sum_x, [x0, x1, x2, x3]) && negligible(sum_y, [y0, y1, y2, y3]) {
             return [[x1 - x0, x3 - x0, x0], [y1 - y0, y3 - y0, y0], [0.0, 0.0, 1.0]];
         }
         let (dx1, dx2, dy1, dy2) = (x1 - x2, x3 - x2, y1 - y2, y3 - y2);

@@ -511,6 +511,33 @@ fn a_very_flat_quadrilateral_renders_or_is_refused_but_never_gives_nan() -> Outc
 }
 
 proptest! {
+    #![proptest_config(ProptestConfig { cases: 60, rng_seed: RngSeed::Fixed(20_261_114), ..ProptestConfig::default() })]
+
+    /// A rectangle given in decimals (a corner sum that is a few units in the last place from 0, not 0) is an axis-aligned
+    /// quadrilateral all the same: it takes the exact path of `place`, and gives what the equivalent `place` gives. The maps are
+    /// formed in a different order of operations, so they may differ in the last place and not in the pixels: the tolerance is
+    /// 1e-5 (a step of the 32-bit floats of the blend), where a lattice of taps in place of the exact area average differs by
+    /// tenths.
+    #[test]
+    fn a_rectangle_in_decimals_is_what_place_makes(
+        left in 0_u32..300, top in 0_u32..300, wide in 40_u32..400, tall in 40_u32..400,
+    ) {
+        let (x0, y0) = (f64::from(left) / 10.0, f64::from(top) / 10.0);
+        let (x1, y1) = (x0 + f64::from(wide) / 10.0, y0 + f64::from(tall) / 10.0);
+        let picture = || Layer::picture(numbered(8, 12).unwrap_or_else(|_| unreachable!()));
+        let by_quad = render(picture().perspective([[x0, y0], [x1, y0], [x1, y1], [x0, y1]])?, (80, 80), 80)?;
+        let scale = (x1 - x0) / 8.0;
+        let aspect = (y1 - y0) / 12.0 / scale;
+        let by_place = render(picture().place(Place::new().scale(scale).aspect(aspect).anchor(0.0, 0.0).dx(x0).dy(y0))?, (80, 80), 80)?;
+        // compared as the blend sees them: an alpha of 1e-16 past an edge carries a colour that shows nothing
+        let seen = |pixel: [f32; 4]| [pixel[0] * pixel[3], pixel[1] * pixel[3], pixel[2] * pixel[3], pixel[3]];
+        for (got, expected) in pixels(&by_quad).zip(pixels(&by_place)) {
+            prop_assert!(close(seen(got), seen(expected), 1e-5), "{got:?} is not {expected:?}");
+        }
+    }
+}
+
+proptest! {
     #![proptest_config(ProptestConfig { cases: 3000, rng_seed: RngSeed::Fixed(20_261_113), ..ProptestConfig::default() })]
 
     /// Hostile corners (huge, tiny, flat, any order), with a turn and a scale as well on half the cases: whatever is accepted
