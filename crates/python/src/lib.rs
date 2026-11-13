@@ -227,14 +227,18 @@ impl Layer {
         wrap(py, self.0.clone().map_hole(name)).map(Self)
     }
 
-    /// This layer masked by the layer `by`, drawn on the canvas.
-    fn mask_layer(&self, py: Python<'_>, by: &Layer, uses: &str, feather: f64, invert: bool) -> PyResult<Self> {
-        wrap(py, masked(&self.0, Mask::new(by.0.clone()), uses, feather, invert)).map(Self)
-    }
-
-    /// This picture layer masked by its map `name`.
-    fn mask_map(&self, py: Python<'_>, name: &str, uses: &str, feather: f64, invert: bool) -> PyResult<Self> {
-        wrap(py, masked(&self.0, Mask::new(name), uses, feather, invert)).map(Self)
+    /// This layer masked by `by`: a layer drawn on the canvas, or the name of one of this picture layer's maps.
+    fn mask(&self, py: Python<'_>, by: &Bound<'_, PyAny>, uses: &str, feather: f64, invert: bool) -> PyResult<Self> {
+        let mask = if let Ok(layer) = by.extract::<PyRef<'_, Layer>>() {
+            Mask::new(layer.0.clone())
+        } else if let Ok(name) = by.extract::<&str>() {
+            Mask::new(name)
+        } else {
+            return Err(pyo3::exceptions::PyTypeError::new_err(
+                "by: a Layer or the name of one of this layer's maps is wanted",
+            ));
+        };
+        wrap(py, masked(&self.0, mask, uses, feather, invert)).map(Self)
     }
 
     /// This layer called `name`.

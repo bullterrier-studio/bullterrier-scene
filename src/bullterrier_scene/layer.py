@@ -261,9 +261,9 @@ class Layer:
             raise TypeError(f'use: "alpha" or "luminance" is wanted, got {type(use).__name__} {_shown(use)}')
         blur, flipped = _number("feather", feather), _flag("invert", invert)
         if isinstance(by, Layer):
-            return type(self)(self._core.mask_layer(by._core, use, blur, flipped))  # noqa: SLF001  (a layer)
+            return type(self)(self._core.mask(by._core, use, blur, flipped))  # noqa: SLF001  (a layer)
         if isinstance(by, str):
-            return type(self)(self._core.mask_map(by, use, blur, flipped))
+            return type(self)(self._core.mask(by, use, blur, flipped))
         raise TypeError(f"by: a Layer or the name of one of this layer's maps is wanted, got {type(by).__name__}")
 
     def opacity(self, value: float) -> Self:
