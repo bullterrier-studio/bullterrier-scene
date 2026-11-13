@@ -232,3 +232,34 @@ fn a_recipe_file_that_cannot_be_read_or_is_no_recipe_is_refused_at_the_call() ->
     );
     Ok(())
 }
+
+/// Image promises its pictures are "nominally 0..1": a scanlines look with a spacing and an offset far past the picture
+/// gives values of about -1e-15 on a checker. Scene's output is a picture in 0 to 1 all the same, one that a `Raster` takes
+/// back.
+#[test]
+fn a_look_that_overshoots_image_s_nominal_range_by_rounding_still_gives_a_picture_in_range() -> Outcome {
+    let scanlines = r#"{"steps": [{"effect": "scanlines", "params": {"spacing": 2000, "thickness": 1, "darkness": 1, "offset": 2000, "softness": 1}, "opacity": 1.0, "blend_mode": "normal"}]}"#;
+    let checker: Vec<f32> = (0..24)
+        .flat_map(|row| {
+            (0..32).flat_map(move |column| {
+                if (row + column) % 2 == 0 {
+                    [1.0, 1.0, 1.0, 1.0]
+                } else {
+                    [0.0, 0.0, 0.0, 1.0]
+                }
+            })
+        })
+        .collect();
+    let drawn = scene(
+        32,
+        24,
+        [Layer::picture(Raster::rgba(32, 24, checker)?).look(scanlines)?],
+    )?
+    .render(32)?;
+    assert!(
+        drawn.pixels().iter().all(|value| (0.0..=1.0).contains(value)),
+        "a value is outside 0 to 1"
+    );
+    assert!(Raster::rgba(32, 24, drawn.into_pixels()).is_ok());
+    Ok(())
+}

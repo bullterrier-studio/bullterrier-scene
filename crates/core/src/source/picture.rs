@@ -46,6 +46,17 @@ struct Look {
     presets: Arc<Presets>,
 }
 
+/// `values` brought into 0 to 1: image promises its pictures only "nominally 0..1", and a look can overshoot by a rounding
+/// step (a scanlines look gives -1e-15 on a checker). This is where the promise of an outside crate, with its tolerance,
+/// enters scene, whose pictures are exactly 0 to 1. A value that is not a number cannot be a colour: `false` for it, and the
+/// caller refuses.
+fn into_range(values: &mut [f32]) -> bool {
+    values.iter_mut().all(|value| {
+        *value = value.clamp(0.0, 1.0);
+        !value.is_nan()
+    })
+}
+
 /// `error` of the image crate as a look's: scene's own refusal naming `look`.
 fn refused(error: &bullterrier_image::Error) -> Error {
     Error::invalid("look", error.to_string())
@@ -110,7 +121,13 @@ impl Look {
         let image = Photo::new(picture)
             .render(&self.recipe, &self.presets, Options::default())
             .map_err(|error| refused(&error))?;
-        let graded = image.into_values();
+        let mut graded = image.into_values();
+        if !(graded.iter().all(|value| value.is_finite()) && into_range(&mut graded)) {
+            return Err(Error::invalid(
+                "look",
+                "image gave a value that is not a number: the picture is refused",
+            ));
+        }
         let pixels = graded
             .as_chunks::<3>()
             .0
@@ -160,7 +177,13 @@ fn read(path: &Path) -> Result<Raster, Error> {
         message: error.to_string(),
     })?;
     let (width, height, channels) = (image.width(), image.height(), image.channels());
-    let values = image.into_values();
+    let mut values = image.into_values();
+    if !(values.iter().all(|value| value.is_finite()) && into_range(&mut values)) {
+        return Err(Error::Read {
+            path: path.display().to_string(),
+            message: "the picture holds a value that is not a number".to_owned(),
+        });
+    }
     let pixels = if channels == 4 {
         values
     } else {
@@ -207,5 +230,23 @@ impl Source for Picture {
             pixels: self.pixels.clone(),
             looks,
         }))
+    }
+}
+
+// Inline, because no public route reaches this: image gives no NaN on demand, and the overshoot it does give is tested through a
+// look.
+#[cfg(test)]
+mod tests {
+    use super::into_range;
+
+    #[test]
+    fn values_are_brought_into_range_and_a_nan_is_refused() {
+        let mut values = [-3.1e-14, 0.0, 0.25, 1.0, 1.0 + 1e-7];
+        assert!(into_range(&mut values));
+        assert_eq!(
+            values.map(f32::to_bits),
+            [0.0_f32, 0.0, 0.25, 1.0, 1.0].map(f32::to_bits)
+        );
+        assert!(!into_range(&mut [0.5, f32::NAN]));
     }
 }

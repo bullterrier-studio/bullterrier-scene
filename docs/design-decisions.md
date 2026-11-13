@@ -33,6 +33,14 @@ their dependencies bring. *Cost:* a cold build of the two crates is about 35 s (
 gate proofs peak at 5.1 GB. The repositories are private: a fetch needs git credentials, and CI needs a token that reads both (the workflows have none yet).
 *For R1:* the wheel embeds vector's bundled fonts (OFL-1.1) while the package metadata says MIT.
 
+## Image's range is nominal, scene's is exact (2026-11-13)
+
+Image promises its pictures "nominally 0..1": a scanlines look on a checker gives -3e-14. The picture adapter clamps what image
+gives into 0 to 1 where it becomes a `Raster`, and refuses a value that is not a number (`InvalidError` naming the look; for a
+file, `ReadError`). *Reason:* scene's pictures are exactly 0 to 1 (a `Raster` refuses anything else, and the render's straight
+alpha divides by an alpha that colours never pass), and this is the one place an outside contract with a tolerance enters.
+*Consequence:* the render holds no clamp of its own.
+
 ## No WebAssembly build yet (2026-11-08)
 
 Generated with `wasm = false`. *Reason:* nobody has shown that image's crate (rayon, rustfft, image decoders) builds for

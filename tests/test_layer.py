@@ -293,3 +293,22 @@ def test_a_real_vector_drawing_is_taken_by_its_to_json():
     vector = pytest.importorskip("bullterrier_vector")
     drawing = vector.Drawing(vector.Path.rect(1, 1, 2, 2), size=(4, 4)).fill("#ff0000")
     assert np.array_equal(render(Layer.drawing(drawing)), RED_SQUARE)
+
+
+def test_a_look_that_overshoots_images_nominal_range_by_rounding_gives_a_picture_a_layer_takes_back():
+    scanlines = {
+        "steps": [
+            {
+                "effect": "scanlines",
+                "params": {"spacing": 2000, "thickness": 1, "darkness": 1, "offset": 2000, "softness": 1},
+                "opacity": 1.0,
+                "blend_mode": "normal",
+            }
+        ]
+    }
+    rows, columns = np.indices((24, 32))
+    checker = np.repeat(((rows + columns) % 2 == 0).astype(np.float32)[..., None], 3, axis=2)
+    drawn = Scene(32, 24).add(Layer.picture(checker).look(scanlines)).render(32)
+    assert drawn.min() >= 0
+    assert drawn.max() <= 1
+    assert Layer.picture(drawn) is not None
