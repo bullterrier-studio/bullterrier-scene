@@ -164,3 +164,10 @@ each copy; the Rust tests alone 2.7 GB), and the cap is that plus half again. A 
 need no conflict. (2) The stub proof rows in `tests/tools/test_rust_gates.py` named the removed `scale`; they now edit `MAX_LAYERS: int`
 (a module-level ghost function) and `Layer.fill` (an extra parameter with a default, so that mypy passes and stubtest fails). The
 template could name a seed line the project owns, as for `check_installed.py`.
+
+Not done, for the same reason: the two tests that run `Layer.look` and `Layer.drawing` with the real image `Recipe` and vector `Drawing`
+skip (`importorskip`) in scene's environment. Making them run means the two packages as dev-group git dependencies (`[dependency-groups]`
+and `[tool.uv.sources]`, pinned to the crates' revisions). That works (cold `uv sync` 91 s, 4.5 GB peak summed RSS) but breaks the
+template's `poe audit`: `uv export` writes the git requirements without hashes and `pip-audit --require-hashes` refuses them, so the
+task needs `--no-emit-package` for both, an edit to a template-owned task. CI also has no token for the private repositories. Both
+tests passed in a scratch environment with the two packages installed at the pinned revisions.
