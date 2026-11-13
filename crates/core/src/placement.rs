@@ -7,6 +7,7 @@ use std::str::FromStr;
 use crate::Error;
 use crate::geometry::{Axis, MAX_PIXELS, Rect, Scale};
 use crate::perspective::Quad;
+use crate::ranges::{FRACTION, RATIO, SKEW, TRAVEL};
 use crate::source::{Drawn, Request};
 use crate::warp::{Affine, Map, Projective};
 
@@ -134,72 +135,6 @@ impl Place {
     }
 }
 
-/// The values a number of a placement may take: the one place a range is written. `Layer::fit` and `Layer::place` check
-/// against these and their errors name them; C6 serves `parameters()` from them.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct Range {
-    low: f64,
-    high: f64,
-    unit: &'static str,
-}
-
-/// `scale` and `aspect`: a ratio.
-const RATIO: Range = Range {
-    low: 0.001,
-    high: 1000.0,
-    unit: "",
-};
-/// `skew_x` and `skew_y`: degrees, short of the 90 where a skew has no end.
-const SKEW: Range = Range {
-    low: -89.0,
-    high: 89.0,
-    unit: " degrees",
-};
-/// `dx` and `dy`: design pixels.
-pub(crate) const TRAVEL: Range = Range {
-    low: -1e6,
-    high: 1e6,
-    unit: " design pixels",
-};
-/// `anchor` and `align`: a fraction of a box.
-const FRACTION: Range = Range {
-    low: 0.0,
-    high: 1.0,
-    unit: "",
-};
-
-impl Range {
-    /// `value` if it is a number within the range.
-    pub(crate) fn check(self, field: &str, value: f64) -> Result<f64, Error> {
-        if (self.low..=self.high).contains(&value) {
-            Ok(value)
-        } else {
-            Err(Error::invalid(
-                field,
-                format!(
-                    "{field} is a number from {} to {}{}, got {value}",
-                    self.low, self.high, self.unit
-                ),
-            ))
-        }
-    }
-
-    /// The two numbers `(x, y)` if each is within the range.
-    fn check_pair(self, field: &str, (x, y): (f64, f64)) -> Result<(f64, f64), Error> {
-        if (self.low..=self.high).contains(&x) && (self.low..=self.high).contains(&y) {
-            Ok((x, y))
-        } else {
-            Err(Error::invalid(
-                field,
-                format!(
-                    "{field} is two numbers from {} to {}{}, got ({x}, {y})",
-                    self.low, self.high, self.unit
-                ),
-            ))
-        }
-    }
-}
-
 /// A layer's `fit`, as given.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Fitting {
@@ -223,6 +158,35 @@ impl Fitting {
             how,
             align: FRACTION.check_pair("align", (align[0], align[1]))?,
         })
+    }
+}
+
+/// Where a layer's fitted box goes: by the fields of `place`, or onto the quadrilateral of `perspective`. One state: the last of
+/// the two calls replaces the other, and a `place` after a `perspective` starts from the default fields, not from those of
+/// an earlier `place`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Placement {
+    /// Flip, scale, skew, turn about an anchor, move.
+    Place(Placed),
+    /// The fitted box's corners on a convex quadrilateral.
+    Perspective(Quad),
+}
+
+impl Default for Placement {
+    fn default() -> Self {
+        Self::Place(Placed::default())
+    }
+}
+
+impl Placement {
+    /// This placement with the fields `place` sets, each checked: those of the placement it was, or the defaults if it was a
+    /// perspective.
+    pub(crate) fn placed(self, place: Place) -> Result<Self, Error> {
+        let before = match self {
+            Self::Place(placed) => placed,
+            Self::Perspective(_) => Placed::default(),
+        };
+        Ok(Self::Place(before.with(place)?))
     }
 }
 
@@ -391,22 +355,19 @@ pub(crate) struct Layout {
     area: Rect,
     /// The scale `fit` gives, along each axis.
     factor: (f64, f64),
-    placed: Placed,
-    /// Where the fitted box's corners go, instead of what `placed` says.
-    quad: Option<Quad>,
+    placement: Placement,
 }
 
 impl Layout {
     /// The layout of a source whose box is `own`, drawn on an output of scale `scale`.
-    pub(crate) fn new(fit: Option<Fitting>, placed: Placed, quad: Option<Quad>, own: Rect, scale: Scale) -> Self {
+    pub(crate) fn new(fit: Option<Fitting>, placement: Placement, own: Rect, scale: Scale) -> Self {
         let (window, area, factor) = fitted(own, fit);
         Self {
             scale,
             window,
             area,
             factor,
-            placed,
-            quad,
+            placement,
         }
     }
 
@@ -415,16 +376,19 @@ impl Layout {
     /// by one factor if what the source allocates (`whole` says whether that is its whole box or the window) would pass the
     /// 2^27 pixels of a layer: the render stays valid and the near side loses sharpness.
     pub(crate) fn request(&self, own: Rect, whole: bool) -> Request {
-        if let Some(quad) = self.quad {
-            let (across, down) = self.largest_scales(&quad);
-            let part = if whole { own } else { self.window };
-            let fit = capped(part, (across, down));
-            return Request {
-                window: self.window,
-                scale: Scale::exactly(across * fit, down * fit),
-            };
-        }
-        let zoom = self.placed.scale;
+        let placed = match self.placement {
+            Placement::Place(placed) => placed,
+            Placement::Perspective(quad) => {
+                let (across, down) = self.largest_scales(&quad);
+                let part = if whole { own } else { self.window };
+                let fit = capped(part, (across, down));
+                return Request {
+                    window: self.window,
+                    scale: Scale::exactly(across * fit, down * fit),
+                };
+            }
+        };
+        let zoom = placed.scale;
         Request {
             window: self.window,
             scale: self.scale.times(self.factor.0 * zoom, self.factor.1 * zoom),
@@ -501,10 +465,12 @@ impl Layout {
             (covers.x - self.window.x) * self.factor.0,
             (covers.y - self.window.y) * self.factor.1,
         ];
-        if let Some(quad) = self.quad {
-            return (self.perspective(&quad, axes, extent, corner, counts), clip);
-        }
-        let placed = self.placed;
+        let placed = match self.placement {
+            Placement::Place(placed) => placed,
+            Placement::Perspective(quad) => {
+                return (self.perspective(&quad, axes, extent, corner, counts), clip);
+            }
+        };
         let linear = placed.linear();
         let entry = |row: usize, column: usize| {
             linear[row][column] * axes[row].pixels(placed.scale * extent[column]) / counts[column]
@@ -581,7 +547,7 @@ fn capped(part: Rect, (across, down): (f64, f64)) -> f64 {
 // Inline, because no public route reaches these: a render shows the scale a source is asked for only through its pixels.
 #[cfg(test)]
 mod tests {
-    use super::{Layout, Placed, capped};
+    use super::{Layout, Placement, capped};
     use crate::geometry::{MAX_PIXELS, Rect, Scale};
     use crate::perspective::Quad;
 
@@ -630,8 +596,7 @@ mod tests {
             let quad = Quad::new(corners).unwrap_or_else(|_| unreachable!());
             let layout = Layout::new(
                 None,
-                Placed::default(),
-                Some(quad),
+                Placement::Perspective(quad),
                 rect(20.0, 12.0),
                 Scale::of_canvas(64, 64, 64, 64),
             );

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use crate::Error;
 use crate::Raster;
 use crate::perspective::Quad;
-use crate::placement::{Fit, Fitting, Place, Placed};
+use crate::placement::{Fit, Fitting, Place, Placement};
 use crate::source::Source;
 use crate::source::drawing::Drawing;
 use crate::source::fill::Fill;
@@ -20,8 +20,7 @@ pub struct Layer {
     pub(crate) opacity: f32,
     pub(crate) source: Arc<dyn Source>,
     pub(crate) fit: Option<Fitting>,
-    pub(crate) placed: Placed,
-    pub(crate) quad: Option<Quad>,
+    pub(crate) placement: Placement,
 }
 
 impl Layer {
@@ -31,8 +30,7 @@ impl Layer {
             opacity: 1.0,
             source: Arc::new(source),
             fit: None,
-            placed: Placed::default(),
-            quad: None,
+            placement: Placement::default(),
         }
     }
 
@@ -137,8 +135,7 @@ impl Layer {
     /// [`Error::Invalid`] naming the field for a `scale` or `aspect` outside 0.001 to 1000, a skew outside -89 to 89, a `dx`
     /// or `dy` outside -1e6 to 1e6, an `anchor` outside 0 to 1, or a number that is not finite.
     pub fn place(mut self, place: Place) -> Result<Self, Error> {
-        self.placed = self.placed.with(place)?;
-        self.quad = None;
+        self.placement = self.placement.placed(place)?;
         Ok(self)
     }
 
@@ -154,7 +151,7 @@ impl Layer {
     /// [`Error::Invalid`] naming `corners` for a number that is not finite or is beyond -1e6 to 1e6, and for corners that
     /// are not a strictly convex quadrilateral (a dart, a bowtie, three on a line, a corner twice).
     pub fn perspective(mut self, corners: [[f64; 2]; 4]) -> Result<Self, Error> {
-        self.quad = Some(Quad::new(corners)?);
+        self.placement = Placement::Perspective(Quad::new(corners)?);
         Ok(self)
     }
 

@@ -313,6 +313,47 @@ fn the_last_of_place_and_perspective_wins_and_fit_comes_first() -> Outcome {
     Ok(())
 }
 
+/// `place` after `perspective` replaces the perspective and starts from the default placement plus what it names: the fields
+/// of a `place` before the perspective are not brought back. `perspective` after `place` replaces it.
+#[test]
+fn place_after_perspective_starts_from_the_defaults_and_perspective_after_place_replaces_it() -> Outcome {
+    let picture = || Layer::picture(numbered(6, 4).unwrap_or_else(|_| unreachable!()));
+    let quad = [[3.0, 2.0], [9.0, 2.0], [9.0, 6.0], [3.0, 6.0]];
+    let bits = |layer: Layer| -> Result<Vec<u32>, Error> {
+        Ok(render(layer, (16, 12), 16)?
+            .pixels()
+            .iter()
+            .map(|value| value.to_bits())
+            .collect())
+    };
+    let turned_then_moved = bits(picture().place(Place::new().rotate(Deg(90.0)).dx(3.0))?)?;
+    let only_moved = bits(picture().place(Place::new().dx(3.0))?)?;
+    assert!(
+        turned_then_moved
+            .iter()
+            .zip(&only_moved)
+            .any(|(turned, moved)| turned != moved)
+    );
+    let revived = bits(
+        picture()
+            .place(Place::new().rotate(Deg(90.0)))?
+            .perspective(quad)?
+            .place(Place::new().dx(3.0))?,
+    )?;
+    assert!(revived == only_moved, "the turn from before the perspective came back");
+    let replaced = bits(
+        picture()
+            .place(Place::new().rotate(Deg(90.0)).dx(7.0))?
+            .perspective(quad)?,
+    )?;
+    assert_eq!(
+        replaced,
+        bits(picture().perspective(quad)?)?,
+        "a place before the perspective still counts"
+    );
+    Ok(())
+}
+
 fn picture_of(width: usize, height: usize) -> Result<Layer, Error> {
     Ok(Layer::picture(numbered(width, height)?))
 }

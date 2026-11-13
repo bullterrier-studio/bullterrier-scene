@@ -12,6 +12,7 @@ mod geometry;
 mod layer;
 mod perspective;
 mod placement;
+mod ranges;
 mod raster;
 mod render;
 mod scene;

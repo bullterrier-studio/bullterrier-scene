@@ -2,7 +2,7 @@
 
 use crate::Error;
 use crate::geometry::ROUNDING;
-use crate::placement::TRAVEL;
+use crate::ranges::TRAVEL;
 
 /// Four corners on the canvas, in design pixels, the places the fitted box's top left, top right, bottom right and bottom left
 /// land on. A homography maps a rectangle to a strictly convex quadrilateral and to nothing else, so that is the rule: the

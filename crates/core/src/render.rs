@@ -56,7 +56,7 @@ fn lay(
     joined: &mut [f32],
 ) -> Result<(), Error> {
     let opened = layer.source.open(canvas)?;
-    let layout = Layout::new(layer.fit, layer.placed, layer.quad, opened.own, scale);
+    let layout = Layout::new(layer.fit, layer.placement, opened.own, scale);
     let request = layout.request(opened.own, opened.whole);
     // the one place the drawn-size limit is checked, before any source draws
     request.scale.size(request.window)?;
