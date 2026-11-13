@@ -531,6 +531,48 @@ fn stripes_are_kept_when_the_footprint_is_a_pixel_and_averaged_to_grey_under_any
     Ok(())
 }
 
+/// A footprint that is more than a pixel across both ways is averaged both ways. A picture of independent black and white
+/// pixels (a hash of the position, so no pattern lines up with a direction) turned 17 degrees and made a quarter the size has
+/// a footprint 4 by 4 pixels, 16 pixels: each output pixel is the mean of about 16 of them, and the standard deviation of the
+/// interior is `0.5 / sqrt(16)`, 0.125, to within the taps' smoothing. Taps along the major axis only would average about 4
+/// pixels and leave a deviation of 0.25.
+#[test]
+fn noise_turned_and_reduced_is_averaged_across_the_footprint_as_well_as_along_it() -> Outcome {
+    let noise = made(256, 256, |x, y| {
+        let hash = (x as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (y as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F);
+        let level = if (hash ^ (hash >> 29)).wrapping_mul(0xBF58_476D_1CE4_E5B9) >> 63 == 0 {
+            1.0
+        } else {
+            0.0
+        };
+        [level, level, level, 1.0]
+    })?;
+    let drawn = render(
+        Layer::picture(noise).place(Place::new().scale(0.25).rotate(Deg(17.0)))?,
+        (256, 256),
+        256,
+    )?;
+    let inside: Vec<f32> = (110..146)
+        .flat_map(|y| (110..146).map(move |x| (x, y)))
+        .map(|(x, y)| pixel(&drawn, x, y))
+        .filter(|got| got[3] > 0.999)
+        .map(|got| got[0])
+        .collect();
+    assert_eq!(inside.len(), 36 * 36);
+    let count = f32::from(u16::try_from(inside.len())?);
+    let mean = inside.iter().sum::<f32>() / count;
+    let deviation = (inside.iter().map(|value| (value - mean).powi(2)).sum::<f32>() / count).sqrt();
+    assert!(
+        deviation < 0.17,
+        "the deviation is {deviation}: the footprint is not averaged across"
+    );
+    assert!(
+        deviation > 0.08,
+        "the deviation is {deviation}: more than the footprint's average"
+    );
+    Ok(())
+}
+
 /// The rows and columns of `raster` where alpha is at least `at_least`, as `(first column, last column, first row, last
 /// row)`; `None` for none.
 fn extent(raster: &Raster, at_least: f32) -> Option<(usize, usize, usize, usize)> {

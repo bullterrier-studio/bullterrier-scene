@@ -171,6 +171,12 @@ fn a_quadrilateral_that_is_the_box_is_the_identity_and_an_axis_aligned_one_is_wh
         picture().perspective([[4.0, 1.0], [7.0, 1.0], [7.0, 3.0], [4.0, 3.0]])?,
         "a scale of a half and a move",
     )?;
+    // a reduction by 8/3, which is not a whole number of pixels: the exact area average of `place`, not a lattice of taps
+    same(
+        picture().place(Place::new().scale(0.375).anchor(0.0, 0.0).dx(2.0))?,
+        picture().perspective([[2.0, 0.0], [4.25, 0.0], [4.25, 1.5], [2.0, 1.5]])?,
+        "a scale of three eighths and a move",
+    )?;
     same(
         picture().place(Place::new().flip_x(true))?,
         picture().perspective([[6.0, 0.0], [0.0, 0.0], [0.0, 4.0], [6.0, 4.0]])?,
