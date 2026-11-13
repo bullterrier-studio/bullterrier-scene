@@ -38,6 +38,7 @@ fn the_output_keeps_the_aspect_and_its_long_side_is_the_size() -> Outcome {
         ((3, 2), 7, (7, 5)),            // 4.67 rounds up
         ((1, 1), 1, (1, 1)),
         ((9, 16), 1, (1, 1)),
+        ((100, 3), 7, (7, 1)), // a thin canvas: 0.21 rounds up to 1 row, which stretches 3 design pixels onto it
     ];
     for ((width, height), size, expected) in rows {
         let picture = scene(width, height, [])?.render(size)?;

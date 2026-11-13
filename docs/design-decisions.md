@@ -165,7 +165,12 @@ side)` pixels, stretched, so a design length is `columns / width` output pixels 
 two differ by less than one pixel over the canvas, and are equal whenever the canvas is whole at that size). A rectangle of
 design pixels drawn at a density is `ceil(width x density)` by `ceil(height x density)` pixels that divide it evenly, and the
 warp puts that raster where its true rectangle falls, so a box between two output pixels is exact and the extra pixel is
-never a stretch. A layer that covers the canvas covers it whole, at any size. A length that is whole in exact arithmetic but a few units in the
+never a stretch. A layer that covers the canvas covers it whole, at any size. On a thin canvas (100 by 3 at size 7 is 7 by 1 pixels) the two
+scales differ by a large ratio and the design pixel is visibly not square: stated in `api.md` as a limit. *Rounding the short
+side to the nearest pixel was weighed and not taken:* it would halve the error of an ordinary canvas (at most half a pixel
+against one) and leave a thin one as it is (0.2 rounds to 0 and is raised to 1), but it changes a rule C1 published and
+tests (a side of the output is the least whole number that holds its length) and every frame size a caller has pinned, for a
+sub-pixel gain; it can be taken later, as a breaking change, on its own. A length that is whole in exact arithmetic but a few units in the
 last place over it in a float (a fit factor times a zoom) is not rounded up a pixel (a relative error of 1e-12 is allowed:
 `whole_up`). The binding axis of a `fit` ends at the box exactly, not at a product.
 
