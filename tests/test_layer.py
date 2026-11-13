@@ -429,21 +429,84 @@ def test_a_bad_value_is_an_invalid_error_naming_the_field(call, field: str):
         call(Layer.fill("#ffffff"))
 
 
+HUGE = 10**400  # an integer beyond the range of a float
+
+
 @pytest.mark.parametrize(
-    "call",
+    ("call", "argument"),
     [
-        pytest.param(lambda layer: layer.place(2), id="a positional place"),
-        pytest.param(lambda layer: layer.place(flip=True), id="a flip that is no pair"),
-        pytest.param(lambda layer: layer.place(flip=(1, 0)), id="a flip of numbers"),
-        pytest.param(lambda layer: layer.place(dx="2"), id="a text number"),
-        pytest.param(lambda layer: layer.fit((0, 0, 5, 5), align=0.5), id="an align that is no pair"),
+        pytest.param(lambda layer: layer.place(dx="2"), "dx", id="dx a text"),
+        pytest.param(lambda layer: layer.place(dy=[1]), "dy", id="dy a list"),
+        pytest.param(lambda layer: layer.place(dx=True), "dx", id="dx a bool"),
+        pytest.param(lambda layer: layer.place(scale=False), "scale", id="scale a bool"),
+        pytest.param(lambda layer: layer.place(aspect=np.bool_(True)), "aspect", id="aspect a numpy bool"),
+        pytest.param(lambda layer: layer.place(rotate="90"), "rotate", id="rotate a text"),
+        pytest.param(lambda layer: layer.place(skew=3), "skew", id="skew no pair"),
+        pytest.param(lambda layer: layer.place(skew=(1, 2, 3)), "skew", id="skew of three"),
+        pytest.param(lambda layer: layer.place(skew=(1, True)), "skew", id="skew with a bool"),
+        pytest.param(lambda layer: layer.place(skew="12"), "skew", id="skew a text"),
+        pytest.param(lambda layer: layer.place(flip=True), "flip", id="flip no pair"),
+        pytest.param(lambda layer: layer.place(flip=(1, 0)), "flip", id="flip of numbers"),
+        pytest.param(lambda layer: layer.place(flip=(True,)), "flip", id="flip of one"),
+        pytest.param(lambda layer: layer.place(anchor=0.5), "anchor", id="anchor no pair"),
+        pytest.param(lambda layer: layer.place(anchor=(0.5, "x")), "anchor", id="anchor with a text"),
+        pytest.param(lambda layer: layer.fit((0, 0, 10)), "box", id="box of three"),
+        pytest.param(lambda layer: layer.fit((0, 0, 1, 1, 1)), "box", id="box of five"),
+        pytest.param(lambda layer: layer.fit(5), "box", id="box a number"),
+        pytest.param(lambda layer: layer.fit("0011"), "box", id="box a text"),
+        pytest.param(lambda layer: layer.fit((True, False, 1, 1)), "box", id="box of bools"),
+        pytest.param(lambda layer: layer.fit((0, 0, 1, 1), None), "how", id="how None"),
+        pytest.param(lambda layer: layer.fit((0, 0, 1, 1), 3), "how", id="how a number"),
+        pytest.param(lambda layer: layer.fit((0, 0, 1, 1), align=0.5), "align", id="align no pair"),
+        pytest.param(lambda layer: layer.fit((0, 0, 1, 1), align=(0.5,)), "align", id="align of one"),
+        pytest.param(lambda layer: layer.fit((0, 0, 1, 1), align=(0.5, True)), "align", id="align with a bool"),
     ],
 )
-def test_a_wrong_type_is_a_type_error(call):
-    with pytest.raises(TypeError):
+def test_a_wrong_shape_or_type_is_a_type_error_naming_the_argument(call, argument: str):
+    with pytest.raises(TypeError, match=argument):
         call(Layer.fill("#ffffff"))
 
 
-def test_a_box_of_the_wrong_length_is_a_plain_value_error():
-    with pytest.raises(ValueError, match="length 4"):
-        Layer.fill("#ffffff").fit((0, 0, 5))  # type: ignore[arg-type]  # the point: a box of three
+@pytest.mark.parametrize(
+    ("call", "argument"),
+    [
+        pytest.param(lambda layer: layer.place(dx=HUGE), "dx", id="dx beyond a float"),
+        pytest.param(lambda layer: layer.place(dy=-HUGE), "dy", id="dy beyond a float"),
+        pytest.param(lambda layer: layer.place(rotate=HUGE), "rotate", id="rotate beyond a float"),
+        pytest.param(lambda layer: layer.place(skew=(0, HUGE)), "skew", id="skew beyond a float"),
+        pytest.param(lambda layer: layer.place(anchor=(HUGE, 0)), "anchor", id="anchor beyond a float"),
+        pytest.param(lambda layer: layer.fit((0, 0, HUGE, 10)), "box", id="box beyond a float"),
+        pytest.param(lambda layer: layer.fit((0, 0, 1, 1), align=(0, HUGE)), "align", id="align beyond a float"),
+        pytest.param(lambda layer: layer.place(scale=float("nan")), "scale", id="scale NaN"),
+        pytest.param(lambda layer: layer.place(skew=(float("inf"), 0)), "skew", id="skew infinite"),
+        pytest.param(lambda layer: layer.fit((0, float("-inf"), 1, 1)), "box", id="box infinite"),
+        pytest.param(lambda layer: layer.fit((0, 0, 1, 1), align=(float("nan"), 0)), "align", id="align NaN"),
+    ],
+)
+def test_a_number_beyond_float_range_or_not_finite_is_an_invalid_error_naming_the_argument(call, argument: str):
+    with pytest.raises(InvalidError, match=argument):
+        call(Layer.fill("#ffffff"))
+
+
+def test_the_value_an_invalid_error_names_is_shown_short():
+    with pytest.raises(InvalidError) as caught:
+        Layer.fill("#ffffff").place(dx=HUGE)
+    assert len(str(caught.value)) < 200
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param(lambda layer: layer.place(dx=np.float32(2), scale=np.int64(2)), id="numpy numbers"),
+        pytest.param(lambda layer: layer.place(skew=[1, 2], anchor=np.array([0.5, 0.5])), id="a list and an array"),
+        pytest.param(lambda layer: layer.place(flip=(np.bool_(True), False)), id="numpy bools in flip"),
+        pytest.param(lambda layer: layer.fit([0, 0, 4, 4], "contain", align=[0, 1]), id="a list box"),
+    ],
+)
+def test_numpy_numbers_lists_and_arrays_are_taken_where_a_number_or_a_pair_is(call):
+    call(Layer.fill("#ffffff"))
+
+
+def test_place_takes_keywords_only():
+    with pytest.raises(TypeError, match="positional"):
+        Layer.fill("#ffffff").place(2)  # type: ignore[call-arg]  # the point: a positional argument

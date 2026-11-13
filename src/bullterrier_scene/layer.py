@@ -6,10 +6,13 @@ data the Rust core takes; the core checks it.
 """
 
 import json
-from collections.abc import Mapping
+import math
+from collections.abc import Callable, Mapping
+from numbers import Real
 from pathlib import Path
 from typing import Any, Self
 
+import numpy as np
 import numpy.typing as npt
 
 from ._native import _core
@@ -32,6 +35,41 @@ def _read(what: str, path: Path) -> str:
         return path.read_text(encoding="utf-8")
     except OSError as error:
         raise ReadError(f"{what}: {path}: {error.strerror or error}") from error
+
+
+def _shown(value: object) -> str:
+    """`value` as text for a message, shortened: an integer of hundreds of digits is not printed whole."""
+    text = repr(value)
+    return text if len(text) <= 40 else f"{text[:30]}... ({len(text)} characters)"
+
+
+def _number(name: str, value: object) -> float:
+    """`value` as a finite float. A `bool` or a non-number is a `TypeError` naming `name`; an integer beyond the range
+    of a float, or a number that is not finite, is an `InvalidError` naming `name` and the value."""
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real):
+        raise TypeError(f"{name}: a number is wanted, got {type(value).__name__} {_shown(value)}")
+    try:
+        number = float(value)
+    except OverflowError:
+        raise InvalidError(f"{name}: {_shown(value)} is beyond the range of a float") from None
+    if not math.isfinite(number):
+        raise InvalidError(f"{name}: {number} is not a finite number")
+    return number
+
+
+def _flag(name: str, value: object) -> bool:
+    """`value` as a bool; anything else, a number included, is a `TypeError` naming `name`."""
+    if not isinstance(value, (bool, np.bool_)):
+        raise TypeError(f"{name}: a bool is wanted, got {type(value).__name__} {_shown(value)}")
+    return bool(value)
+
+
+def _items[T](name: str, value: object, wanted: str, one: Callable[[str, object], T], size: int) -> tuple[T, ...]:
+    """`value` as a tuple of `size` items, each converted by `one`. Anything that is not a list, a tuple or an array of
+    that length is a `TypeError` naming `name` and `wanted`, the shape it takes."""
+    if not isinstance(value, (list, tuple, np.ndarray)) or len(value) != size:
+        raise TypeError(f"{name}: {wanted} is wanted, got {_shown(value)}")
+    return tuple(one(name, item) for item in value)
 
 
 class Layer:
@@ -108,7 +146,10 @@ class Layer:
         then acts on the fitted box. `InvalidError` for another word, a `box` with a width or height not above 0 or
         a number that is not finite, an `align` outside 0 to 1.
         """
-        return type(self)(self._core.fit(box, how, align))
+        if not isinstance(how, str):
+            raise TypeError(f'how: "cover", "contain" or "stretch" is wanted, got {type(how).__name__} {_shown(how)}')
+        area = _items("box", box, "(x, y, width, height), four numbers", _number, 4)
+        return type(self)(self._core.fit(area, how, _items("align", align, "(x, y), two numbers", _number, 2)))
 
     def place(
         self,
@@ -133,14 +174,14 @@ class Layer:
         """
         return type(self)(
             self._core.place(
-                dx=dx,
-                dy=dy,
-                scale=scale,
-                aspect=aspect,
-                rotate=rotate,
-                skew=skew,
-                flip=flip,
-                anchor=anchor,
+                dx=None if dx is None else _number("dx", dx),
+                dy=None if dy is None else _number("dy", dy),
+                scale=None if scale is None else _number("scale", scale),
+                aspect=None if aspect is None else _number("aspect", aspect),
+                rotate=None if rotate is None else _number("rotate", rotate),
+                skew=None if skew is None else _items("skew", skew, "(x, y) degrees, two numbers", _number, 2),
+                flip=None if flip is None else _items("flip", flip, "(x, y), two bools", _flag, 2),
+                anchor=None if anchor is None else _items("anchor", anchor, "(x, y), two numbers", _number, 2),
             )
         )
 
