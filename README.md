@@ -42,32 +42,42 @@ effects it gets. The scene then draws everything at the size you ask for, from a
 
 ## What it looks like
 
-A sketch of the idea, not the real interface. The API is designed from examples in the first batch of work
-([roadmap](docs/roadmap.md), A1) and will differ.
+The calls are in [docs/api.md](docs/api.md) and the programs in [docs/examples/](docs/examples/); nothing renders yet.
 
 ```python
-# illustration only: the names below are not final
-poster = Scene(width=1800, height=2400)
-poster.add(photo("dancer.jpg").look("two-inks"))  # the background
-poster.add(text("MORE LAYERS.", font="display.ttf").behind(subject))  # type tucked behind the dancer
-poster.add(photo("dancer.jpg").cut_out())  # the dancer, over the type
-poster.add(grain(amount=0.3))  # over everything
+import bullterrier_scene as bts
+from bullterrier_image import Recipe, fx, imageio, subject_matte
 
-poster.render().save("poster.png")
+W, H = 1800, 2400
+photo = imageio.load("dancer.jpg")
+matte = subject_matte(photo)  # the dancer, found by image
+dancer = bts.Layer.picture(photo).fit((0, 0, W, H), "cover").look(Recipe([fx.grade(contrast=1.4)]))
+cutout = dancer.named("subject").mask(matte)
+
+poster = bts.Scene(W, H).add(
+    dancer.named("photo"),
+    bts.Layer.text("MORE\nLAYERS.", font="bricolage_grotesque", size=620, color="#f2ece0")
+    .named("headline")
+    .place(dx=110, dy=700)
+    .mask(cutout, invert=True),  # the type passes behind the dancer
+    cutout,  # the dancer, over the type
+    bts.Layer.fill("#808080").look(Recipe([fx.grain(amount=0.07)])).blend("overlay"),  # grain over everything
+)
+imageio.save(poster.render(1200), "poster.png")
 ```
 
 Change `dancer.jpg` and the headline, run it again: a second poster, same design. Two more sketches, to show where else the
 same idea goes:
 
 ```python
-# illustration only: one design, many pictures
+# one design, many pictures: a scene with a photo and a title as parameters
 for episode in episodes:
-    card = cover.with_values(title=episode.title, photo=episode.photo)
-    card.render(size=(1280, 720)).save(f"{episode.id}.png")
+    card = cover.with_values({"title.text": episode.title, "photo.picture": episode.photo})
+    imageio.save(card.render(1280), f"{episode.id}.png")
 
-# illustration only: a value you set per frame is an animation
+# a value you set per frame is an animation: the clock is yours, the scene has none
 for frame in range(48):
-    scene.with_values(slide=frame / 47).render().save(f"frame-{frame:02}.png")
+    imageio.save(scene.with_values({"headline.dx": slide(frame / 47)}).render(1280), f"frame-{frame:02}.png")
 ```
 
 ## What you can make

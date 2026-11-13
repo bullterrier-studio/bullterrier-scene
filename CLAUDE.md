@@ -2,8 +2,8 @@
 
 A Rust library (crate `bullterrier-scene`) with a Python interface that puts layers (pictures, image looks, vector drawings) together
 into one picture: placed, masked, blended, rendered at any size and in bands. **The code API is the product**; JSON is the same scene
-written down. `README.md` (use), `docs/design.md` (what and how), `docs/design-decisions.md` (why), `docs/roadmap.md` (the batches),
-`docs/ecosystem.md` (the sibling packages), `docs/shared-files.md` (what stays identical across projects), `docs/releasing.md`.
+written down. `README.md` (use), `docs/api.md` (the calls, with `docs/examples/`), `docs/design.md` (what and how), `docs/design-decisions.md` (why),
+`docs/roadmap.md` (the batches), `docs/ecosystem.md` (the sibling packages), `docs/shared-files.md` (what stays identical across projects), `docs/releasing.md`.
 
 **Write docs terse.** This file, the README, `docs/`, docstrings, reports and briefs: state the rule or fact, drop preamble,
 repetition and justification a reader does not need to act. Reasons go in `docs/design-decisions.md`, once. Committed files are
@@ -32,7 +32,8 @@ uv run poe full                      # `check` and the gate proofs: before a tag
 | keep files identical across projects | `docs/shared-files.md` |
 
 **State:** scaffold only (S0): the template's one feature `scale(value, factor)` stands in end to end (core, extension, package, the
-command `bt-scene scale`, each tested) until batch C1 replaces it. Next: A1 (the code API, `docs/roadmap.md`). No work starts until image E4 and vector V10 are finished, merged and pushed (`docs/roadmap.md`, "When work starts").
+command `bt-scene scale`, each tested) until batch C1 replaces it. A1 (the code API) is written: `docs/api.md` and `docs/examples/`,
+awaiting its review. Next: C1 (`docs/roadmap.md`, "When work starts": image E4 and vector V10 are merged).
 
 ## Responsibility
 
