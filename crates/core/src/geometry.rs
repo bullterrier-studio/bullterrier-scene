@@ -45,9 +45,9 @@ impl Axis {
         }
     }
 
-    /// The whole pixels that divide `design` design pixels at this scale.
-    fn count(self, design: f64) -> usize {
-        whole_up(self.pixels(design))
+    /// The whole pixels that divide `design` design pixels at this scale, as a float (it may be far past what a count holds).
+    fn count(self, design: f64) -> f64 {
+        round_up(self.pixels(design))
     }
 }
 
@@ -56,7 +56,12 @@ impl Axis {
 /// last place off the whole number it is in exact arithmetic, and must not draw a pixel more.
 const ROUNDING: f64 = 1e-12;
 
-/// The least whole number of pixels that holds `length` pixels, allowing a relative error of [`ROUNDING`].
+/// The least whole number of pixels that holds `length` pixels, allowing a relative error of [`ROUNDING`], as a float.
+fn round_up(length: f64) -> f64 {
+    (length * (1.0 - ROUNDING)).ceil().max(0.0)
+}
+
+/// [`round_up`] as a count: the caller has bounded `length` (it is at most 2^27 pixels).
 pub(crate) fn whole_up(length: f64) -> usize {
     // a length is never negative and none reaches 2^53 (the callers bound it): the cast is exact
     #[expect(
@@ -65,7 +70,7 @@ pub(crate) fn whole_up(length: f64) -> usize {
         reason = "a length of at most 2^27 pixels"
     )]
     {
-        (length * (1.0 - ROUNDING)).ceil().max(0.0) as usize
+        round_up(length) as usize
     }
 }
 
@@ -110,15 +115,33 @@ impl Scale {
     /// refused before anything of its size is allocated.
     pub(crate) fn size(self, rect: Rect) -> Result<(usize, usize), Error> {
         let (columns, rows) = (self.x.count(rect.width), self.y.count(rect.height));
-        if columns.saturating_mul(rows) > MAX_PIXELS {
+        #[expect(clippy::cast_precision_loss, reason = "the limit is a power of two: exact")]
+        if columns * rows > MAX_PIXELS as f64 {
+            // a count past the limit by far is not printed as a number a machine word saturates at
+            let shown = |count: f64| {
+                #[expect(clippy::cast_precision_loss, reason = "the limit is a power of two: exact")]
+                if count > MAX_PIXELS as f64 {
+                    format!("more than {MAX_PIXELS}")
+                } else {
+                    format!("{count}")
+                }
+            };
             return Err(Error::invalid(
                 "size",
                 format!(
-                    "the layer is drawn {columns} x {rows} pixels; at most {MAX_PIXELS} pixels (2^27) are drawn: lower `size` or make the layer smaller"
+                    "the layer is drawn {} x {} pixels; at most {MAX_PIXELS} pixels (2^27) are drawn: lower `size` or make the layer smaller",
+                    shown(columns),
+                    shown(rows)
                 ),
             ));
         }
-        Ok((columns, rows))
+        // each at most 2^27: exact
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "within the limit, so a whole number below 2^27"
+        )]
+        Ok((columns as usize, rows as usize))
     }
 }
 

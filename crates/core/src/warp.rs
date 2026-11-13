@@ -278,8 +278,10 @@ fn sample(pixels: &[f32], width: usize, [x, y]: [(usize, usize, f32); 2], cover:
     }
     // colour and alpha are summed in the same order with a colour never above its alpha, and rounding is monotone, so the
     // mixed colour is never above the mixed alpha and the quotient is at most 1; weights that sum a step over 1 are met
-    // by the minimum below
+    // by the minimum below. The alpha is divided by the sum of the weights, added in the same order: an opaque picture is
+    // exactly opaque, though four weights of 32-bit floats may sum to a step under 1.
     let mut mixed = [0.0_f32; 4];
+    let mut total = 0.0_f32;
     for (row, weight_row) in [(y.0, 1.0 - y.2), (y.1, y.2)] {
         for (column, weight_column) in [(x.0, 1.0 - x.2), (x.1, x.2)] {
             let weight = weight_row * weight_column;
@@ -288,6 +290,7 @@ fn sample(pixels: &[f32], width: usize, [x, y]: [(usize, usize, f32); 2], cover:
             mixed[1] += weight * (green * alpha);
             mixed[2] += weight * (blue * alpha);
             mixed[3] += weight * alpha;
+            total += weight;
         }
     }
     let alpha = mixed[3];
@@ -296,7 +299,7 @@ fn sample(pixels: &[f32], width: usize, [x, y]: [(usize, usize, f32); 2], cover:
         colour(mixed[0]),
         colour(mixed[1]),
         colour(mixed[2]),
-        alpha.min(1.0) * cover,
+        (alpha / total).min(1.0) * cover,
     ]
 }
 

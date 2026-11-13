@@ -42,7 +42,7 @@ effects it gets. The scene then draws everything at the size you ask for, from a
 
 ## What it looks like
 
-The calls are in [docs/api.md](docs/api.md) and the programs in [docs/examples/](docs/examples/); nothing renders yet.
+The calls are in [docs/api.md](docs/api.md) and the programs in [docs/examples/](docs/examples/); `c1_first_picture.py` and `c2_prints.py` render now (`uv run poe look`), the others wait for their batches.
 
 ```python
 import bullterrier_scene as bts

@@ -1292,6 +1292,58 @@ fn a_place_number_is_refused_outside_its_range_naming_the_field() -> Outcome {
     Ok(())
 }
 
+/// A layer too large for a count of pixels to be held says so: it is "more than" the limit, not the saturated count of a
+/// machine word.
+#[test]
+fn a_layer_of_absurd_size_is_refused_as_more_than_the_limit_not_as_a_saturated_count() -> Outcome {
+    for (area, wanted) in [
+        ([0.0, 0.0, 1e300, 1.0], "more than 134217728 x 1 pixels"),
+        ([0.0, 0.0, 1.0, 1e300], "x more than 134217728 pixels"),
+    ] {
+        let layer = Layer::fill("#ffffff")?
+            .named("band")?
+            .fit(area, Fit::Stretch, [0.5, 0.5])?;
+        let refused = scene(10, 10, [layer])?.render(10);
+        assert!(
+            matches!(&refused, Err(Error::Invalid { address, message })
+                if address.starts_with("band") && message.contains(wanted) && !message.contains("18446744073709551615")),
+            "{refused:?}"
+        );
+    }
+    Ok(())
+}
+
+/// The interior of an opaque picture stays opaque to the last bit under a turn by any angle or a scale above 1: the four
+/// bilinear weights of a pixel sum to a step under 1 in 32-bit floats, and the alpha is divided by their sum.
+#[test]
+fn the_interior_of_an_opaque_layer_stays_exactly_opaque_when_it_is_turned_or_enlarged() -> Outcome {
+    let source = varied(40, 40)?;
+    for place in [
+        Place::new().rotate(Deg(17.0)),
+        Place::new().rotate(Deg(33.0)).scale(1.3),
+        Place::new().skew_x(Deg(20.0)).scale(1.7).rotate(Deg(-40.0)),
+    ] {
+        let drawn = render(
+            Layer::picture(source.clone()).place(place.dx(20.0).dy(20.0))?,
+            (80, 80),
+            80,
+        )?;
+        let mut interior = 0;
+        for (x, y) in (0..80_usize).flat_map(|y| (0..80_usize).map(move |x| (x, y))) {
+            if (f64::from(u32::try_from(x)?) - 39.5).hypot(f64::from(u32::try_from(y)?) - 39.5) <= 12.0 {
+                interior += 1;
+                assert!(
+                    pixel(&drawn, x, y)[3].to_bits() == 1.0_f32.to_bits(),
+                    "({x}, {y}): alpha {}",
+                    pixel(&drawn, x, y)[3]
+                );
+            }
+        }
+        assert!(interior > 400);
+    }
+    Ok(())
+}
+
 /// A refusal says the range it checks, so the message and the check cannot disagree: the numbers in it are the limits.
 #[test]
 fn a_refusal_names_the_range_of_the_number() -> Outcome {

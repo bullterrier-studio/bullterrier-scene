@@ -41,6 +41,15 @@ moves it to the layer and needs a third adapter file for image; the `Source` tra
 a plugin layer (C7) needs a public trait. The trait is now "draw this part of your box at this scale" and answers with the
 raster and the part of the box it shows, so a fill answers with one pixel and a picture without a look with its own pixels.
 
+**For C5 and later, from the C2a review** (not built): `Layout::warp` clips by `window == covers`, so a look that grows the
+raster past the box (its room) would be clipped away: `Drawn` needs a visible rectangle of its own, apart from what it covers.
+`Layout` holds one `Placed`, and the extra `place` of C4's `Layer.of` needs a composite of two. `Source` has no identity, which
+C7's cache key needs.
+
+**Limit: alpha.** The alpha of an interior pixel of an opaque layer is exactly 1 after a move, a quarter turn, a flip, any
+turn or an enlargement; after an area average (a reduction) it may be 1 - 1e-7, because the weights of a span in 32-bit
+floats sum to a step under 1.
+
 **Limits, measured** (release build, 2026-11-13, arm64 Mac, peak resident memory of a whole render):
 
 | Render | Peak |
