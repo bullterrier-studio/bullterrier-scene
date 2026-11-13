@@ -61,7 +61,7 @@ poster = bts.Scene(W, H).add(
     .named("headline")
     .place(dx=110, dy=700)
     .mask(bts.Layer.of("subject"), invert=True),  # the type passes behind the dancer
-    dancer.named("subject").mask("subject"),  # the dancer, over the type
+    bts.Layer.of("photo").named("subject").mask("subject"),  # the dancer, over the type
     bts.Layer.fill("#808080").look(Recipe([fx.grain(amount=0.07)])).blend("overlay"),  # grain over everything
 )
 imageio.save(poster.render(1200), "poster.png")
@@ -99,7 +99,7 @@ Nothing renders yet; this is what the design allows and the [roadmap](docs/roadm
 - **Large and reusable.** Print-size canvases drawn in strips; a finished badge or logo lockup built once as a scene and used
   inside other scenes. Print colour and PDF come later.
 
-Not for: an editing app or painting tools, 3D, photo retouching, or working with footage (that is video's).
+Not for: an editing app or painting tools, a 3D engine (lit relief such as chrome type is image's effects on a layer), photo retouching, or working with footage (that is video's).
 
 ## Rust first, Python on top
 
