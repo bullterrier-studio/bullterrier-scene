@@ -29,14 +29,14 @@ effects it gets. The scene then draws everything at the size you ask for, from a
 
 <table>
   <tr>
-    <td width="33%" valign="top"><b>Layers of any kind</b><br>A photo, a photo with a look applied, a drawing or text from <code>bullterrier-vector</code>, a flat colour or a gradient, even another scene.</td>
+    <td width="33%" valign="top"><b>Layers of any kind</b><br>A photo, a photo with a look applied, a drawing or text from <code>bullterrier-vector</code> (a gradient is a drawing), a flat colour, even another scene or a layer of the same scene drawn again.</td>
     <td width="33%" valign="top"><b>Placed, masked, blended</b><br>Move, turn, scale and skew a layer. Hide parts of it with a shape, the letters of a headline or a cut-out of the subject. Blend it like in a design app: multiply, screen, overlay and the rest.</td>
     <td width="33%" valign="top"><b>Effects per layer or per group</b><br>Grain on the whole poster, a halftone on one photo, a glow on the headline. The effects come from <code>bullterrier-image</code>.</td>
   </tr>
   <tr>
     <td width="33%" valign="top"><b>One template, many pictures</b><br>Swap the photo, the title or a colour and render again. A hundred covers from one scene is a loop, not a hundred files.</td>
     <td width="33%" valign="top"><b>Any size, same picture</b><br>Draft small, print large. Every layer is drawn at the final size by the package that owns it, so the draft shows what the print will.</td>
-    <td width="33%" valign="top"><b>Big canvases without big memory</b><br>A large picture is drawn a strip at a time, so fifteen layers at print size do not need fifteen full-size pictures in memory at once.</td>
+    <td width="33%" valign="top"><b>Big canvases without big memory (planned)</b><br>A large picture will be drawn a strip at a time, so fifteen layers at print size do not need fifteen full-size pictures in memory at once. Until then (batch B1 is deferred) <code>render</code> draws the whole picture.</td>
   </tr>
 </table>
 
@@ -51,16 +51,15 @@ from bullterrier_image import Recipe, fx, imageio, subject_matte
 W, H = 1800, 2400
 photo = imageio.load("dancer.jpg")
 matte = subject_matte(photo)  # the dancer, found by image
-dancer = bts.Layer.picture(photo).fit((0, 0, W, H), "cover").look(Recipe([fx.grade(contrast=1.4)]))
-cutout = dancer.named("subject").mask(matte)
+dancer = bts.Layer.picture(photo, maps={"subject": matte}).fit((0, 0, W, H), "cover").look(Recipe([fx.grade(contrast=1.4)]))
 
 poster = bts.Scene(W, H).add(
     dancer.named("photo"),
     bts.Layer.text("MORE\nLAYERS.", font="bricolage_grotesque", size=620, color="#f2ece0")
     .named("headline")
     .place(dx=110, dy=700)
-    .mask(cutout, invert=True),  # the type passes behind the dancer
-    cutout,  # the dancer, over the type
+    .mask(bts.Layer.of("subject"), invert=True),  # the type passes behind the dancer
+    dancer.named("subject").mask("subject"),  # the dancer, over the type
     bts.Layer.fill("#808080").look(Recipe([fx.grain(amount=0.07)])).blend("overlay"),  # grain over everything
 )
 imageio.save(poster.render(1200), "poster.png")
@@ -72,7 +71,7 @@ same idea goes:
 ```python
 # one design, many pictures: a scene with a photo and a title as parameters
 for episode in episodes:
-    card = cover.with_values({"title.text": episode.title, "photo.picture": episode.photo})
+    card = cover.with_values({"title.text": episode.title, "photo.picture": Path(episode.photo)})
     imageio.save(card.render(1280), f"{episode.id}.png")
 
 # a value you set per frame is an animation: the clock is yours, the scene has none
