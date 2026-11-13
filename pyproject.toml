@@ -312,6 +312,8 @@ ignore_names = []
 # transitive-only or development-only dependency fails. tests/ is not scanned (deptry's default): tests may use the
 # development tools.
 [tool.deptry]
+# docs/examples are programs written against the sibling packages and numpy, which scene's own environment does not declare
+extend_exclude = ["docs/examples"]
 # check_release: tools/release.py imports its sibling script (a script's own folder is first on sys.path)
 known_first_party = ["bullterrier_scene", "check_release"]
 
