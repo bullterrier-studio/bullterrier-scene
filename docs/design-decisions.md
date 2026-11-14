@@ -407,6 +407,43 @@ counts its `draw` calls (`Layer.make`, arrives with C7).
   needs an isolated buffer; `Layer` does not separate the stages a reference inherits from those it owns; `Placement` cannot hold
   two placements composed.
 
+## C4b: references (2026-11-14)
+
+- **A layer is a body and a join, and a reference holds a name.** `Layer { name, base, join }`: the body (source with its looks and own-map masks,
+  `fit`, placement, extra places) is stages 1 to 5, the join (layer masks, light, opacity, blend) 6 to 9. `Scene::add` resolves a
+  reference into the body it draws from the *body* of the layer it names, so inheriting nothing of the join is a property of the types, not of a
+  list of fields that a later field could be left off. *Alternative weighed:* a reference as a clone of the named layer with the join reset
+  (it would inherit a field a new batch adds to `Layer` by default). The split went in first and its own commit proves no change: 45 scenes
+  (pictures, drawings, text, fills, every placement and perspective, masks of every kind, sixteen blends, light) at two sizes hash the same.
+- **References are resolved at `add`, into a second list.** The scene keeps the layers as added (`layers()` returns them: a reference
+  stays one, and the same layer added to another scene is resolved there) and the layers as drawn (every reference replaced by a body,
+  also in mask layers). `render` knows no reference exists and passes nothing by name. *Alternative weighed:* resolving at render through a
+  name table passed down (no second list, but `lay`, `product`, `plane` and a repeated fold of the looks at every draw, which re-parses the
+  recipe each time). *Cost:* every `add` clones both lists, a sum over at most 1,000 layers; it is what `add` already did once.
+- **Extras are a list, composed at render.** The bounding rectangle a reference's `anchor` names is of the placed box, which depends on `fit` and
+  on the source's real size, known only when the layer is drawn. So the body keeps the references' places as a list of `Placed` and `Layout`
+  turns them into steps about the rectangle of what came before. An affine after an affine is an `Affine::then` in output pixels; after a
+  perspective it is a 3 by 3 product with the quadrilateral's homography, whose last row survives exactly, so C2b's decision of what is affine
+  stands and nothing is classified twice. The no-extras path is the code it was.
+- **A cycle through a mask is refused although it would end.** A reference takes a body and no masks, so `a.mask(Layer.of("b"))` with
+  `b.mask(Layer.of("a"))`, and a layer masked by a reference to itself, draw fine; the plan refuses them and so does `add`. *Reason:* a refusal
+  can be relaxed later and a cycle accepted cannot be refused; looks on every layer (C5) and groups (C4c) may make a mask part of what a
+  reference draws. *Cost:* a layer cannot be cut by a copy of itself through `Layer.of`; use a second layer.
+- **Depth is mask layers plus reference links, count is layers drawn.** One `Budget` (`budget.rs`: depth and layers, `beside`, `needing`,
+  `through`, `checked`) stands for the rule, kept in the scene per add: C4c adds a group's inner budget to it. The count changed from C3: it
+  counted the stack and one layer's mask layers apart (1,000 each), now a scene draws at most 1,000 in all, a mask layer used by 500 layers
+  counted 500 times. The plan's example (600 layers and a mask layer used by 600 references) is refused by the stack alone and kills no
+  mutant; the rows are 500 and 501 layers sharing one mask layer.
+- **A reference redraws the named layer's body at the composite density.** A halo must follow an extra `scale`, so the source is asked at
+  `output x fit x place.scale x extras' scales` (for a perspective, the largest scale of the composite homography). The cost is a second draw
+  of the body, as a copy costs; only a reference that leaves the density alone can share a raster (C7).
+- **No snap of near-zero entries.** The plan asked to classify a composite by the relative tolerance. For an affine after a perspective the
+  rule is inherited (the last row). For an affine after an affine the entries are exact where the places are exact (quarter turns, flips,
+  moves, powers of two); a turn of 30 degrees then 60 has entries a few ulps from a quarter turn's and would have to be snapped near 1 as
+  well to be a copy, which `place(rotate=90)` is and the product of two turns is not: the general kernel gives the same pixels to 1e-4.
+- **Shadow of the examples:** the shadow is a skewed, flattened reference under the figure, because the same flattened shape right under a
+  figure is hidden behind it.
+
 ## Smaller choices of the API (2026-11-13)
 
 - **A group is a scene, a mask is a layer.** No group type and no mask type; one `Layer` does both.

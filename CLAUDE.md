@@ -32,10 +32,10 @@ uv run poe full                      # `check` and the gate proofs: before a tag
 | change a gate | `pyproject.toml` (Python tools, poe tasks), `Cargo.toml` (Rust lints, tool pins); proof in `tests/tools/` |
 | keep files identical across projects | `docs/shared-files.md` |
 
-**State:** C1, C2a, C2b, C3 and C4a done (`docs/roadmap.md`): a `Scene` of picture, drawing, fill and text layers with an image look on a picture, each
+**State:** C1, C2a, C2b, C3, C4a and C4b done (`docs/roadmap.md`): a `Scene` of picture, drawing, fill and text layers with an image look on a picture, each
 `fit` into a box (cover, contain, stretch) and `place`d (flip, scale, aspect, skew, rotate about an anchor, move) by one warp, opacity, a blend mode (the sixteen W3C modes) and `as_light`, rendered whole at
 any size to a float32 array (Python) and a `Raster` (Rust). What is built and where it differs from the contract is "What is built" in
-`docs/api.md`. A layer can also be put on a convex quadrilateral (`perspective`). A picture holds named maps and hands them to its looks. A layer is masked by a layer drawn on the canvas or by one of its own maps (`mask`: alpha or luminance, `feather`, `invert`; masks nest to `MAX_DEPTH`). Next: groups and references (C4b), then looks on every layer (C5).
+`docs/api.md`. A layer can also be put on a convex quadrilateral (`perspective`). A picture holds named maps and hands them to its looks. A layer is masked by a layer drawn on the canvas or by one of its own maps (`mask`: alpha or luminance, `feather`, `invert`; masks nest to `MAX_DEPTH`). A layer can refer to another layer of its scene (`Layer.of`: its body again, with its own join, looks, own-map masks and an extra `place`; resolved by `Scene::add`, which also counts the layers a render draws and how deep they lean on one another). Next: groups (C4c), then looks on every layer (C5).
 
 **Setup, once:** image and vector are private git dependencies (pinned by `rev` in `Cargo.toml`, bumped in a commit of its own).
 A fetch needs git credentials for `github.com/bullterrier-studio` (a credential helper is enough; if cargo's own git client is
@@ -79,7 +79,7 @@ errors     BullterrierSceneError > InvalidError, FormatError, ReadError
 ```
 
 **Rust core:** `crates/core` (pure Rust: no PyO3, no numpy, `#![forbid(unsafe_code)]`; one file per concept): `scene` (`Scene`),
-`layer` (`Layer`), `raster` (`Raster`), `blend` (`Blend`, the compositing equation and light), `render` (size, the join of each layer, straight alpha), `warp` (the one resample: bilinear and area average), `placement` (`Fit`,
+`layer` (`Layer`: a body and a join), `reference` (`Layer.of`: how `Scene::add` resolves them), `budget` (`MAX_DEPTH`, `MAX_LAYERS`: one rule), `raster` (`Raster`), `blend` (`Blend`, the compositing equation and light), `render` (size, the join of each layer, straight alpha), `warp` (the one resample: bilinear and area average), `placement` (`Fit`,
 `Place`, `Deg`: where a layer's box goes), `perspective` (`Quad`: the convex quadrilateral and its homography), `warp/footprint` (the filter of a map that does not keep the axes), `geometry` (`Rect`, `Scale`: the one rule for fractional boxes), `map` (`Map`), `mask` (`Mask`, `Use`: the masks a layer is drawn through, as planes of the canvas plus a margin), `feather` (the blur of a mask: three box passes), `text` (`Text`: the options of a text layer), `error` (the one error type), and `source/` (the trait with one question, "draw this part of your box at this scale", and its three answers: `fill`, `picture` (the image adapter: its maps and the masks by them), `drawing` (the vector adapter, and the text layers)). `crates/python` (PyO3 bindings
 building `bullterrier_scene._native._core`; generic: no logic of the core, only the mapping of calls, arrays and errors). A refusal
 of the core is a Python `InvalidError`, `FormatError` or `ReadError`, imported when the first one is raised. There is no other
