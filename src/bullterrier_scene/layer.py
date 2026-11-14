@@ -207,7 +207,7 @@ class Layer:
         `as_light` act on it as one. A group at opacity 0.5 fades as one picture (two overlapping children are not each
         faded), a `multiply` child inside it meets the group's content and not what is below it, and a group blended
         `multiply` meets what is below. It is drawn at the density it will have, so it is as sharp at any size, and
-        one scene may be used any number of times. A look is an `InvalidError` until batch C5. The scene counts in
+        one scene may be used any number of times. A look runs on its finished picture. The scene counts in
         `MAX_LAYERS` at each use (one layer and the layers it draws) and in `MAX_DEPTH`, which `Scene.add` checks; the
         pictures of scenes drawn inside one another are at most 2^27 pixels together (`InvalidError` at `render`). A
         non-scene is a `TypeError`.
@@ -228,7 +228,7 @@ class Layer:
         of the box as the named layer places it. `fit`, `perspective` and `maps` are an `InvalidError`: it inherits
         them. It is also a mask: `layer.mask(Layer.of("subject"))`. `Scene.add` finds `name`: a layer added before, or
         in the same call, either order; a name that is none, and a chain of references that leads back to itself
-        (also through masks), is an `InvalidError` there, as are a look the named layer cannot take and a map it lacks.
+        (also through masks), is an `InvalidError` there, as is a map the named layer lacks.
         """
         if not isinstance(name, str):
             raise TypeError(
@@ -363,9 +363,10 @@ class Layer:
         """This layer with an image look run on it, after the looks it has.
 
         `recipe` is anything with `to_dict()` (an image `Recipe`), the dict it writes, or a `Path` to a recipe file read
-        now; a `str` is a `TypeError`: pass `Path(...)`. The look runs on the picture at the output size and keeps its
-        alpha; only a picture layer takes one. A recipe image refuses, or that sets `size` or `frame`, is an
-        `InvalidError` in image's words; a recipe `format` the linked image crate does not read, a `FormatError`.
+        now; a `str` is a `TypeError`: pass `Path(...)`. Any layer takes one: it runs on what the layer draws at the
+        output size (a picture, a drawing, a text, a fill, a group's finished picture) and keeps its alpha. A recipe
+        image refuses, or that sets `size` or `frame`, is an `InvalidError` in image's words; a recipe `format` the
+        linked image crate does not read, a `FormatError`.
         """
         if isinstance(recipe, Path):
             return type(self)(self._core.look_file(recipe))

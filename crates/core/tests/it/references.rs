@@ -608,18 +608,22 @@ fn a_reference_refuses_a_fit_a_perspective_and_a_map() -> Outcome {
     Ok(())
 }
 
-/// What a reference's looks and maps need of the layer it names is found when it is added: that layer must take a look, and
-/// have the map.
+/// What a reference's masks by a map need of the layer it names is found when it is added: that layer must have the map. A
+/// look needs nothing of it: every layer takes one, and a recipe image refuses is refused at the call.
 #[test]
-fn a_look_or_a_map_the_named_layer_cannot_take_is_refused_at_add_naming_the_reference() -> Outcome {
+fn a_mask_by_a_map_the_named_layer_lacks_is_refused_at_add_naming_the_reference() -> Outcome {
     let picture = body()?.named("a")?;
     let fill = Layer::fill("#102030")?.named("a")?;
     assert!(scene(4, 4, [picture.clone(), Layer::of("a").look(PLUS_ONE_STOP)?]).is_ok());
-    let message = refusal(scene(4, 4, [fill, Layer::of("a").look(PLUS_ONE_STOP)?.named("glow")?]))?;
-    assert!(message.starts_with("glow.look"), "{message}");
+    assert!(scene(4, 4, [fill.clone(), Layer::of("a").look(PLUS_ONE_STOP)?]).is_ok());
     // a recipe image refuses is refused at the call, before there is a layer to run it on
     assert!(refusal(Layer::of("a").look(r#"{"steps": [{"effect": "nonesuch"}]}"#))?.starts_with("look"));
     let message = refusal(scene(4, 4, [picture, Layer::of("a").mask("matte")?.named("glow")?]))?;
+    assert!(
+        message.starts_with("glow.mask") && message.contains("matte"),
+        "{message}"
+    );
+    let message = refusal(scene(4, 4, [fill, Layer::of("a").mask("matte")?.named("glow")?]))?;
     assert!(
         message.starts_with("glow.mask") && message.contains("matte"),
         "{message}"

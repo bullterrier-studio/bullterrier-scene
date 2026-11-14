@@ -247,12 +247,10 @@ def test_a_scene_as_a_layer_counts_its_layers_and_its_depth_at_each_use():
         Scene(2, 2).add(Layer.scene(nested))
 
 
-def test_a_scene_as_a_layer_takes_a_scene_and_no_look():
+def test_a_scene_as_a_layer_takes_a_scene():
     with pytest.raises(TypeError, match="Scene"):
         Layer.scene("a scene")  # type: ignore[arg-type]  # a wrong type, on purpose
     with pytest.raises(TypeError, match="Scene"):
         Layer.scene(swatch("#ff0000"))  # type: ignore[arg-type]  # a wrong type, on purpose
-    with pytest.raises(InvalidError, match="C5"):
-        Layer.scene(Scene(2, 2)).look({"steps": []})
     with pytest.raises(TypeError, match=r"Layer\.scene"):
         Scene(2, 2).add(Scene(2, 2))  # type: ignore[arg-type]  # a wrong type, on purpose

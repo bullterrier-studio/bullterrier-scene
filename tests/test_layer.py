@@ -286,10 +286,14 @@ def test_a_recipe_file_that_cannot_be_read_is_a_read_error_at_the_call(tmp_path)
         grey(0.5).look(tmp_path / "missing.toml")
 
 
-def test_a_look_on_a_fill_or_a_drawing_is_refused_until_the_batch_that_brings_it():
-    for layer in (Layer.fill("#ff0000"), Layer.drawing(RECTANGLE)):
-        with pytest.raises(InvalidError, match="picture"):
-            layer.look(PLUS_ONE_STOP)
+def test_a_look_runs_on_a_fill_a_drawing_and_a_group_and_keeps_their_alpha():
+    fill = render(Layer.fill("#404040c0").look(PLUS_ONE_STOP), 2)
+    assert np.allclose(fill[0, 0], [128 / 255, 128 / 255, 128 / 255, 192 / 255], atol=1e-6)
+    drawing = render(Layer.drawing(RECTANGLE).look(PLUS_ONE_STOP), 4)
+    assert np.allclose(drawing[..., 3], RED_SQUARE[..., 3])
+    assert np.allclose(drawing[1:3, 1:3], [1, 0, 0, 1], atol=1e-6)
+    group = Layer.scene(Scene(2, 2).add(Layer.fill("#404040"))).look(PLUS_ONE_STOP)
+    assert np.allclose(render(group, 2)[..., :3], 128 / 255, atol=1e-6)
 
 
 def test_a_look_that_needs_a_map_fails_at_render_naming_the_layer_and_the_map():

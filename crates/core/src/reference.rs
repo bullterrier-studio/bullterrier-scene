@@ -47,7 +47,6 @@ impl Reference {
     fn body(&self, target: &Body) -> Result<Body, Error> {
         let mut body = target.clone();
         for look in &self.looks {
-            body.takes_look()?;
             body.finish.add_look(Look::new(look)?);
         }
         for mask in &self.masks {

@@ -2,9 +2,10 @@
 //! from the documented rule of the effect (exposure +1 stop doubles a value), never from the code's own arithmetic. The
 //! equality with image's own render is in `data_boundary`.
 
-use bullterrier_scene::{Error, Layer, Raster};
+use bullterrier_image::{Options, Photo, Presets, Recipe};
+use bullterrier_scene::{Deg, Error, Fit, Layer, Place, Raster, Scene, Text};
 
-use crate::common::{Outcome, close, pixel, pixels, scene, solid, varied};
+use crate::common::{Outcome, close, made, pixel, pixels, rectangle, scene, solid, varied};
 
 /// `Recipe([fx.grade(exposure=1.0)])`, as the pinned package writes it.
 const PLUS_ONE_STOP: &str =
@@ -168,19 +169,6 @@ fn a_format_the_linked_image_crate_reads_is_taken_and_one_it_does_not_is_refused
     Ok(())
 }
 
-#[test]
-fn a_look_on_a_layer_that_is_not_a_picture_is_refused_until_the_batch_that_brings_it() -> Outcome {
-    let drawing = Layer::drawing(&crate::common::rectangle((4, 4), (0.0, 0.0), (4.0, 4.0), "#ff0000"))?;
-    for (what, layer) in [("a fill", Layer::fill("#ff0000")?), ("a drawing", drawing)] {
-        let refused = layer.look(PLUS_ONE_STOP);
-        assert!(
-            matches!(&refused, Err(Error::Invalid { address, message }) if address == "look" && message.contains("picture")),
-            "{what}: {refused:?}"
-        );
-    }
-    Ok(())
-}
-
 /// A look that needs a map scene cannot give (a `subject`): the layer draws, and image's refusal comes from `render`
 /// naming the layer.
 #[test]
@@ -261,5 +249,323 @@ fn a_look_that_overshoots_image_s_nominal_range_by_rounding_still_gives_a_pictur
         "a value is outside 0 to 1"
     );
     assert!(Raster::rgba(32, 24, drawn.into_pixels()).is_ok());
+    Ok(())
+}
+
+// --- a look on every kind of layer ----------------------------------------------------------------------------------
+
+/// A blur wide enough to act on a picture of 40 pixels: image's `px` are those of a picture whose long side is 480, so
+/// 48 of them are 4 pixels of a canvas drawn at 40.
+const BLUR_4_PIXELS_AT_40: &str = r#"{"steps": [{"effect": "gaussian_blur", "params": {"radius": 48.0}}]}"#;
+
+const SEPIA: &str = r#"{"steps": [{"effect": "gradient_map", "preset": "sepia"}]}"#;
+
+/// The same blur at half that: 2 pixels at 40.
+const BLUR_2_PIXELS_AT_40: &str = r#"{"steps": [{"effect": "gaussian_blur", "params": {"radius": 24.0}}]}"#;
+
+/// What image's own render of `recipe` makes of the colour of `drawn` (straight, its alpha set aside), with the alpha of
+/// `drawn` put back: what a look on a layer that drew `drawn` must give.
+fn imaged(drawn: &Raster, recipe: &str) -> Result<Raster, Box<dyn std::error::Error>> {
+    let colour: Vec<f32> = pixels(drawn)
+        .flat_map(|[red, green, blue, _]| [red, green, blue])
+        .collect();
+    let presets = Presets::shipped()?;
+    let recipe = Recipe::from_json(recipe)?.checked(&presets)?;
+    let photo = Photo::new(bullterrier_image::Picture::new(drawn.height(), drawn.width(), &colour)?);
+    let image = photo.render(&recipe, &presets, Options::default())?;
+    let looked = image.into_values();
+    let values = looked
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(pixels(drawn))
+        .flat_map(|(&[red, green, blue], [_, _, _, alpha])| [red, green, blue, alpha])
+        .collect();
+    Ok(Raster::rgba(drawn.width(), drawn.height(), values)?)
+}
+
+/// The largest difference of one premultiplied channel (alpha included) of two pictures of one size: the colour of a
+/// transparent pixel is nothing, and a look may leave any in it.
+fn most(left: &Raster, right: &Raster) -> f32 {
+    assert_eq!((left.width(), left.height()), (right.width(), right.height()));
+    let premultiplied = |[red, green, blue, alpha]: [f32; 4]| [red * alpha, green * alpha, blue * alpha, alpha];
+    pixels(left)
+        .zip(pixels(right))
+        .flat_map(|(l, r)| {
+            premultiplied(l)
+                .into_iter()
+                .zip(premultiplied(r))
+                .map(|(l, r)| (l - r).abs())
+        })
+        .fold(0.0, f32::max)
+}
+
+/// A badge of two layers on 40 by 30: a ramp picture with a translucent fill band over it.
+fn inner_scene() -> Result<Scene, Error> {
+    let ramp = made(40, 30, |x, y| {
+        [
+            f32::from(u8::try_from(x).unwrap_or(0)) / 39.0,
+            f32::from(u8::try_from(y).unwrap_or(0)) / 29.0,
+            0.5,
+            1.0,
+        ]
+    })?;
+    scene(
+        40,
+        30,
+        [
+            Layer::picture(ramp),
+            Layer::fill("#ff880080")?.place(Place::new().dx(6.0))?,
+        ],
+    )
+}
+
+/// Layers of every other kind, each as large as a canvas of 40 by 30 (a text excepted: its box is its glyphs'), with a
+/// translucent part.
+fn kinds() -> Result<Vec<(&'static str, Layer)>, Error> {
+    let text = Layer::text(
+        "Hi",
+        &Text::new("bricolage_grotesque").option("size", 20.0).color("#336699"),
+    )?
+    .place(Place::new().dx(4.0).dy(24.0))?;
+    Ok(vec![
+        ("a fill", Layer::fill("#33669980")?),
+        (
+            "a drawing",
+            Layer::drawing(&rectangle((40, 30), (5.0, 4.0), (33.0, 22.0), "#cc3355"))?,
+        ),
+        ("a text", text),
+        ("a group", Layer::scene(inner_scene()?)),
+    ])
+}
+
+/// A look runs on what the layer drew, whatever drew it: the result is image's own render of that picture's colour, with
+/// the picture's alpha. A pointwise look (a stop) and a look that reads the neighbours (a blur) are asked of each.
+#[test]
+fn a_look_on_a_fill_a_drawing_a_text_or_a_group_is_images_render_of_what_it_drew_with_its_alpha() -> Outcome {
+    for (what, plain) in kinds()? {
+        let drawn = scene(40, 30, [plain.clone()])?.render(40)?;
+        // a text's box is its glyphs', not the canvas: only a look that sees one pixel at a time is the same on both
+        // (a blur of a flat fill is the fill: the look that changes it is a gradient map)
+        let recipes: &[&str] = match what {
+            "a text" => &[PLUS_ONE_STOP],
+            "a fill" => &[PLUS_ONE_STOP, SEPIA],
+            _ => &[PLUS_ONE_STOP, BLUR_4_PIXELS_AT_40],
+        };
+        for recipe in recipes {
+            let got = scene(40, 30, [plain.clone().look(recipe)?])?.render(40)?;
+            let expected = imaged(&drawn, recipe)?;
+            assert!(
+                most(&got, &expected) < 1e-5,
+                "{what}, {recipe}: off by {}",
+                most(&got, &expected)
+            );
+            // the alpha is the layer's own, and a look that changes colour does change it
+            assert!(
+                got.pixels()
+                    .chunks(4)
+                    .zip(drawn.pixels().chunks(4))
+                    .all(|(l, r)| (l[3] - r[3]).abs() < 1e-6),
+                "{what}"
+            );
+            assert!(most(&got, &drawn) > 1e-3, "{what}, {recipe}: the look changed nothing");
+        }
+    }
+    Ok(())
+}
+
+/// A look that changes nothing leaves a fill, a drawing, a text and a group as they were.
+#[test]
+fn a_look_that_changes_nothing_leaves_every_kind_of_layer_as_it_was() -> Outcome {
+    for (what, plain) in kinds()? {
+        let before = scene(40, 30, [plain.clone()])?.render(40)?;
+        let after = scene(40, 30, [plain.look(GRADE_AT_DEFAULTS)?])?.render(40)?;
+        assert!(most(&before, &after) < 1e-6, "{what}: {}", most(&before, &after));
+    }
+    Ok(())
+}
+
+/// A fill of `#40404080` is the colour 64/255 at alpha 128/255: +1 stop doubles the colour and the alpha stays.
+#[test]
+fn a_look_on_a_half_transparent_fill_doubles_its_colour_and_keeps_its_alpha() -> Outcome {
+    let drawn = scene(2, 2, [Layer::fill("#40404080")?.look(PLUS_ONE_STOP)?])?.render(2)?;
+    let (level, alpha) = (128.0 / 255.0, 128.0 / 255.0);
+    assert!(
+        pixels(&drawn).all(|got| close(got, [level, level, level, alpha], 1e-6)),
+        "{:?}",
+        pixel(&drawn, 0, 0)
+    );
+    Ok(())
+}
+
+/// The corner a drawing leaves empty is empty after a look, whatever the look makes of black.
+#[test]
+fn a_look_on_a_drawing_leaves_what_it_does_not_cover_transparent() -> Outcome {
+    let drawing = Layer::drawing(&rectangle((8, 8), (2.0, 2.0), (6.0, 6.0), "#ff0000"))?;
+    let drawn = scene(8, 8, [drawing.look(SEPIA)?])?.render(8)?;
+    assert_eq!(pixel(&drawn, 0, 0)[3], 0.0);
+    assert_eq!(pixel(&drawn, 7, 7)[3], 0.0);
+    assert_eq!(pixel(&drawn, 4, 4)[3], 1.0);
+    Ok(())
+}
+
+/// A group's look sees the group's finished picture: the same as a picture of the inner scene's render given the look, at
+/// the canvas size and at twice it (the group is drawn at the density it has).
+#[test]
+fn a_look_on_a_group_equals_the_look_on_a_picture_of_the_inner_scene_rendered_at_that_size() -> Outcome {
+    for size in [40_u32, 80] {
+        let inner = inner_scene()?;
+        let group = scene(40, 30, [Layer::scene(inner.clone()).look(BLUR_2_PIXELS_AT_40)?])?.render(size)?;
+        let finished = inner.render(size)?;
+        let picture = Layer::picture(finished.clone()).look(BLUR_2_PIXELS_AT_40)?;
+        let expected = scene(
+            u32::try_from(finished.width())?,
+            u32::try_from(finished.height())?,
+            [picture],
+        )?
+        .render(size)?;
+        assert!(
+            most(&group, &expected) < 1e-5,
+            "size {size}: {}",
+            most(&group, &expected)
+        );
+    }
+    Ok(())
+}
+
+/// A look runs at the size the layer is drawn at, so a drawing at `scale` 2 is looked at twice its size, as a picture of
+/// that drawing is: the blur is image's own on the raster the layer has, not one run small and enlarged.
+#[test]
+fn a_look_on_a_drawing_runs_at_the_size_it_is_drawn_at() -> Outcome {
+    let drawing = || Layer::drawing(&rectangle((40, 30), (5.0, 4.0), (33.0, 22.0), "#cc3355"));
+    let big = |layer: Layer| layer.place(Place::new().scale(2.0).anchor(0.0, 0.0));
+    let plain = scene(80, 60, [big(drawing()?)?])?.render(80)?;
+    let got = scene(80, 60, [big(drawing()?.look(BLUR_4_PIXELS_AT_40)?)?])?.render(80)?;
+    let expected = imaged(&plain, BLUR_4_PIXELS_AT_40)?;
+    assert!(most(&got, &expected) < 1e-5, "{}", most(&got, &expected));
+    // the blur reaches far enough to be seen: not a no-op
+    assert!(most(&got, &plain) > 1e-2);
+    Ok(())
+}
+
+/// Look then place: a drawing with a look, turned, equals a picture of the drawing's own raster with the same look
+/// and place, since both run the look on the raster and put it down by one warp.
+#[test]
+fn a_look_on_a_drawing_then_turned_equals_the_same_on_a_picture_of_its_raster() -> Outcome {
+    let drawing = Layer::drawing(&rectangle((40, 30), (5.0, 4.0), (33.0, 22.0), "#cc3355"))?;
+    let raster = scene(40, 30, [drawing.clone()])?.render(40)?;
+    let place = Place::new().rotate(Deg(17.0));
+    let got = scene(40, 30, [drawing.look(BLUR_2_PIXELS_AT_40)?.place(place)?])?.render(40)?;
+    let expected = scene(
+        40,
+        30,
+        [Layer::picture(raster).look(BLUR_2_PIXELS_AT_40)?.place(place)?],
+    )?
+    .render(40)?;
+    assert!(most(&got, &expected) < 1e-5, "{}", most(&got, &expected));
+    Ok(())
+}
+
+/// A look on a text through `fit` and `place` runs on the glyphs' own raster at the size they are drawn at: a pointwise
+/// look commutes with where it is put, up to the resampling at the edges of the box.
+#[test]
+fn a_look_on_a_text_fitted_and_turned_changes_its_colour_where_it_is_and_keeps_its_alpha() -> Outcome {
+    let text = || {
+        Layer::text(
+            "Hi",
+            &Text::new("bricolage_grotesque").option("size", 60.0).color("#336699"),
+        )
+    };
+    let place = |layer: Layer| -> Result<Layer, Error> {
+        layer
+            .fit([5.0, 5.0, 50.0, 30.0], Fit::Contain, [0.5, 0.5])?
+            .place(Place::new().rotate(Deg(17.0)))
+    };
+    let plain = scene(60, 40, [place(text()?)?])?.render(120)?;
+    let looked = scene(60, 40, [place(text()?.look(PLUS_ONE_STOP)?)?])?.render(120)?;
+    // grade doubles a colour (clipped), and a straight colour is not changed by the alpha it is placed at, so where the text
+    // is fully drawn the colour is that of image's render of the text's colour
+    let doubled = |level: f32| (2.0 * level).min(1.0);
+    let covered: Vec<_> = pixels(&plain)
+        .zip(pixels(&looked))
+        .filter(|(p, _)| p[3] > 0.999)
+        .collect();
+    assert_ne!(covered.len(), 0);
+    for (before, after) in covered {
+        assert!(
+            close(
+                after,
+                [doubled(before[0]), doubled(before[1]), doubled(before[2]), before[3]],
+                1e-5
+            ),
+            "{before:?} {after:?}"
+        );
+    }
+    assert!(
+        plain
+            .pixels()
+            .chunks(4)
+            .zip(looked.pixels().chunks(4))
+            .all(|(p, l)| (p[3] - l[3]).abs() < 1e-5)
+    );
+    Ok(())
+}
+
+/// Each row: a look and the words its refusal carries. Every kind of layer refuses what a picture does, at the call.
+#[test]
+fn every_kind_of_layer_refuses_a_recipe_image_refuses_and_takes_one_it_takes() -> Outcome {
+    for (what, layer) in kinds()? {
+        for (rule, recipe, named) in [
+            (
+                "an unknown effect",
+                r#"{"steps": [{"effect": "glitterbomb"}]}"#,
+                "glitterbomb",
+            ),
+            (
+                "a size of its own",
+                r#"{"steps": [{"effect": "grade"}], "size": 100}"#,
+                "size",
+            ),
+            (
+                "a frame of its own",
+                r#"{"steps": [{"effect": "grade"}], "frame": {"aspect": 1.0}}"#,
+                "frame",
+            ),
+        ] {
+            let refused = layer.clone().look(recipe);
+            assert!(
+                matches!(&refused, Err(Error::Invalid { address, message }) if address == "look" && message.contains(named)),
+                "{what}, {rule}: {refused:?}"
+            );
+        }
+        assert!(layer.clone().look(PLUS_ONE_STOP).is_ok(), "{what}");
+    }
+    Ok(())
+}
+
+/// Only a picture has maps: a look that needs one on any other layer fails at render, naming the layer, the step and the map.
+#[test]
+fn a_look_that_needs_a_map_fails_on_every_other_kind_of_layer_at_render_naming_it() -> Outcome {
+    let masked = r#"{"steps": [{"effect": "grade", "params": {"exposure": 1.0}, "mask": "subject"}]}"#;
+    for (what, layer) in kinds()? {
+        let refused = scene(40, 30, [layer.look(masked)?.named("thing")?])?.render(40);
+        assert!(
+            matches!(&refused, Err(Error::Invalid { address, message }) if address.starts_with("thing") && message.contains("subject")),
+            "{what}: {refused:?}"
+        );
+    }
+    Ok(())
+}
+
+/// A reference to a fill inherits the fill's looks and adds its own after them, as a picture's does.
+#[test]
+fn a_reference_adds_its_looks_after_those_of_the_fill_it_names() -> Outcome {
+    let flat = r#"{"steps": [{"effect": "grade", "params": {"contrast": 0.0}}]}"#;
+    let named = Layer::fill("#404040")?.look(PLUS_ONE_STOP)?.named("a")?;
+    let both = scene(2, 2, [named.clone(), Layer::of("a").look(flat)?])?.render(2)?;
+    let expected = scene(2, 2, [Layer::fill("#404040")?.look(PLUS_ONE_STOP)?.look(flat)?])?.render(2)?;
+    assert_eq!(both.pixels(), expected.pixels());
+    // the stop alone would give 0.5019; the flat contrast after it is what makes 0.5
+    assert!(pixels(&both).all(|got| close(got, [0.5, 0.5, 0.5, 1.0], 1e-6)));
     Ok(())
 }

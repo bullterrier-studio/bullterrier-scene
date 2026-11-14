@@ -82,20 +82,6 @@ fn check_name(field: &str, name: &str) -> Result<(), Error> {
 }
 
 impl Body {
-    /// Whether this body takes a look.
-    ///
-    /// # Errors
-    /// [`Error::Invalid`] naming `look` for a body with no picture, until the next commit lifts it.
-    pub(crate) fn takes_look(&self) -> Result<(), Error> {
-        if self.source.map_names().is_none() {
-            return Err(Error::invalid(
-                "look",
-                "a look runs on a picture layer; looks on other layers arrive with batch C5",
-            ));
-        }
-        Ok(())
-    }
-
     /// This body with the mask `mask` by a map of its picture, after its looks and masks.
     ///
     /// # Errors
@@ -281,10 +267,7 @@ impl Layer {
     /// it names after that layer's looks.
     fn looked(mut self, recipe: serde_json::Value) -> Result<Self, Error> {
         match &mut self.base {
-            Base::Body(body) => {
-                body.takes_look()?;
-                body.finish.add_look(Look::new(&recipe)?);
-            }
+            Base::Body(body) => body.finish.add_look(Look::new(&recipe)?),
             Base::Of(reference) => {
                 check_look(&recipe)?;
                 reference.looks.push(recipe);
