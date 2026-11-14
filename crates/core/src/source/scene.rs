@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use super::{Drawn, Opened, Source};
 use crate::budget::Budget;
-use crate::geometry::Rect;
+use crate::geometry::{MAX_PIXELS, Rect};
 use crate::landing::Target;
 use crate::render::{draw, straight};
 use crate::{Error, Raster, Scene};
@@ -54,6 +54,18 @@ impl Source for Group {
         let opened = Opened::new(own, move |request| {
             let covers = request.whole(own);
             let (columns, rows) = request.scale.size(covers)?;
+            // the pictures of the groups drawn inside one another are alive together: their sum is the bound, checked before
+            // this one is allocated
+            let held = request.held + columns * rows;
+            if held > MAX_PIXELS {
+                return Err(Error::invalid(
+                    "size",
+                    format!(
+                        "the scenes drawn inside one another hold {held} pixels at once ({columns} x {rows} here, {} outside); at most {MAX_PIXELS} pixels (2^27): lower `size` or make the scenes smaller",
+                        request.held
+                    ),
+                ));
+            }
             let target = Target {
                 canvas: own,
                 scale: request.scale,
@@ -61,7 +73,7 @@ impl Source for Group {
                 rows,
                 margin: (0, 0),
                 offset: request.phase,
-                held: request.held,
+                held,
             };
             let joined = draw(&self.scene.drawn, &target).map_err(|error| error.in_layer("scene"))?;
             Ok(Drawn {

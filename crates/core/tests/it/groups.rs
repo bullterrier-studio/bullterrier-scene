@@ -489,3 +489,67 @@ fn a_reference_to_a_group_is_a_second_copy_of_it() -> Outcome {
     }
     Ok(())
 }
+
+// --- size ----------------------------------------------------------------------------------------------------------
+
+/// The pictures of the scenes drawn inside one another are alive at once, so 2^27 pixels is their sum: two nested groups of
+/// 2^26 pixels and a little more are refused when the inner one is about to be drawn, before it allocates (the test would
+/// otherwise hold gigabytes), and the same nest at a smaller size renders.
+#[test]
+fn the_pictures_of_nested_groups_sum_to_at_most_2_pow_27_pixels() -> Outcome {
+    // 8,192 by 8,193 design pixels, a design pixel one output pixel: 2^26 + 8,192 pixels a picture, 2^27 + 16,384 in two
+    let nested = || -> Result<Scene, Error> {
+        let innermost = scene(8_192, 8_193, [Layer::fill("#ffffff80")?])?;
+        let middle = scene(8_192, 8_193, [Layer::scene(innermost)])?;
+        scene(8_192, 8_193, [Layer::scene(middle)])
+    };
+    let message = refusal(nested()?.render(8_193))?;
+    assert!(message.contains("size") && message.contains("2^27"), "{message}");
+    // each picture alone is under the limit: the sum is what is refused, and only the nest of two is
+    let one = scene(
+        8_192,
+        8_193,
+        [Layer::scene(scene(8_192, 8_193, [Layer::fill("#ffffff80")?])?)],
+    )?;
+    assert!(one.render(512).is_ok());
+    assert!(nested()?.render(512).is_ok());
+    Ok(())
+}
+
+/// What a group is asked for can be hostile: nothing allocates past the limit, nothing is NaN, every value lies in 0 to 1.
+#[test]
+fn a_group_of_any_size_or_scale_is_refused_or_drawn_in_range() -> Outcome {
+    let tiny = || scene(2, 2, [Layer::fill("#336699cc")?]);
+    let sane = |raster: &Raster| pixels(raster).all(|pixel| pixel.iter().all(|value| (0.0..=1.0).contains(value)));
+    // an empty scene is a transparent layer
+    let empty = scene(24, 16, [Layer::scene(Scene::new(5, 5)?)])?.render(24)?;
+    assert!(pixels(&empty).all(|pixel| exactly(pixel, [0.0; 4])));
+    // a canvas of 100,000 by 100,000 design pixels, one to the pixel: refused before it is allocated; fitted into a small
+    // box it is drawn small
+    let huge = || Scene::new(100_000, 100_000);
+    let big = scene(24, 16, [Layer::scene(huge()?)])?;
+    assert!(refusal(big.render(24))?.contains("size"));
+    let fitted = scene(
+        24,
+        16,
+        [Layer::scene(huge()?.add([Layer::fill("#ff000080")?])?).fit(
+            [0.0, 0.0, 24.0, 16.0],
+            Fit::Contain,
+            [0.5, 0.5],
+        )?],
+    )?;
+    assert!(sane(&fitted.render(24)?));
+    // the least and the greatest scale `place` takes
+    let (low, high) = (0.001, 1_000.0);
+    assert!(sane(
+        &scene(24, 16, [Layer::scene(tiny()?).place(Place::new().scale(low))?])?.render(24)?
+    ));
+    assert!(
+        refusal(scene(24, 16, [Layer::scene(inner()?).place(Place::new().scale(high))?])?.render(24))?.contains("size")
+    );
+    // a scale that draws a group past the limit on a part that shows is refused, and not drawn
+    assert!(sane(
+        &scene(24, 16, [Layer::scene(tiny()?).place(Place::new().scale(12.0))?])?.render(24)?
+    ));
+    Ok(())
+}
