@@ -6,12 +6,15 @@ use std::collections::BTreeMap;
 
 use super::{Drawn, Opened, Source};
 use crate::geometry::Rect;
+use crate::parameters::{Parameter, Value};
 use crate::{Error, Raster};
 
 /// One straight RGBA colour, everywhere.
 #[derive(Debug)]
 pub(crate) struct Fill {
     rgba: [f32; 4],
+    /// The colour as a parameter writes it: lower case.
+    color: String,
 }
 
 impl Fill {
@@ -33,11 +36,28 @@ impl Fill {
             let pair = std::str::from_utf8(pair).map_err(|_| refuse())?;
             *value = f32::from(u8::from_str_radix(pair, 16).map_err(|_| refuse())?) / 255.0;
         }
-        Ok(Self { rgba })
+        Ok(Self {
+            rgba,
+            color: color.to_ascii_lowercase(),
+        })
     }
 }
 
 impl Source for Fill {
+    fn parameters(&self) -> Vec<Parameter> {
+        vec![Parameter::color("color", "the colour of the layer", &self.color)]
+    }
+
+    fn with_values(&self, values: &[(&str, &Value)]) -> Result<Arc<dyn Source>, Error> {
+        let mut color = self.color.clone();
+        for &(address, value) in values {
+            if address == "color" {
+                value.text(address)?.clone_into(&mut color);
+            }
+        }
+        Ok(Arc::new(Self::parse(&color).map_err(|error| error.about("color"))?))
+    }
+
     /// One pixel: a flat colour is the same at any scale, so it is the one place that draws less than it was asked. A layer
     /// that runs a look on it is drawn at the size the look runs at, the window of the box that shows.
     fn open(&self, canvas: Rect) -> Result<Opened<'_>, Error> {

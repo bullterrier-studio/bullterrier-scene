@@ -10,6 +10,7 @@ use std::sync::Arc;
 use crate::budget::Budget;
 use crate::finish::Finish;
 use crate::geometry::{Rect, Scale, whole_up};
+use crate::parameters::{Parameter, Value};
 use crate::{Error, Map, Raster};
 
 pub(crate) mod drawing;
@@ -18,7 +19,7 @@ pub(crate) mod picture;
 pub(crate) mod scene;
 
 /// A map a picture layer is given, as it was given: held, a file read when the scene renders, or a hole (a map the caller
-/// has not given yet, which a render refuses until parameters fill holes).
+/// has not given yet, which a render refuses until `with_values` fills it).
 #[derive(Debug, Clone)]
 pub(crate) enum Given {
     Held(Arc<Map>),
@@ -151,6 +152,22 @@ pub(crate) trait Source: Send + Sync + fmt::Debug {
     /// The names of the maps this source holds, or `None` if it has no picture to hold them.
     fn map_names(&self) -> Option<Vec<&str>> {
         None
+    }
+
+    /// The parameters of this source, at addresses relative to the layer: `picture`, `map.<name>`, `text`, `color`,
+    /// `drawing.<param>` or `scene.<address>`, in order.
+    fn parameters(&self) -> Vec<Parameter> {
+        Vec::new()
+    }
+
+    /// This source with each of `values` set: an address `parameters` lists, and a value. Nothing is set unless every one is
+    /// accepted.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming the address, for a value of the wrong kind or outside its range.
+    fn with_values(&self, values: &[(&str, &Value)]) -> Result<Arc<dyn Source>, Error> {
+        let address = values.first().map_or("values", |(address, _)| address);
+        Err(Error::invalid(address, "this source has no parameter of that address"))
     }
 
     /// This source with the map `name` (of the picture's size when the scene renders), replacing a map of that name.

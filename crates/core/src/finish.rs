@@ -41,6 +41,20 @@ impl Finish {
         self
     }
 
+    /// The looks, in call order.
+    pub(crate) fn looks(&self) -> &[Look] {
+        &self.looks
+    }
+
+    /// The look at `index` with each of `set` (an address of the look, a number) set, checked by image together.
+    ///
+    /// # Errors
+    /// What image refuses of the set.
+    pub(crate) fn change_look(&mut self, index: usize, set: &[(&str, f64)]) -> Result<(), Error> {
+        self.looks[index] = self.looks[index].with_values(set)?;
+        Ok(())
+    }
+
     /// This finish with `look` run after the looks it has.
     pub(crate) fn add_look(&mut self, look: Look) {
         self.looks.push(look);

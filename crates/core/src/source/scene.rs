@@ -8,6 +8,7 @@ use super::{Drawn, Opened, Source};
 use crate::budget::Budget;
 use crate::geometry::{MAX_PIXELS, Rect};
 use crate::landing::Target;
+use crate::parameters::{Parameter, Value, Values};
 use crate::render::{draw, straight};
 use crate::{Error, Raster, Scene};
 
@@ -36,6 +37,27 @@ impl fmt::Debug for Group {
 }
 
 impl Source for Group {
+    /// The parameters of the scene, each under `scene.`.
+    fn parameters(&self) -> Vec<Parameter> {
+        self.scene
+            .parameters()
+            .into_iter()
+            .map(|parameter| parameter.under("scene"))
+            .collect()
+    }
+
+    /// The scene with the values set (see [`Scene::with_values`]): a new scene, the old one unchanged.
+    fn with_values(&self, values: &[(&str, &Value)]) -> Result<Arc<dyn Source>, Error> {
+        let inner = values.iter().fold(Values::new(), |inner, &(address, value)| {
+            inner.set(address.strip_prefix("scene.").unwrap_or(address), value.clone())
+        });
+        let scene = self
+            .scene
+            .with_values(&inner)
+            .map_err(|error| error.in_layer("scene"))?;
+        Ok(Arc::new(Self::new(scene)))
+    }
+
     /// This layer, and the layers its scene draws (each time the scene is used), one level deeper than the scene leans.
     fn budget(&self) -> Budget {
         Budget::LAYER.needing(self.scene.budget)

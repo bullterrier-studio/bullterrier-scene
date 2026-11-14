@@ -12,7 +12,7 @@ use crate::placement::{Fit, Fitting, Place, Placed, Placement};
 use crate::reference::Reference;
 use crate::source::drawing::Drawing;
 use crate::source::fill::Fill;
-use crate::source::picture::{Look, Picture, check_look, recipe_file};
+use crate::source::picture::{Look, Picture, recipe_file};
 use crate::source::scene::Group;
 use crate::source::{Given, Source};
 use crate::text::Text;
@@ -189,6 +189,13 @@ impl Layer {
         Self::from_source(Picture::held(raster))
     }
 
+    /// A picture to be given later, a hole: `with_values` fills it (`<layer>.picture`) with a [`Raster`] or a path. A render
+    /// refuses a layer whose picture is still a hole, naming it.
+    #[must_use]
+    pub fn picture_hole() -> Self {
+        Self::from_source(Picture::hole())
+    }
+
     /// A picture read from a file when the scene renders: as [`Layer::picture`] draws it, upright, in sRGB values, with its
     /// alpha if it has one. A file that cannot be read is an [`Error::Read`] at `render`, naming the layer.
     #[must_use]
@@ -252,7 +259,7 @@ impl Layer {
             pointer: "/look".to_owned(),
             message: format!("not JSON: {error}"),
         })?;
-        self.looked(recipe)
+        self.looked(&recipe)
     }
 
     /// This layer with the look of the recipe file `path` (TOML, as the image package writes it), read now.
@@ -260,18 +267,15 @@ impl Layer {
     /// # Errors
     /// [`Error::Read`] if the file cannot be read; otherwise as [`Layer::look`].
     pub fn look_file(self, path: impl AsRef<Path>) -> Result<Self, Error> {
-        self.looked(recipe_file(path.as_ref())?)
+        self.looked(&recipe_file(path.as_ref())?)
     }
 
     /// This layer with the look `recipe`: run on what its source drew, or, for a reference, kept to be run on that of the layer
     /// it names after that layer's looks.
-    fn looked(mut self, recipe: serde_json::Value) -> Result<Self, Error> {
+    fn looked(mut self, recipe: &serde_json::Value) -> Result<Self, Error> {
         match &mut self.base {
-            Base::Body(body) => body.finish.add_look(Look::new(&recipe)?),
-            Base::Of(reference) => {
-                check_look(&recipe)?;
-                reference.looks.push(recipe);
-            }
+            Base::Body(body) => body.finish.add_look(Look::new(recipe)?),
+            Base::Of(reference) => reference.looks.push(Look::new(recipe)?),
         }
         Ok(self)
     }
@@ -324,8 +328,8 @@ impl Layer {
         self.given(name, Given::File(path.into()))
     }
 
-    /// This picture layer with a hole under the map `name`: a map to be given later. Until parameters fill holes (batch
-    /// C6) a render refuses it, naming the layer and `map.<name>`.
+    /// This picture layer with a hole under the map `name`: a map to be given later, which `with_values` fills
+    /// (`<layer>.map.<name>`). A render refuses a hole, naming the layer and `map.<name>`.
     ///
     /// # Errors
     /// As [`Layer::map`].

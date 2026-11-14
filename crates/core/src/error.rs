@@ -51,6 +51,15 @@ impl Error {
         }
     }
 
+    /// This error with `address` as the field it is about: a value refused where it was built (`fill`) is refused where it
+    /// was set (`color`).
+    pub(crate) fn about(self, address: &str) -> Self {
+        match self {
+            Self::Invalid { message, .. } => Self::invalid(address, message),
+            other => other,
+        }
+    }
+
     /// This error as it concerns the layer called `layer`: its address, or its message, starts with the name.
     pub(crate) fn in_layer(self, layer: &str) -> Self {
         match self {

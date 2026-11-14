@@ -4,7 +4,7 @@
 use crate::Error;
 
 /// The values a number of a placement may take: the one place a range is written. `Layer::fit` and `Layer::place` check
-/// against these and their errors name them; C6 serves `parameters()` from them.
+/// against these and their errors name them; `parameters()` is served from them.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Range {
     low: f64,
@@ -55,6 +55,11 @@ fn shown(value: f64) -> String {
 }
 
 impl Range {
+    /// The lowest and the highest value, inclusive: what `parameters()` says of a number.
+    pub(crate) const fn bounds(self) -> (f64, f64) {
+        (self.low, self.high)
+    }
+
     /// `value` if it is a number within the range.
     pub(crate) fn check(self, field: &str, value: f64) -> Result<f64, Error> {
         if (self.low..=self.high).contains(&value) {

@@ -14,6 +14,7 @@ mod light;
 mod look;
 mod maps;
 mod masks;
+mod parameters;
 mod perspective;
 mod picture;
 mod placement;

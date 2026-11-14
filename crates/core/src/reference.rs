@@ -6,8 +6,6 @@
 
 use std::collections::HashMap;
 
-use serde_json::Value;
-
 use crate::error::label;
 use crate::finish::MapMask;
 use crate::layer::{Base, Body};
@@ -21,7 +19,7 @@ pub(crate) struct Reference {
     /// The layer it names.
     pub(crate) name: String,
     /// Its own looks, in call order, each checked: run after the named layer's.
-    pub(crate) looks: Vec<Value>,
+    pub(crate) looks: Vec<Look>,
     /// Its own masks by a map of the picture it inherits, by the number of the `mask` call.
     pub(crate) masks: Vec<MapMask>,
     /// Its extra place, applied after the named layer's.
@@ -47,7 +45,7 @@ impl Reference {
     fn body(&self, target: &Body) -> Result<Body, Error> {
         let mut body = target.clone();
         for look in &self.looks {
-            body.finish.add_look(Look::new(look)?);
+            body.finish.add_look(look.clone());
         }
         for mask in &self.masks {
             let number = mask.number;

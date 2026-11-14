@@ -6,6 +6,7 @@ use std::str::FromStr;
 
 use crate::Error;
 use crate::geometry::{Axis, Rect, Scale};
+use crate::parameters::{Parameter, Value};
 use crate::perspective::Quad;
 use crate::ranges::{FRACTION, RATIO, SKEW, TRAVEL};
 use crate::source::{Drawn, Request};
@@ -190,6 +191,13 @@ impl Placement {
     }
 }
 
+/// `degrees` brought into one turn from 0 (up to, not including, 360): a direction is the same a turn further.
+fn wrapped(degrees: f64) -> f64 {
+    let turned = degrees.rem_euclid(360.0);
+    // a value a hair below 0 comes out as 360, which is 0 of the next turn
+    if turned < 360.0 { turned } else { 0.0 }
+}
+
 /// A layer's placement, every field set.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Placed {
@@ -235,7 +243,7 @@ impl Placed {
                     format!("a number of degrees is wanted, got {angle}"),
                 ));
             }
-            Some(angle) => angle,
+            Some(angle) => wrapped(angle),
             None => self.rotate,
         };
         Ok(Self {
@@ -250,6 +258,102 @@ impl Placed {
             flip_y: place.flip_y.unwrap_or(self.flip_y),
             anchor,
         })
+    }
+}
+
+impl Placed {
+    /// The fields of this placement that are parameters, in order, each at its field's name. The anchor is not one.
+    pub(crate) fn parameters(self) -> Vec<Parameter> {
+        let default = Self::default();
+        let number =
+            |name: &str, meaning: &str, unit: &str, range: (f64, f64), cyclic: bool, default: f64, value: f64| {
+                Parameter::number(name, meaning, unit, range, (false, cyclic), default, value)
+            };
+        let flag = |name: &str, meaning: &str, value: bool| Parameter::flag(name, meaning, false, value);
+        vec![
+            number(
+                "dx",
+                "how far the layer moves right",
+                "px",
+                TRAVEL.bounds(),
+                false,
+                default.dx,
+                self.dx,
+            ),
+            number(
+                "dy",
+                "how far the layer moves down",
+                "px",
+                TRAVEL.bounds(),
+                false,
+                default.dy,
+                self.dy,
+            ),
+            number(
+                "scale",
+                "the zoom, about the anchor",
+                "ratio",
+                RATIO.bounds(),
+                false,
+                default.scale,
+                self.scale,
+            ),
+            number(
+                "aspect",
+                "the height ratio: the zoom along y is `scale` times this",
+                "ratio",
+                RATIO.bounds(),
+                false,
+                default.aspect,
+                self.aspect,
+            ),
+            number(
+                "rotate",
+                "the turn, clockwise",
+                "degrees",
+                (0.0, 360.0),
+                true,
+                default.rotate,
+                self.rotate,
+            ),
+            number(
+                "skew_x",
+                "the skew along x",
+                "degrees",
+                SKEW.bounds(),
+                false,
+                default.skew_x,
+                self.skew_x,
+            ),
+            number(
+                "skew_y",
+                "the skew along y, after `skew_x`",
+                "degrees",
+                SKEW.bounds(),
+                false,
+                default.skew_y,
+                self.skew_y,
+            ),
+            flag("flip_x", "mirrored left to right", self.flip_x),
+            flag("flip_y", "mirrored top to bottom", self.flip_y),
+        ]
+    }
+
+    /// This placement with the parameter `field` (`dx`, `flip_x`...) set to `value`, checked as `Layer::place` checks it.
+    pub(crate) fn with_field(self, field: &str, value: &Value) -> Result<Self, Error> {
+        let place = match field {
+            "dx" => Place::new().dx(value.number(field)?),
+            "dy" => Place::new().dy(value.number(field)?),
+            "scale" => Place::new().scale(value.number(field)?),
+            "aspect" => Place::new().aspect(value.number(field)?),
+            "rotate" => Place::new().rotate(Deg(value.number(field)?)),
+            "skew_x" => Place::new().skew_x(Deg(value.number(field)?)),
+            "skew_y" => Place::new().skew_y(Deg(value.number(field)?)),
+            "flip_x" => Place::new().flip_x(value.flag(field)?),
+            "flip_y" => Place::new().flip_y(value.flag(field)?),
+            other => return Err(Error::invalid(other, "this is no field of a placement")),
+        };
+        self.with(place)
     }
 }
 

@@ -5,11 +5,12 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use bullterrier_image::{Options, Photo, Presets, RECIPE_FORMATS, Recipe};
+use bullterrier_image::{Number, Options, Photo, Presets, RECIPE_FORMATS, Recipe};
 use serde_json::Value;
 
 use super::{Drawn, Given, Opened, Source};
 use crate::geometry::Rect;
+use crate::parameters::{Parameter, Value as Setting};
 use crate::warp::resize;
 use crate::{Error, Map, Raster};
 
@@ -19,6 +20,8 @@ use crate::{Error, Map, Raster};
 enum Pixels {
     Held(Arc<Raster>),
     File(PathBuf),
+    /// Nothing given yet: a parameter fills it before the scene renders.
+    Hole,
 }
 
 /// A picture and the maps it was given by name.
@@ -36,6 +39,18 @@ pub(crate) struct Picture {
 pub(crate) struct Look {
     recipe: Recipe,
     presets: Arc<Presets>,
+    /// The numbers of the recipe that can be set, as image lists them now.
+    numbers: Arc<[Number]>,
+}
+
+/// The numbers of `recipe` that can be set. Image lists the frame's too, whether the recipe sets a frame or not; a look sets no
+/// frame, so they are not a look's parameters.
+fn numbers_of(recipe: &Recipe) -> Result<Arc<[Number]>, Error> {
+    let numbers = recipe.numbers().map_err(|error| refused(&error))?;
+    Ok(numbers
+        .into_iter()
+        .filter(|number| !number.address.starts_with("frame."))
+        .collect())
 }
 
 /// `values` brought into 0 to 1: image promises its pictures only "nominally 0..1", and a look can overshoot by a rounding
@@ -94,8 +109,47 @@ impl Look {
             ));
         }
         Ok(Self {
+            numbers: numbers_of(&recipe)?,
             recipe,
             presets: Arc::new(presets),
+        })
+    }
+
+    /// The numbers of this look as parameters, at image's own addresses: the unit, range, meaning and whole or cyclic nature
+    /// are image's, the value the recipe holds. Image's `Number` has no default of its own, so the value is also the default.
+    pub(crate) fn parameters(&self) -> Vec<Parameter> {
+        self.numbers
+            .iter()
+            .map(|number| {
+                // a look sets no `frame`, the one place a number has no value (`numbers_of` leaves those out)
+                let value = number.value.unwrap_or(number.min);
+                Parameter::number(
+                    &number.address,
+                    &number.doc,
+                    &number.unit,
+                    (number.min, number.max),
+                    (number.whole, number.cyclic),
+                    value,
+                    value,
+                )
+            })
+            .collect()
+    }
+
+    /// This look with each of `values` (an address of its recipe, a number) set: image checks the set as it checks any recipe,
+    /// the rules between numbers set together included.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `look`, in image's words.
+    pub(crate) fn with_values(&self, values: &[(&str, f64)]) -> Result<Self, Error> {
+        let recipe = self
+            .recipe
+            .with_values(values, &self.presets)
+            .map_err(|error| refused(&error))?;
+        Ok(Self {
+            numbers: numbers_of(&recipe)?,
+            recipe,
+            presets: Arc::clone(&self.presets),
         })
     }
 
@@ -170,6 +224,14 @@ impl Picture {
         }
     }
 
+    /// A picture to be given: a render refuses it until a value fills the hole.
+    pub(crate) fn hole() -> Self {
+        Self {
+            pixels: Pixels::Hole,
+            maps: BTreeMap::new(),
+        }
+    }
+
     /// A picture read from `path` when it is drawn.
     pub(crate) fn file(path: PathBuf) -> Self {
         Self {
@@ -190,7 +252,7 @@ impl Picture {
                     Given::Hole => {
                         return Err(Error::invalid(
                             &at,
-                            "the map is a hole: nothing was given for it, and a hole is filled by a parameter (batch C6)",
+                            "the map is a hole: nothing was given for it; fill it with `with_values`",
                         ));
                     }
                 };
@@ -235,14 +297,6 @@ fn resized(map: &Map, window: Rect, size: (usize, usize)) -> Vec<f32> {
         .iter()
         .map(|pixel| pixel[0])
         .collect()
-}
-
-/// Whether `recipe` is a look this scene takes (a reference keeps its looks until it knows the layer they run on).
-///
-/// # Errors
-/// As [`Source::looked`] of a picture: what image refuses in the recipe, a `format` it does not read.
-pub(crate) fn check_look(recipe: &Value) -> Result<(), Error> {
-    Look::new(recipe).map(|_| ())
 }
 
 /// The recipe in the recipe file `path`, as the JSON document `Layer::look` takes, read now.
@@ -293,6 +347,12 @@ impl Source for Picture {
         let own = match &self.pixels {
             Pixels::Held(raster) => Arc::clone(raster),
             Pixels::File(path) => Arc::new(read(path)?),
+            Pixels::Hole => {
+                return Err(Error::invalid(
+                    "picture",
+                    "the picture is a hole: nothing was given for it; fill it with `with_values`",
+                ));
+            }
         };
         // a pixel count below 2^53: whole design pixels
         #[expect(clippy::cast_precision_loss, reason = "a pixel count below 2^53")]
@@ -333,6 +393,59 @@ impl Source for Picture {
 
     fn map_names(&self) -> Option<Vec<&str>> {
         Some(self.maps.keys().map(String::as_str).collect())
+    }
+
+    /// `picture`, then `map.<name>` for each map, by name.
+    fn parameters(&self) -> Vec<Parameter> {
+        let value = match &self.pixels {
+            Pixels::Held(raster) => Setting::Picture(Arc::clone(raster)),
+            Pixels::File(path) => Setting::File(path.clone()),
+            Pixels::Hole => Setting::Hole,
+        };
+        let mut found = vec![Parameter::picture("picture", "the picture the layer shows", value)];
+        for (name, given) in &self.maps {
+            let value = match given {
+                Given::Held(map) => Setting::Map(Arc::clone(map)),
+                Given::File(path) => Setting::File(path.clone()),
+                Given::Hole => Setting::Hole,
+            };
+            found.push(Parameter::picture(
+                &format!("map.{name}"),
+                "a value from 0 to 1 for each pixel of the picture: a matte, a depth",
+                value,
+            ));
+        }
+        found
+    }
+
+    fn with_values(&self, values: &[(&str, &Setting)]) -> Result<Arc<dyn Source>, Error> {
+        let mut next = self.clone();
+        for &(address, value) in values {
+            if address == "picture" {
+                next.pixels = match value {
+                    Setting::Picture(raster) => Pixels::Held(Arc::clone(raster)),
+                    Setting::File(path) => Pixels::File(path.clone()),
+                    Setting::Hole => Pixels::Hole,
+                    other => {
+                        return Err(other.wrong(
+                            address,
+                            "a picture (an array of shape (height, width, 3 or 4)), a path or none",
+                        ));
+                    }
+                };
+            } else if let Some(name) = address.strip_prefix("map.") {
+                let given = match value {
+                    Setting::Map(map) => Given::Held(Arc::clone(map)),
+                    Setting::File(path) => Given::File(path.clone()),
+                    Setting::Hole => Given::Hole,
+                    other => {
+                        return Err(other.wrong(address, "a map (an array of shape (height, width)), a path or none"));
+                    }
+                };
+                next.maps.insert(name.to_owned(), given);
+            }
+        }
+        Ok(Arc::new(next))
     }
 
     fn with_map(&self, name: &str, given: Given) -> Result<Arc<dyn Source>, Error> {

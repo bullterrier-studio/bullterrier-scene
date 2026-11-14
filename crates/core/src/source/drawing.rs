@@ -3,24 +3,38 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use bullterrier_vector::{Font, Inputs, ScaleBy, Size, Values};
+use bullterrier_vector::{Font, Inputs, Param, ScaleBy, Size, Unit, Values};
 use serde_json::{Value, json};
 
 use super::{Drawn, Opened, Source};
 use crate::geometry::Rect;
+use crate::parameters::{Parameter, Value as Setting};
 use crate::text::{Face, Text};
 use crate::{Error, Raster};
 
 /// A drawing with a frame. Its box is the frame, one design pixel to a pixel of the frame, at the canvas origin or, for a
 /// text, where the text's anchor makes it.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct Drawing {
     document: bullterrier_vector::Drawing,
+    /// The Params the document reads, in the order it first uses them.
+    params: Vec<Param>,
+    /// The number the layer holds for each Param it was given one for; the others take their default.
+    values: BTreeMap<String, f64>,
+    /// What a text layer was made from, to make it again when its content or colour is set.
+    typeset: Option<Typeset>,
     /// The top left of the box in the layer's space: `(0, 0)` for a drawing, the glyphs' bounds for a text.
     x: f64,
     y: f64,
     width: f64,
     height: f64,
+}
+
+/// A text layer's content and type, as `Layer::text` was given them.
+#[derive(Debug, Clone)]
+struct Typeset {
+    content: String,
+    text: Text,
 }
 
 /// `error` of the vector crate as scene's: a document it cannot read keeps its pointer under `/drawing`, anything else is a
@@ -46,7 +60,10 @@ impl Drawing {
             )
         })?;
         Ok(Self {
+            params: document.parameters().map_err(|error| refused(&error))?,
             document,
+            values: BTreeMap::new(),
+            typeset: None,
             x: 0.0,
             y: 0.0,
             width,
@@ -121,6 +138,12 @@ impl Drawing {
             .insert("anchor".to_owned(), json!([-x, -y]));
         Ok(Self {
             document: read(&document)?.with_size(width, height),
+            params: Vec::new(),
+            values: BTreeMap::new(),
+            typeset: Some(Typeset {
+                content: content.to_owned(),
+                text: text.clone(),
+            }),
             x,
             y,
             width,
@@ -176,7 +199,86 @@ fn check_option(name: &str, value: &Value) -> Result<(), Error> {
     }
 }
 
+/// The unit of a Param as the parameter format spells it. The format has no unit for a plain number (a font axis, a seed), and a
+/// `float` needs one: it is a `count`.
+fn unit_name(unit: Unit) -> &'static str {
+    match unit {
+        Unit::None => "count",
+        Unit::Px => "px",
+        Unit::Deg => "degrees",
+        Unit::Cycle => "cycles",
+        Unit::Fraction => "fraction",
+    }
+}
+
 impl Source for Drawing {
+    /// `text` and `color` for a text layer; for any drawing `drawing.<param>` for each Param, as vector describes it: a cyclic
+    /// one (degrees, cycles) spans one turn.
+    fn parameters(&self) -> Vec<Parameter> {
+        let mut found = Vec::new();
+        if let Some(typeset) = &self.typeset {
+            found.push(Parameter::text("text", "the words", &typeset.content));
+            found.push(Parameter::color(
+                "color",
+                "the colour of the letters",
+                &typeset.text.color,
+            ));
+        }
+        for param in &self.params {
+            let unit = param.unit_of();
+            found.push(Parameter::number(
+                &format!("drawing.{}", param.name()),
+                param.meaning_of(),
+                unit_name(unit),
+                (param.min(), param.max()),
+                (false, matches!(unit, Unit::Deg | Unit::Cycle)),
+                param.default(),
+                self.values.get(param.name()).copied().unwrap_or(param.default()),
+            ));
+        }
+        found
+    }
+
+    fn with_values(&self, values: &[(&str, &Setting)]) -> Result<Arc<dyn Source>, Error> {
+        let mut next = self.clone();
+        let mut again = self.typeset.clone();
+        for &(address, value) in values {
+            match (address, again.as_mut()) {
+                ("text", Some(typeset)) => {
+                    let content = value.text(address)?;
+                    if content.is_empty() {
+                        return Err(Error::invalid(
+                            address,
+                            "at least 1 character is wanted, got an empty text",
+                        ));
+                    }
+                    content.clone_into(&mut typeset.content);
+                }
+                ("color", Some(typeset)) => value.text(address)?.clone_into(&mut typeset.text.color),
+                _ => {
+                    // a Param, as `parameters` lists it
+                    if let Some(param) = address
+                        .strip_prefix("drawing.")
+                        .and_then(|name| self.params.iter().find(|param| param.name() == name))
+                    {
+                        let accepted = param
+                            .accept(value.number(address)?)
+                            .map_err(|error| Error::invalid(address, error.to_string()))?;
+                        next.values.insert(param.name().to_owned(), accepted);
+                    }
+                }
+            }
+        }
+        if let Some(typeset) = again {
+            let rebuilt = Self::text(&typeset.content, &typeset.text).map_err(|error| match &error {
+                Error::Invalid { address, .. } if address == "content" => error.about("text"),
+                _ => error,
+            })?;
+            return Ok(Arc::new(rebuilt));
+        }
+        Ok(Arc::new(next))
+    }
+
     /// The whole frame at the asked scale: vector draws no part of a frame yet.
     ///
     /// Vector draws a frame at one scale, centred, in a raster of whole pixels, which leaves a fraction of a pixel of slack along
@@ -192,6 +294,10 @@ impl Source for Drawing {
             width: self.width,
             height: self.height,
         };
+        let given = self
+            .values
+            .iter()
+            .fold(Values::new(), |given, (name, value)| given.set(name.clone(), *value));
         let opened = Opened::new(own, move |request| {
             // output pixels per design pixel of the box along each axis, and the fractions of a pixel the box starts at
             let (across, down) = (request.scale.x.pixels(1.0), request.scale.y.pixels(1.0));
@@ -210,7 +316,7 @@ impl Source for Drawing {
                 .scale(ScaleBy::new((across / one, down / one)).about((0.0, 0.0)))
                 .translate(shift_x / one, shift_y / one)
                 .with_size(frame.0, frame.1)
-                .to_rgba(size, &Values::new())
+                .to_rgba(size, &given)
                 .map_err(|error| Error::invalid("drawing", error.to_string()))?;
             let pixels = bytes.iter().map(|&byte| f32::from(byte) / 255.0).collect();
             Ok(Drawn {

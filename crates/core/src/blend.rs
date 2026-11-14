@@ -65,6 +65,13 @@ const NAMES: [(&str, Blend); 16] = [
     ("luminosity", Blend::Luminosity),
 ];
 
+impl Blend {
+    /// The CSS names of the modes, in the order of the specification: the choices of the `blend` parameter.
+    pub(crate) fn names() -> [&'static str; 16] {
+        NAMES.map(|(name, _)| name)
+    }
+}
+
 impl fmt::Display for Blend {
     /// The CSS name: what [`Blend::from_str`](std::str::FromStr::from_str) reads.
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
