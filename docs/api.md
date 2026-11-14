@@ -141,11 +141,12 @@ Each program is a `build(...)` function that returns a `Scene` from its inputs (
 | [c4c_groups.py](examples/c4c_groups.py) | C4c (runs now: `uv run poe look`): a badge scene used twice at two sizes, and two cards faded as one group and one by one |
 | [c5a_looks_on_everything.py](examples/c5a_looks_on_everything.py) | C5a (runs now: `uv run poe look`): a headline, a flat fill and a badge scene, each plain and with an image look (gradient map and grain, a canvas weave, a duotone applied to the badge as one) |
 | [poster_two_ink.py](examples/poster_two_ink.py) | M1: a photo in two inks clipped into a polygon, type behind a cut-out subject, flat shapes, grain, three sizes |
-| [cover_template.py](examples/cover_template.py), [.rs](examples/cover_template.rs) | C6: one scene, a photo, a title and a colour set by `with_values`; saved as JSON and read back; six covers |
-| [frame_sequence.py](examples/frame_sequence.py) | C7: a headline sliding in over 24 frames, one value set per frame |
+| [c6a_covers.py](examples/c6a_covers.py) | C6a (runs now: `uv run poe look`): one cover template (a hole for the photo, an accent band, a title) set six times by `with_values` and drawn on a contact sheet |
+| [cover_template.py](examples/cover_template.py), [.rs](examples/cover_template.rs) | C6a (`build()` and `frame` run from synthetic inputs, the Python one; JSON is C6b): one scene, a photo, a title and a colour set by `with_values`; six covers |
+| [frame_sequence.py](examples/frame_sequence.py) | C6a (runs from `build()` and `frame`; the cache is C7): a headline sliding in over 24 frames, one value set per frame |
 | [cache_probe.py](examples/cache_probe.py) | C7: a layer that did not change is not drawn again, observed through a counting plugin layer |
 | [composed_world.py](examples/composed_world.py) | M2: a cut-out dog on a grid floor under a striped sun; shadow and reflection by reference, a glow on the sun only |
-| [mill.py](examples/mill.py) | M3: a night-graded photo, windows and sign lit as layers, a logo with its own glow, a 9:16 crop by `fit`, every moving value per frame |
+| [mill.py](examples/mill.py) | M3 (`build()` and `frame` run from synthetic inputs; the look's room is C5b, the cache C7): a night-graded photo, windows and sign lit as layers, a logo with its own glow, a 9:16 crop by `fit`, every moving value per frame |
 | [badge_scene_in_scene.py](examples/badge_scene_in_scene.py) | a scene used as a layer, twice, with different words |
 | [chrome_type.py](examples/chrome_type.py) | C5: chrome type: a vector headline lit by image's `liquid_metal` and `relight`, correct at two sizes; an emboss shadow as its own layer |
 | [wow_poster.py](examples/wow_poster.py) | the final poster: layered type, cut-out, neon, halftone, glow on chosen layers, mixed blends |
