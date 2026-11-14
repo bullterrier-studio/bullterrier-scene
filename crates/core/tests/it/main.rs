@@ -4,6 +4,10 @@
 
 mod common;
 
+// the cover template of `docs/api.md`, in Rust: a program that is also a test of the saved scene (`saved`)
+#[expect(dead_code, reason = "its own `main`, the program of the example")]
+mod cover_template;
+
 mod architecture;
 mod blend;
 mod compose;

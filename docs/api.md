@@ -144,7 +144,7 @@ Each program is a `build(...)` function that returns a `Scene` from its inputs (
 | [c5a_looks_on_everything.py](examples/c5a_looks_on_everything.py) | C5a (runs now: `uv run poe look`): a headline, a flat fill and a badge scene, each plain and with an image look (gradient map and grain, a canvas weave, a duotone applied to the badge as one) |
 | [poster_two_ink.py](examples/poster_two_ink.py) | M1: a photo in two inks clipped into a polygon, type behind a cut-out subject, flat shapes, grain, three sizes |
 | [c6a_covers.py](examples/c6a_covers.py) | C6a (runs now: `uv run poe look`): one cover template (a hole for the photo, an accent band, a title) set six times by `with_values` and drawn on a contact sheet |
-| [cover_template.py](examples/cover_template.py), [.rs](examples/cover_template.rs) | C6a (`build()` and `frame` run from synthetic inputs, the Python one) and C6b (the Rust one is compiled and run by `crates/core/tests/it/saved.rs`: saved, read back, filled): one scene, a photo, a title and a colour set by `with_values`; six covers |
+| [cover_template.py](examples/cover_template.py), [.rs](../crates/core/tests/it/cover_template.rs) | C6a (`build()` and `frame` run from synthetic inputs, the Python one) and C6b (the Rust one is a test module, `crates/core/tests/it/cover_template.rs`, run by `saved.rs`: saved, read back, filled): one scene, a photo, a title and a colour set by `with_values`; six covers |
 | [c6b_saved_scene.py](examples/c6b_saved_scene.py) | C6b (`saved_and_loaded` runs from synthetic inputs; `python docs/examples/c6b_saved_scene.py` with image installed writes the picture): a scene saved, its picture path made relative to the scene file's folder, read back with `base`, drawn: the same bits, the scenes equal |
 | [frame_sequence.py](examples/frame_sequence.py) | C6a (runs from `build()` and `frame`; the cache is C7): a headline sliding in over 24 frames, one value set per frame |
 | [cache_probe.py](examples/cache_probe.py) | C7: a layer that did not change is not drawn again, observed through a counting plugin layer |
@@ -586,7 +586,7 @@ The same names in each language's case: `snake_case` in Python and Rust.
 | Errors | exceptions | `Result<_, bullterrier_scene::Error>`. One rule: a call that can be refused returns `Result` (`add`, `named`, `fit`, `place`, `perspective`, `opacity`, `look`, `mask`, `with_values`, `render`, the constructors that parse); a call that cannot (`blend`, `as_light`, `Layer::of`, `Layer::scene`) returns the value. A scene never defers an error. `Error` is `#[non_exhaustive]`: `Invalid { address, message }`, `Format { pointer, message }`, `Read { path, message }` |
 | Plugin kinds | an entry point; `bts.register_layer` | a `Source` trait with the one question "draw this rectangle at this scale", registered in a `Registry` |
 
-[cover_template.rs](examples/cover_template.rs) is the cover template in Rust.
+[cover_template.rs](../crates/core/tests/it/cover_template.rs) is the cover template in Rust (a test module: `saved.rs` runs it).
 
 ## What the demos asked
 

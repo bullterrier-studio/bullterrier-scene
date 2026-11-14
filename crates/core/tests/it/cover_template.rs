@@ -1,6 +1,6 @@
-//! C6 in Rust: one design, many pictures. The same scene as `cover_template.py`: a photo and a title as parameters,
-//! written to JSON and read back, then rendered with other values. `crates/core/tests/it/saved.rs` compiles and runs it.
-//! A call that can be refused returns `Result` (hence the `?`).
+//! C6 in Rust: one design, many pictures. The same scene as `docs/examples/cover_template.py`: a photo and a title as
+//! parameters, written to JSON and read back, then rendered with other values. `saved.rs` runs it as a test. A call that
+//! can be refused returns `Result` (hence the `?`).
 
 use std::path::Path;
 

@@ -12,9 +12,7 @@ use serde_json::Value;
 
 use crate::common::{Outcome, made, rectangle, scene, varied};
 
-#[path = "../../../../docs/examples/cover_template.rs"]
-#[expect(dead_code, reason = "the example's own `main`")]
-mod cover_template;
+use crate::cover_template;
 
 const FONT: &str = "bricolage_grotesque";
 const GRADE: &str = r#"{"steps": [{"effect": "grade", "params": {"exposure": 1.0}, "name": "up"}]}"#;
