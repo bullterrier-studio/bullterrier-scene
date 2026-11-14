@@ -198,6 +198,18 @@ fn a_bleed_repeats_the_edge_pixels_in_whole_pixels_and_grows_the_bleed_box_by_th
         close(page.boxed("MediaBox")?, around),
         "without crop marks the page is the bleed box"
     );
+    // the picture is clipped to the bleed box (it is a pixel wider than the 3 mm), so none lands in a crop-mark margin
+    let operations = page.operations()?;
+    let clip = operations
+        .iter()
+        .position(|operation| operation.operator == "re")
+        .ok_or("no clip rectangle")?;
+    assert_eq!(operations[clip + 1].operator, "W", "the rectangle is a clip");
+    let drawn: Vec<f64> = operations[clip].operands.iter().map(number).collect();
+    assert!(
+        close([drawn[0], drawn[1], drawn[0] + drawn[2], drawn[1] + drawn[3]], around),
+        "the clip is the bleed box: {drawn:?}"
+    );
     let image = page.image()?;
     assert_eq!((image.width, image.height), (40 + 72, 30 + 72));
     for y in 0..image.height {
