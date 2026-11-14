@@ -220,6 +220,85 @@ fn every_address_of_the_cover_template_draws_as_a_cold_scene_does() -> Outcome {
     every_address_draws_as_a_cold_scene_does(template, &files.path("other.png"), 3)
 }
 
+/// Chains of looks (C7, stage by stage): a picture with a map under three looks (the second reads the map), references that add
+/// a look or two of their own to its chain, one of them a light layer whose looks grow the raster by their room, and a map mask
+/// on a chain. Every layer shows, so that a look's number changes the picture.
+fn chains() -> Result<Scene, Box<dyn std::error::Error>> {
+    const GRADE: &str = r#"{"steps": [{"effect": "grade", "params": {"exposure": 0.5}}]}"#;
+    const CONTRAST: &str = r#"{"steps": [{"effect": "grade", "params": {"contrast": 0.4}}]}"#;
+    const BY_MAP: &str = r#"{"steps": [{"effect": "grade", "params": {"exposure": 1.0}, "mask": "subject"}]}"#;
+    const BLOOM: &str = r#"{"steps": [{"effect": "bloom", "params": {"radius": 6.0, "threshold": 0.2}}]}"#;
+    const BLUR: &str = r#"{"steps": [{"effect": "gaussian_blur", "params": {"radius": 24.0}}]}"#;
+    let matte = Map::new(12, 8, (0..96).map(|at| step(at % 12) / 12.0).collect())?;
+    Ok(scene(
+        60,
+        40,
+        [
+            Layer::fill("#204080")?.named("ground")?,
+            Layer::picture(varied(12, 8)?)
+                .map("subject", matte)?
+                .named("photo")?
+                .fit([0.0, 0.0, 48.0, 32.0], Fit::Cover, [0.5, 0.5])?
+                .look(GRADE)?
+                .look(BY_MAP)?
+                .look(CONTRAST)?
+                .mask("subject")?
+                .opacity(0.8)?,
+            Layer::of("photo")
+                .named("echo")?
+                .look(BLUR)?
+                .look(GRADE)?
+                .place(Place::new().dx(6.0).dy(4.0).scale(0.8))?
+                .mask("subject")?
+                .opacity(0.5)?,
+            Layer::of("photo")
+                .named("twin")?
+                .look(BLUR)?
+                .place(Place::new().dx(12.0))?
+                .opacity(0.5)?,
+            Layer::of("photo")
+                .named("halo")?
+                .look(BLOOM)?
+                .look(CONTRAST)?
+                .as_light(true)
+                .blend(Blend::Screen)
+                .place(Place::new().dx(10.0).dy(2.0))?,
+            // two references on one chain, the first reads no map (a look is given `subject` and `depth` only) and the second masks by
+            // `matte`: a stage kept by the first has no map for the second
+            Layer::picture(varied(12, 8)?)
+                .map("matte", Map::new(12, 8, vec![0.25; 96])?)?
+                .named("plain")?
+                .look(GRADE)?
+                .opacity(0.0)?,
+            Layer::of("plain")
+                .named("first")?
+                .look(CONTRAST)?
+                .place(Place::new().dy(20.0))?,
+            Layer::of("plain")
+                .named("second")?
+                .look(BLUR)?
+                .mask("matte")?
+                .place(Place::new().dx(24.0).dy(20.0))?,
+        ],
+    )?)
+}
+
+#[test]
+fn every_address_of_chains_of_looks_draws_as_a_cold_scene_does() -> Outcome {
+    let files = Files::new()?;
+    write_picture(&files.path("other.png"), &varied(12, 8)?)?;
+    every_address_draws_as_a_cold_scene_does(chains, &files.path("other.png"), 2)
+}
+
+#[test]
+fn a_chain_of_looks_drawn_at_another_size_and_back_draws_as_a_cold_scene_does() -> Outcome {
+    let used = chains()?;
+    for size in [60, 90, 60, 45, 90] {
+        assert!(agree(&used.render(size), &chains()?.render(size)), "size {size}");
+    }
+    Ok(())
+}
+
 /// A static layer of the counting kind under a headline, and the kind to ask how often it was drawn.
 fn headline_over(kind: &Arc<Counting>) -> Result<Scene, Error> {
     scene(

@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use crate::cache::Keyed;
+use crate::cache::{Cache, Key, Keyed};
 use crate::error::label;
 use crate::feather;
 use crate::geometry::{MAX_LOOKED_PIXELS, Rect, whole_up};
@@ -136,25 +136,30 @@ impl Finish {
         Ok(Arc::new(Raster::made(size.0, size.1, pixels)))
     }
 
-    /// `drawn` with each look run on it, in order, then each mask by a map multiplied into its alpha. A layer with no look
-    /// is as drawn: its source did the masks on its own pixels. The look sees the raster at the size the layer draws it, plus
-    /// and keeps its alpha. A `light` layer (stage 7) is looked at over black, and what the look makes of the black is light:
-    /// the raster is grown by the room its looks spread into (`Look::room`) before the look and kept grown, so the halo lands
-    /// past the box. Any other layer is looked at its own size.
+    /// What the source drew (`draw`, run only if the cache holds no stage to resume from) with each look run on it, in order,
+    /// then each mask by a map multiplied into its alpha. A layer with no look is as drawn: its source did the masks on its
+    /// own pixels. The look sees the raster at the size the layer draws it, plus and keeps its alpha. A `light` layer
+    /// (stage 7) is looked at over black, and what the look makes of the black is light: the raster is grown by the room its
+    /// looks spread into (`Look::room`) before the look and kept grown, so the halo lands past the box. Any other layer is
+    /// looked at its own size.
+    ///
+    /// **Stages:** with `chain` and two or more looks, the raster after each look but the last is kept in `cache` under the
+    /// key of the looks up to it, so that a change to look `k` runs the looks from `k` only (and a reference that adds looks
+    /// to the named layer's chain resumes from the named layer's stages). The finished raster is kept by the caller.
     ///
     /// # Errors
-    /// What image refuses of a look at this size or of a map it misses, and a blur that does not fit.
-    pub(crate) fn run(&self, drawn: Drawn, request: &Request, light: bool) -> Result<Drawn, Error> {
+    /// What the source or image refuses of a look at this size or of a map it misses, and a blur that does not fit.
+    pub(crate) fn run(
+        &self,
+        draw: impl FnOnce() -> Result<Drawn, Error>,
+        request: &Request,
+        light: bool,
+        cache: &Cache,
+        chain: Option<&Chain>,
+    ) -> Result<Drawn, Error> {
         if !self.is_looked() {
-            return Ok(drawn);
+            return draw();
         }
-        let Drawn {
-            raster,
-            mut covers,
-            mut ends_at_window,
-            mut maps,
-            ..
-        } = drawn;
         // drawn pixels per design pixel of the fitted layer: what the layer is drawn at, less the fit
         let density = (
             request.scale.x.pixels(1.0) / request.factor.0,
@@ -164,37 +169,90 @@ impl Finish {
         // (a side beyond u32 is as large as image can be told)
         let side = |length: f64| u32::try_from(whole_up(length)).unwrap_or(u32::MAX);
         let canvas = (side(request.canvas.0 * density.0), side(request.canvas.1 * density.1));
-        let drawn_size = (raster.width(), raster.height());
         // only light shows the room: a layer that is not light keeps its source's alpha, so the halo would be cut, and a look
         // that blurs its edge would mix black in where image's own edge rule would have kept the picture's colour
-        let room = if light {
-            Look::room(&self.looks, canvas)?
-                .filter(|room| fits(drawn_size, *room))
-                .unwrap_or_default()
+        let reach = if light { Look::room(&self.looks, canvas)? } else { None };
+        let kept = chain
+            .filter(|_| self.looks.len() > 1)
+            .map(|chain| self.stages(chain, reach))
+            .transpose()?;
+        let wanted: Vec<&str> = chain.map_or_else(Vec::new, |chain| {
+            chain.maps.iter().copied().filter(|name| self.uses_map(name)).collect()
+        });
+        let resumed = kept.as_ref().and_then(|stages| {
+            stages.iter().enumerate().rev().find_map(|(at, key)| {
+                let stage = cache.get::<Stage>(key)?;
+                wanted
+                    .iter()
+                    .all(|name| stage.maps.contains_key(*name))
+                    .then_some((at, stage))
+            })
+        });
+        let (mut looked, covers, ends_at_window, room, maps, first) = if let Some((at, stage)) = resumed {
+            let stage = &*stage;
+            (
+                Arc::clone(&stage.raster),
+                stage.covers,
+                stage.ends_at_window,
+                stage.room,
+                Arc::clone(&stage.maps),
+                at + 1,
+            )
         } else {
-            [0; 4]
+            let Drawn {
+                raster,
+                mut covers,
+                mut ends_at_window,
+                mut maps,
+                ..
+            } = draw()?;
+            let drawn_size = (raster.width(), raster.height());
+            let room = reach.filter(|room| fits(drawn_size, *room)).unwrap_or_default();
+            if room == [0; 4] {
+                (
+                    raster,
+                    covers,
+                    ends_at_window,
+                    room,
+                    Arc::new(std::mem::take(&mut maps)),
+                    0,
+                )
+            } else {
+                let replicas = maps
+                    .iter()
+                    .map(|(name, values)| (name.clone(), replicated(values, drawn_size, room)))
+                    .collect();
+                // the raster now reaches past the window by the room, so the warp lets all of it through
+                ends_at_window |= covers == request.window;
+                covers = grow(covers, drawn_size, room);
+                (
+                    Arc::new(padded(&raster, room)),
+                    covers,
+                    ends_at_window,
+                    room,
+                    Arc::new(replicas),
+                    0,
+                )
+            }
         };
-        let grown = room != [0; 4];
-        let (mut looked, look_maps) = if grown {
-            let replicas = maps
-                .iter()
-                .map(|(name, values)| (name.clone(), replicated(values, drawn_size, room)))
-                .collect();
-            (Arc::new(padded(&raster, room)), replicas)
-        } else {
-            (raster, std::mem::take(&mut maps))
-        };
-        for look in &self.looks {
-            looked = Arc::new(look.apply(&looked, &look_maps, canvas, light)?);
+        for (at, look) in self.looks.iter().enumerate().skip(first) {
+            #[cfg(test)]
+            RAN.with(|ran| ran.set(ran.get() + 1));
+            looked = Arc::new(look.apply(&looked, &maps, canvas, light)?);
+            if let Some(key) = kept.as_ref().and_then(|stages| stages.get(at)) {
+                let bytes =
+                    size_of_val(looked.pixels()) + maps.values().map(|values| size_of_val(&values[..])).sum::<usize>();
+                let stage = Stage {
+                    raster: Arc::clone(&looked),
+                    maps: Arc::clone(&maps),
+                    covers,
+                    ends_at_window,
+                    room,
+                };
+                cache.put(*key, stage, bytes);
+            }
         }
-        let mut shown = [0; 4];
-        if grown {
-            // the raster now reaches past the window by the room, so the warp lets all of it through
-            ends_at_window |= covers == request.window;
-            covers = grow(covers, drawn_size, room);
-            shown = room;
-        }
-        let values = look_maps
+        let values = maps
             .iter()
             .map(|(name, values)| (name.as_str(), values.as_slice()))
             .collect();
@@ -202,10 +260,48 @@ impl Finish {
             raster: self.masking(&looked, density, &values)?,
             covers,
             ends_at_window,
-            room: shown,
+            room,
             maps: BTreeMap::new(),
         })
     }
+
+    /// The keys of the stages kept for this chain, one for each look but the last: everything below the looks (`chain.base`),
+    /// the room the whole chain grows the raster by, and the looks up to and including the stage's.
+    fn stages(&self, chain: &Chain, reach: Option<[usize; 4]>) -> Result<Vec<Key>, Error> {
+        (1..self.looks.len())
+            .map(|count| {
+                let mut key = chain.base.clone();
+                key.text("stage").debug(&reach).number(count);
+                for look in &self.looks[..count] {
+                    look.keyed(&mut key)?;
+                }
+                Ok(key.finish())
+            })
+            .collect()
+    }
+}
+
+/// Everything below a layer's looks that its stages depend on, written to a key by the caller (the source, the light and the
+/// request), and the maps the source holds.
+pub(crate) struct Chain<'a> {
+    pub(crate) base: &'a Keyed,
+    pub(crate) maps: Vec<&'a str>,
+}
+
+/// The raster after a look, as the next look takes it up: with the maps at its size (shared by every stage of one run, and
+/// holding at least the maps the chain that kept it needed), the part of the box it covers and the room it was grown by.
+struct Stage {
+    raster: Arc<Raster>,
+    maps: Arc<BTreeMap<String, Vec<f32>>>,
+    covers: Rect,
+    ends_at_window: bool,
+    room: [usize; 4],
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many looks ran on this thread: what the tests below count.
+    static RAN: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// Whether a raster of `size` (columns, rows) with `room` (top, right, bottom, left) added is one a look can run on: image's
@@ -260,11 +356,13 @@ fn replicated(values: &[f32], (columns, rows): (usize, usize), [top, right, bott
         .collect()
 }
 
-// Inline, because no public route reaches the limit cheaply: a layer of 2^26 pixels is a gigabyte of floats.
+// Inline, because no public route reaches the limit cheaply (a layer of 2^26 pixels is a gigabyte of floats), and none counts the
+// looks that ran: `RAN` is the one seam, and the pictures themselves are compared with a cold scene's in `tests/it/cache.rs`.
 #[cfg(test)]
 mod tests {
-    use super::fits;
+    use super::{RAN, fits};
     use crate::geometry::MAX_LOOKED_PIXELS;
+    use crate::{Error, Layer, Raster, Scene, Values};
 
     #[test]
     fn room_is_given_only_where_the_grown_raster_stays_within_what_a_look_runs_on() {
@@ -275,5 +373,72 @@ mod tests {
         assert!(fits((side - 2, side), [0, 1, 0, 1]));
         assert!(!fits((1, 1), [usize::MAX, usize::MAX, 0, 0]));
         assert_eq!(side * side, MAX_LOOKED_PIXELS);
+    }
+
+    fn grade(exposure: f64) -> String {
+        format!(r#"{{"steps": [{{"effect": "grade", "params": {{"exposure": {exposure}}}}}]}}"#)
+    }
+
+    fn picture() -> Result<Layer, Error> {
+        let pixels = (0..12 * 8).flat_map(|at| [f32::from(u8::try_from(at).unwrap_or(0)) / 96.0, 0.5, 0.25, 1.0]);
+        Ok(Layer::picture(Raster::rgba(12, 8, pixels.collect())?))
+    }
+
+    /// How many looks ran while `scene` (with `values` set) was rendered.
+    fn looks_run(scene: &Scene, values: &[(&str, f64)]) -> Result<usize, Error> {
+        let mut set = Values::new();
+        for (address, value) in values {
+            set = set.set(*address, *value);
+        }
+        let before = RAN.with(std::cell::Cell::get);
+        scene.with_values(&set)?.render(24)?;
+        Ok(RAN.with(std::cell::Cell::get) - before)
+    }
+
+    #[test]
+    fn changing_one_look_of_a_chain_runs_that_look_and_those_after_it() -> Result<(), Error> {
+        let chain = Scene::new(24, 16)?.add([picture()?
+            .named("photo")?
+            .look(&grade(0.1))?
+            .look(&grade(0.2))?
+            .look(&grade(0.3))?])?;
+        assert_eq!(looks_run(&chain, &[])?, 3, "a first render runs the chain");
+        assert_eq!(looks_run(&chain, &[])?, 0, "and the finished raster is kept");
+        assert_eq!(looks_run(&chain, &[("photo.look#3.grade.exposure", 0.9)])?, 1);
+        assert_eq!(looks_run(&chain, &[("photo.look#2.grade.exposure", 0.8)])?, 2);
+        assert_eq!(looks_run(&chain, &[("photo.look.grade.exposure", 0.7)])?, 3);
+        assert_eq!(looks_run(&chain, &[("photo.look#3.grade.exposure", 0.6)])?, 1);
+        assert_eq!(
+            looks_run(&chain, &[("photo.look#3.grade.exposure", 0.9)])?,
+            0,
+            "a finished raster seen before comes back"
+        );
+        assert_eq!(looks_run(&chain, &[("photo.look#2.grade.exposure", 0.8)])?, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn references_that_add_looks_to_one_chain_run_its_looks_once() -> Result<(), Error> {
+        let scene = Scene::new(24, 16)?.add([
+            picture()?.named("night")?.look(&grade(0.1))?,
+            Layer::of("night").named("a")?.look(&grade(0.2))?,
+            Layer::of("night").named("b")?.look(&grade(0.3))?,
+        ])?;
+        // night runs its look; `a` runs night's and its own, keeping the stage between; `b` takes the stage, runs its own
+        assert_eq!(looks_run(&scene, &[])?, 1 + 2 + 1);
+        assert_eq!(looks_run(&scene, &[("a.look.grade.exposure", 0.5)])?, 1);
+        assert_eq!(
+            looks_run(
+                &scene,
+                &[("a.look.grade.exposure", 0.6), ("b.look.grade.exposure", 0.7)]
+            )?,
+            2
+        );
+        assert_eq!(
+            looks_run(&scene, &[("night.look.grade.exposure", 0.4)])?,
+            1 + 2 + 1,
+            "the named layer's look runs again for night and for `a`, and `b` takes the new stage"
+        );
+        Ok(())
     }
 }

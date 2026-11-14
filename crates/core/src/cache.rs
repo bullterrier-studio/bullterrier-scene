@@ -29,6 +29,7 @@ pub(crate) type Key = Fingerprint;
 
 /// A key being written. Every field is written with its length, so that two different lists of fields never write the same
 /// bytes.
+#[derive(Clone)]
 pub(crate) struct Keyed(Sha256);
 
 impl Keyed {
@@ -129,24 +130,29 @@ impl Cache {
         key: &Key,
         make: impl FnOnce() -> Result<(T, usize), Error>,
     ) -> Result<Arc<T>, Error> {
-        if let Some(found) = self.found(key) {
+        if let Some(found) = self.get(key) {
             return Ok(found);
         }
         let (value, bytes) = make()?;
-        let value = Arc::new(value);
-        let shared: Arc<dyn Any + Send + Sync> = Arc::clone(&value) as Arc<dyn Any + Send + Sync>;
-        self.keep(*key, shared, bytes);
-        Ok(value)
+        Ok(self.put(*key, value, bytes))
     }
 
     /// The value kept under `key`, made the most recently used.
-    fn found<T: Send + Sync + 'static>(&self, key: &Key) -> Option<Arc<T>> {
+    pub(crate) fn get<T: Send + Sync + 'static>(&self, key: &Key) -> Option<Arc<T>> {
         let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
         kept.clock += 1;
         let clock = kept.clock;
         let entry = kept.entries.get_mut(key)?;
         entry.used = clock;
         Arc::clone(&entry.value).downcast().ok()
+    }
+
+    /// Keeps `value` of `bytes` bytes under `key` if it fits (see `keep`), and hands it back.
+    pub(crate) fn put<T: Send + Sync + 'static>(&self, key: Key, value: T, bytes: usize) -> Arc<T> {
+        let value = Arc::new(value);
+        let shared: Arc<dyn Any + Send + Sync> = Arc::clone(&value) as Arc<dyn Any + Send + Sync>;
+        self.keep(key, shared, bytes);
+        value
     }
 
     /// Keeps `value` of `bytes` bytes under `key`, after making room: the least recently used entries go first. A value larger

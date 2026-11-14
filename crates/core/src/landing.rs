@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::cache::{Cache, Keyed};
+use crate::finish::Chain;
 use crate::geometry::{MAX_LOOKED_PIXELS, MAX_PIXELS, Rect, Scale};
 use crate::layer::Body;
 use crate::placement::{Layout, Placement};
@@ -163,9 +164,6 @@ pub(crate) fn land(body: &Body, target: &Target, light: bool) -> Result<Landed, 
     // the one place the drawn-size limit is checked, before any source draws
     request.scale.size(request.window)?;
     let drawn = if body.keeps_drawn() {
-        let mut key = Keyed::new("layer");
-        body.source.keyed(&mut key)?;
-        body.finish.keyed(&mut key)?;
         // the phase and the pixels held round the scene are inputs only of a source that draws on the grid: a picture that
         // moves, or sits in a group drawn at another phase, keeps its raster
         let grid = body.source.follows_grid();
@@ -174,15 +172,25 @@ pub(crate) fn land(body: &Body, target: &Target, light: bool) -> Result<Landed, 
         } else {
             ((0.0, 0.0), 0)
         };
-        key.debug(&(light, Request { phase, held, ..request }));
+        // everything below the looks: what a stage of the chain of looks and the finished raster both depend on
+        let mut base = Keyed::new("drawn");
+        body.source.keyed(&mut base)?;
+        base.debug(&(light, Request { phase, held, ..request }));
+        let mut key = base.clone();
+        key.text("finished");
+        body.finish.keyed(&mut key)?;
         let kept = target.cache.fetch(&key.finish(), || {
-            let drawn = opened.draw(request, &body.finish, light, target.cache)?;
+            let chain = Chain {
+                base: &base,
+                maps: body.source.map_names().unwrap_or_default(),
+            };
+            let drawn = opened.draw(request, &body.finish, light, target.cache, Some(&chain))?;
             let bytes = size_of_val(drawn.raster.pixels());
             Ok((Kept::of(drawn), bytes))
         })?;
         kept.drawn()
     } else {
-        opened.draw(request, &body.finish, light, target.cache)?
+        opened.draw(request, &body.finish, light, target.cache, None)?
     };
     let (map, clip) = layout.warp(&drawn);
     // the output starts `margin` pixels, and the offset, up and left of the canvas

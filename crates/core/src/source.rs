@@ -10,7 +10,7 @@ use crate::budget::Budget;
 use crate::cache::{Cache, Keyed};
 use crate::document::Form;
 use crate::files::Located;
-use crate::finish::Finish;
+use crate::finish::{Chain, Finish};
 use crate::geometry::{Rect, Scale, whole_up};
 use crate::parameters::{Parameter, Value};
 use crate::{Error, Map, Raster};
@@ -137,10 +137,17 @@ impl<'a> Opened<'a> {
     /// it: the one place they run, whatever the source.
     ///
     /// # Errors
-    /// What the source cannot draw, and a look the sibling refuses at this size.
-    pub(crate) fn draw(self, request: Request, finish: &Finish, light: bool, cache: &Cache) -> Result<Drawn, Error> {
-        let drawn = (self.draw)(request, finish, cache)?;
-        finish.run(drawn, &request, light)
+    /// What the source cannot draw, and a look the sibling refuses at this size. With `chain`, the stages of a chain of looks
+    /// are kept in `cache` and the source is not asked at all when a stage of the chain is there to resume from.
+    pub(crate) fn draw(
+        self,
+        request: Request,
+        finish: &Finish,
+        light: bool,
+        cache: &Cache,
+        chain: Option<&Chain>,
+    ) -> Result<Drawn, Error> {
+        finish.run(|| (self.draw)(request, finish, cache), &request, light, cache, chain)
     }
 }
 
