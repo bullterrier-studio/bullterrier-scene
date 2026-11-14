@@ -36,7 +36,7 @@ pub(crate) struct Picture {
 
 /// A recipe that image has checked, with the presets it was checked against.
 ///
-/// A look's `px` values are design pixels of the scene's canvas (image's design scale: the canvas's long side over 480), the
+/// A look's `px` values are image's design pixels (its design scale: the canvas's long side over 480), the
 /// same number of output pixels on every layer of one canvas.
 #[derive(Debug, Clone)]
 pub(crate) struct Look {

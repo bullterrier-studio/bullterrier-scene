@@ -2,8 +2,9 @@
 
 A vector headline on a drawing layer, lit as polished metal by two looks of image: `liquid_metal` reads the
 letters' brightness as a relief and mirrors a sky in it, and `relight` adds a raking light on the same relief.
-Every `px` value is in design pixels, so the type looks the same at `render(600)` and `render(1800)`; only the
-detail differs. Proves: a look on a drawing layer, a look's space (the fitted drawing), and what a look cannot do.
+Every look `px` value is in image's design pixels (1/480 of the canvas's long side), so the type looks the same at
+`render(600)` and `render(1800)`; only the detail differs. Proves: a look on a drawing layer, a look's space (the fitted
+drawing), and what a look cannot do.
 
 A look cannot change alpha: the bevel and the chrome show inside the glyphs, and light the look puts outside them
 is cut. An emboss shadow outside the letters is a layer of its own, a black fill masked by the type itself,

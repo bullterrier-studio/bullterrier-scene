@@ -50,8 +50,9 @@ def build(photo: np.ndarray, matte: np.ndarray) -> bts.Scene:
     on_subject = Recipe(
         [fx.rim_light(field="subject", color=CYAN, width=14), fx.rgb_split(angle=0, amount=4)], name="subject"
     )
-    # A look's pixel values are design pixels and its space is the layer's own fitted box: this inset's vignette is
-    # centred on the inset and its grain is as coarse as the photo behind it, whatever the inset's size.
+    # A look's pixel values are image's design pixels (1/480 of the canvas's long side) and its space is the layer's own
+    # fitted box: this inset's vignette is centred on the inset and its grain is as coarse as the photo behind it,
+    # whatever the inset's size.
     inset = Recipe([fx.vignette(amount=0.9, radius=0.4), fx.grain(amount=0.08, size=1.6)], name="inset")
 
     badge = bts.Scene(300, 300).add(

@@ -52,7 +52,7 @@ Nothing else below exists yet. Each call is as written below, except:
 | Resampling | One warp per layer ([design-decisions.md](design-decisions.md), "Placement"): bilinear on premultiplied colour; where the map shrinks the picture, the average of what the output pixel's footprint covers (an exact area average where the map keeps the axes, a lattice of taps over the footprint elsewhere), at any skew; no negative weight (a bicubic upgrade must restore a clamp); nothing outside the fitted box is drawn and an edge between two pixels is soft by coverage; a move by whole pixels, a quarter turn and a flip are exact copies | |
 | `fit`, `place` | `anchor` outside 0 to 1, and `dx` or `dy` outside -1e6 to 1e6 (the range of the parameters), are `InvalidError` naming the field. A call that sets a number the call refuses leaves the layer as it was. `fit` is resolved when the scene renders | |
 | `perspective` | Corners beyond -1e6 to 1e6 or not finite, and corners that are no strictly convex quadrilateral, are `InvalidError` naming `corners`; a mirrored (counter-clockwise) one is accepted. A layer under one is drawn at the largest scale the quadrilateral gives any corner of its window along each axis, cut down by one factor to the 2^27 pixels of a layer where it would pass them (not refused: the near side loses sharpness, which window drawing, B1, lifts). A parallelogram is affine and takes the exact path: an axis-aligned one is what `place` makes, bit for bit where its numbers are exact (whole, or fractions of a power of two) and within the blend's rounding (1e-5) where they are decimals | |
-| A look | Every layer takes one (C5a). It runs on the raster the source drew at the size the layer has: `output scale x fit factor x scale` (see "How a layer is drawn"), on its straight colour with the alpha left as it is (it is the source's, put back after the look). A look's `px` are design pixels of the scene's canvas (C5b-lite, below). Image refuses a look on a raster of more than 2^26 pixels, in its words | |
+| A look | Every layer takes one (C5a). It runs on the raster the source drew at the size the layer has: `output scale x fit factor x scale` (see "How a layer is drawn"), on its straight colour with the alpha left as it is (it is the source's, put back after the look). A look's `px` are image's design pixels ("Looks", Design pixels). Image refuses a look on a raster of more than 2^26 pixels, in its words | |
 | Design pixels (C5b-lite) | `Finish::run` hands image `Options::with_canvas(w, h)` with the scene's canvas as this layer is drawn: its design size times the density the layer is drawn at without the fit (`output scale x place.scale`, per axis, rounded up to whole pixels; a group's inner layers: the group's drawn density, `Request::scale`). Image's design scale is the canvas's longer side over 480, so a `px` is one pixel of the canvas's 480 across its long side, the same number of output pixels on every layer of one canvas, whatever the layer's size or `fit`; `place.scale` 2 doubles it; a layer larger than the canvas (a drawing's whole frame) is looked at the canvas's scale. **Limits:** the canvas side is whole pixels, so at a fractional `place.scale` the design scale is that of the rounded canvas (within half a pixel in the canvas's long side); an effect that places itself in its picture (a vignette's centre) still sees the layer's raster as the whole, as the contract says. **Room and light that spills are not built:** they need a sideways footprint from image ("Needs from others") | C5b room |
 | `format` of a look | `Recipe.to_dict()` writes the lowest `format` the recipe needs, and image's reader takes it with the others it publishes (`RECIPE_FORMATS`). A `format` it does not read is a `FormatError` under `/look/format` naming the version found and the versions read, not the crate's version, which neither crate publishes | |
 | A drawing | `inputs` (font bytes) is not built: no layer needs a font yet. A document vector cannot read is `FormatError` under `/drawing` in vector's words, a version skew included, without the crate's version. Vector draws the whole frame, not a part (B1) | text layers |
@@ -192,7 +192,7 @@ accepts. Bands, caches, resampling and premultiplication are behind that call.
 
 | Member | Signature | Promise | Errors |
 |---|---|---|---|
-| `Scene` | `Scene(width, height)` | an empty canvas of `width` by `height` design pixels: whole numbers, 1 to 100,000. A design pixel is what a `px` value means everywhere in the scene | `InvalidError` |
+| `Scene` | `Scene(width, height)` | an empty canvas of `width` by `height` design pixels: whole numbers, 1 to 100,000. A design pixel is what a length of the scene (`dx`, `fit`, `feather`) means; a look's `px` is another unit ("Looks", Design pixels) | `InvalidError` |
 | `add` | `add(*layers)` | the scene with `layers` on top of its stack, first argument lowest | `InvalidError`: a name used twice (naming both layers); a `Layer.of` that names no layer of the scene or its own `add` call, or whose chain leads back to itself, also through masks (naming `<layer>.of` and the cycle); a look or a map mask of a reference that the layer it names cannot take; more than `MAX_LAYERS` (1,000) layers drawn (stack layers, mask layers, references, and the layers of each scene used as a layer, each use counted); drawing that leans on other layers (masks, references, scenes as layers) more than `MAX_DEPTH` (16) deep. `TypeError`: a non-`Layer` (wrap a scene with `Layer.scene`) |
 | `layers` | property | the layers, bottom first, a tuple | |
 | `width`, `height` | properties | the canvas | |
@@ -216,8 +216,8 @@ raster, the canvas is the scene's.
 
 1. **Source.** The layer's picture is drawn at its box (layer space).
 2. **Fit.** `fit` scales and crops it into its box; without `fit` it stays one design pixel per source pixel.
-3. **Looks,** in call order, on the fitted raster (layer space), whatever the source. A look's `px` is a pixel of the canvas as
-   the layer is fitted, before `place` ("What is built", Design pixels). A look that has a centre or an edge (a vignette, a warp) takes it from the fitted box. Looks see
+3. **Looks,** in call order, on the fitted raster (layer space), whatever the source. A look's `px` are image's design pixels, counted as
+   the layer is fitted, before `place` ("Looks", Design pixels). A look that has a centre or an edge (a vignette, a warp) takes it from the fitted box. Looks see
    the layer's colour over black. **Room** (C5b room, not built): the fitted box grows by the look's footprint, so a halo or a bloom is
    not cut at the box's edge; the room is transparent unless the layer is light (stage 7).
 4. **Own-map masks** (`mask("name")`): layer space; the map is cut and fitted with the picture.
@@ -285,7 +285,7 @@ pixels, so source, `fit` and `place` are one warp with no resample between them.
   cache (a drawing, a text and a group at a new fractional place are drawn again: the pixel phase is in their key).
 - **Zoom limit.** A large `scale` on a big layer meets the 2^27 drawn-size limit even where only a part shows; drawing a window
   of the layer (B1) lifts it.
-- **Design scale (C5b-lite).** Looks take design pixels of the canvas. The canvas handed to image is the canvas at `output scale x place.scale`
+- **Design scale (C5b-lite).** Looks take image's design pixels ("Looks"). The canvas handed to image is the canvas at `output scale x place.scale`
   (not the fit factor), so a halo still follows `scale`.
 - **Fit.** The window `fit` shows is computed from the source's real size when the scene renders. `stretch` has a scale for
   each axis. The scale that binds (width or height) ends at the box exactly, so a layer fitted into a box of its own shape is
@@ -297,7 +297,7 @@ pixels, so source, `fit` and `place` are one warp with no resample between them.
 |---|---|---|
 | picture | `Layer.picture(source=None, *, maps=None)` | `source`: an array (height, width, 3 or 4; `uint8`, `uint16` or floats 0..1; 4 channels are straight alpha), a `pathlib.Path` (read as `imageio.load_picture` reads: upright, sRGB, alpha kept), or `None`: a hole the caller fills with `with_values` before `render`. `maps`: the picture's named maps, each `None` (a hole), a float32 (height, width) array 0..1, or a `Path` to a grey image (read as `imageio.load_map` reads). A map is a parameter of kind `picture`, `<layer>.map.<name>`, set by `with_values` like the picture: a footage frame with its matte, or a template with a cut-out, is driven by `with_values`. A map of another size than its picture is `InvalidError` at render naming both sizes. A look sees the maps its recipe uses (`subject`, `depth`, a `given` region); the others serve `mask("name")`. A `str` source is `TypeError` (pass `Path(...)`). Its box is its pixels, one design pixel each, at the canvas origin. An array from `imageio.load` has no alpha (image puts it over white): give a transparent PNG as a `Path` or `imageio.load_picture` |
 | drawing | `Layer.drawing(source, *, inputs=None)` | `source`: a vector `Drawing` (anything with `to_json()`), its JSON text (a `str`) or dict, or a `Path` to a drawing file. Its box is the drawing's frame (`size`) at the canvas origin: a drawing without a frame is refused. `inputs`: the bytes or `Path` of each font or map file the drawing names, by name (vector's `Drawing.from_json(inputs=)`); a bundled font needs none |
-| text | `Layer.text(content, *, font, color="#000000", **text_options)` | scene owns `content`, `font` and `color`. `font`: a bundled font's name (a `str`) or a `Path` to a font file. `text_options` are `btvec.text`'s (`size`, `axes`, `tracking`, `leading`, `align`, `width`, `fit`, `features`) as plain data, validated by the linked vector crate at the call; scene restates none of vector's defaults. `width` and `fit` mean vector's: the width the text wraps or fits to, not a placement (`fit(...)` on the layer is the placement). `anchor`, `inside` and `runs` are refused, and so are expressions and Params: scene places the text, and per-letter numbers are a `Layer.drawing`. Its origin is the text's anchor, the left end, middle or right end of the first baseline by `align`: `place(dx=100, dy=420)` puts it there. Its box is the glyphs' bounds |
+| text | `Layer.text(content, *, font, color="#000000", **text_options)` | scene owns `content`, `font` and `color`. `font`: a bundled font's name (a `str`) or a `Path` to a font file. `text_options` are `btvec.text`'s (`size`, `axes`, `tracking`, `leading`, `align`, `width`, `fit`, `features`) as plain data, validated by the linked vector crate at the call; scene restates none of vector's defaults. `width` and `fit` mean vector's: the width the text wraps or fits to, not a placement (`fit(...)` on the layer is the placement). `anchor`, `inside` and `runs` are refused, and so are expressions and Params: scene places the text, and per-letter numbers are a `Layer.drawing`. Its origin is the text's anchor, the left end, middle or right end of the first baseline by `align`: `place(dx=100, dy=420)` puts it there. Its box is the glyphs' bounds. The colour is flat: a gradient on type is vector's text in a `Layer.drawing` ("Recipes") |
 | fill | `Layer.fill(color)` | a flat `"#rrggbb"` or `"#rrggbbaa"` over the canvas box; `fit` makes it a band, a mask makes it a shape. Gradients are vector's: a rectangle filled with `btvec.linear_gradient` |
 | scene | `Layer.scene(inner)` | another scene as a group: its canvas is its box (design pixels, at the canvas origin like a picture); it is drawn isolated at the density it will have, then fits, places, masks, blends, fades and is made light as one picture; a look on it runs on its finished picture. `inner`'s parameters are addressed under the layer, `badge.scene.label.text` (C6). A `TypeError` for anything that is not a `Scene`; the scene counts in `MAX_LAYERS` and `MAX_DEPTH` at each use ("What is built", Groups and Depth and count) |
 | reference | `Layer.of(name)` | see "Reference" |
@@ -385,9 +385,11 @@ writes, or a `Path` to a recipe file; a `str` is `TypeError` (pass `Path(...)`).
   size the group is drawn at. A look on a fill sees a flat raster of the layer's size (a gradient map of a flat colour is flat;
   a look that depends on place, a scanline or a weave, is not). This keeps a layer's result independent of
   the others, so it caches by itself.
-- **Design pixels** (C5b-lite). A `px` value of a look is a pixel of the scene's canvas as the layer is fitted, before `place`: 2 px grain
-  on a small inset is as coarse as on the photo behind it, whatever the inset's size. `render(size)` multiplies it, as
-  image's `render(size=)` does. A layer that `place` then scales takes its grain and its halo with it.
+- **Design pixels** (C5b-lite). A look's `px` is image's design pixel: 1/480 of the canvas's long side, counted as the layer is
+  fitted, before `place`. It is not a canvas pixel: on a 2,700 pixel canvas 1 px is 5.6 canvas pixels, so a ring about 25 canvas
+  pixels wide is `width=4.5`. 2 px grain on a small inset is as coarse as on the photo behind it, whatever the inset's size.
+  `render(size)` multiplies it, as image's `render(size=)` does. A layer that `place` then scales takes its grain and its
+  halo with it. A scene's own lengths (`dx`, `fit` boxes, `feather`) are canvas pixels.
 - **Light that spills** (C5b room, not built). A look sees the layer's colour over black and the layer's box grows by the look's footprint (the
   room). A layer that is not light keeps its source's alpha, so the halo a bloom adds outside the shape is cut. A light layer
   shows it, and may extend past its box. A glow is a reference made light:
@@ -399,6 +401,41 @@ writes, or a `Path` to a recipe file; a `str` is `TypeError` (pass `Path(...)`).
   the layer lacks, by name or as a hole, is `InvalidError` at render naming the layer, the step and the map. Scene runs no
   model and passes image no finder: a subject or depth map is found by the caller with image and handed in, so the error
   and every look are testable without a model.
+
+## Recipes
+
+Worked answers to what real pieces asked. Each is built from the calls above; none is a call of its own.
+
+**Turn a label.** `place` turns a layer about its `anchor`, the centre of its box by default, so a text turned `-90` swings
+about its middle and may leave the canvas. For a text the box's bottom left is the start of its baseline: pivot there, and
+`dx`, `dy` put that point on the canvas.
+
+```python
+bts.Layer.text("LABEL", font="bricolage_grotesque", size=60).place(rotate=-90, anchor=(0, 1), dx=60, dy=380)
+```
+
+The label stands along the left edge on a 600 by 400 canvas: it reads upward from (60, 380), its letters' tops pointing
+left, about 22 to 62 across and 218 to 379 down.
+
+**A gradient on type.** `Layer.text` takes a flat colour only: its colour is a parameter of the scene (`<layer>.color`), and a
+paint is vector's. Set the type with vector and give the drawing to a layer; the type keeps `place`, looks, masks and
+`with_values` (its Params are `<layer>.drawing.<param>`).
+
+```python
+paint = btvec.linear_gradient([(0, "#ff2bd6"), (1, "#fff200")], start=(0, 100), end=(0, 280))
+type_ = btvec.text("TYPE", font=btvec.Font.bundled("bricolage_grotesque"), size=200, anchor=(40, 260)).fill(paint)
+bts.Layer.drawing(btvec.Drawing(type_, size=(W, H)))
+```
+
+**Trim a picture to its matte.** A `fit` or a flip is about the layer's box, which is the picture's, so a reflection under a
+subject's feet needs the picture to end at the feet. Crop the photo and its matte to the matte's bounding box in numpy
+before `Layer.picture` (rows and columns where the matte is above 0), then `fit` the cropped picture. Scene does not crop.
+
+**A keyline round a subject.** A look paints on its own picture and cannot return its stroke alone, so draw the stroke on
+a second, flat picture of the photo's size that carries the same matte as a map, and join it by `blend("lighten")` (or
+`"screen"`): only the stroke differs from the flat colour. The look is image's `outline(field="subject", position="outside")`,
+its `width` in image's design pixels (1/480 of the canvas's long side, "Looks"). The Conan poster of the demos builds exactly
+this: a flat picture with the matte, the outline look, `lighten`, under the dog.
 
 ## Data in
 
