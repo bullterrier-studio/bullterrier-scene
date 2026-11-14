@@ -483,7 +483,7 @@ is checked when it is read at `render`, which does see such a change. Same scene
 same machine and library versions. The cache is observable through a plugin layer that counts its `draw` calls
 ([cache_probe.py](examples/cache_probe.py), C7).
 
-PNG is image's: `imageio.save(scene.render(1080), "poster.png")`. Scene has no `render_png`.
+**PNG.** Rust: `Raster::write(path)` writes the picture as an 8-bit RGBA PNG (colour type 6, straight alpha, sRGB values) through image's writer, which rounds each level as `level * 255 + 0.5` cut to a whole number and embeds image's sRGB profile (the one deviation from "no profile": image's writer has no other mode). The extension picks the format as image's writer does (`.webp` lossless; a `.jpg` of a picture with alpha is refused); a failure is `Error::Write`. Python: `imageio.save(scene.render(1080), "poster.png")`; scene has no `render_png`, because the facade writes no file and `imageio` is image's one writer for Python. PDF and print colour (CMYK, ICC, bleed) stay deferred until the owner wants a print.
 
 ## Saved scene
 
@@ -548,6 +548,8 @@ built; a document is read in a thread of 256 KB.
 | `InvalidError` | a value or argument scene refuses, also a `ValueError`; at the call that got it, else at `render` | the argument or address, the rule and the value; for an embedded look or drawing, the layer and the sibling's message |
 | `FormatError` | a document `from_json` cannot read; also a `ValueError` | the JSON Pointer; a version skew names versions as above |
 | `ReadError` | a file the scene names cannot be read, or its digest differs; also an `OSError` | the layer, the path, and for a digest both digests |
+
+`Error::Write` (Rust only: a file `Raster::write` cannot write; path and reason) has no Python class, because no Python call writes.
 
 A wrong type in the calling code (`Layer.drawing(path)`, `Layer.picture("a.jpg")`, `add(scene)`) is a plain `TypeError`
 naming the fix. Plain numbers are checked when a call is made; a hole, a map's size and files when the scene renders. Depth

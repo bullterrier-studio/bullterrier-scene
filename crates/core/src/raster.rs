@@ -1,6 +1,9 @@
 //! The picture a scene takes in and gives out.
 
+use std::path::Path;
+
 use crate::Error;
+use crate::source::picture;
 
 /// A picture of straight (not premultiplied) RGBA, 32-bit floats from 0 to 1, row after row from the top, pixel after
 /// pixel from the left, four values a pixel. Colours are sRGB values.
@@ -73,6 +76,19 @@ impl Raster {
     #[must_use]
     pub fn pixels(&self) -> &[f32] {
         &self.pixels
+    }
+
+    /// Writes the picture to the file `path`, in the format its extension names: `.png` gives an 8-bit RGBA PNG (straight
+    /// alpha, sRGB values, image's sRGB profile, no other metadata), `.webp` a lossless WebP; a `.jpg` is refused when it
+    /// would drop an alpha channel, as image's writer refuses it. Each level is written as image's writer rounds it,
+    /// `level * 255 + 0.5` cut to a whole number (0.5 gives 128). The same picture gives the same bytes. A file already
+    /// there is replaced; none is made for a refusal.
+    ///
+    /// # Errors
+    /// [`Error::Write`] naming `path` for an extension that is none of those, a folder that is not there, a path that cannot
+    /// be written and a picture too large for the format.
+    pub fn write(&self, path: &Path) -> Result<(), Error> {
+        picture::write(self, path)
     }
 
     /// The values, handed over.

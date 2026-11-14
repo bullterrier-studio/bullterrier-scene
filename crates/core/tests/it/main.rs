@@ -18,6 +18,7 @@ mod light;
 mod look;
 mod maps;
 mod masks;
+mod output;
 mod parameters;
 mod perspective;
 mod picture;

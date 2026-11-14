@@ -325,6 +325,19 @@ pub(crate) fn recipe_file(path: &Path) -> Result<Value, Error> {
     serde_json::to_value(&recipe).map_err(|error| Error::invalid("look", error.to_string()))
 }
 
+/// `raster` written to the file `path` by image's writer, which rounds its levels and picks the format by the extension.
+///
+/// # Errors
+/// [`Error::Write`] with the writer's message.
+pub(crate) fn write(raster: &Raster, path: &Path) -> Result<(), Error> {
+    let written = bullterrier_image::Image::rgba(raster.height(), raster.width(), raster.pixels())
+        .and_then(|image| bullterrier_image::write(path, &image));
+    written.map_err(|error| Error::Write {
+        path: path.display().to_string(),
+        message: error.to_string(),
+    })
+}
+
 /// The picture in `file`: upright, in sRGB values, with its alpha if it has one.
 fn read(file: &Located) -> Result<Raster, Error> {
     file.verified()?;

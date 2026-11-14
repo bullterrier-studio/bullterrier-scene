@@ -32,6 +32,13 @@ pub enum Error {
         /// The layer and what went wrong.
         message: String,
     },
+    /// A file the call cannot write: [`Raster::write`](crate::Raster::write).
+    Write {
+        /// The file.
+        path: String,
+        /// What went wrong.
+        message: String,
+    },
 }
 
 /// The name of the `number`th mask call of a layer, from 1 (`mask`, `mask#2`...): the address an error of a mask carries, written
@@ -76,6 +83,7 @@ impl Error {
                 path,
                 message: format!("{layer}: {message}"),
             },
+            write @ Self::Write { .. } => write,
         }
     }
 }
@@ -86,7 +94,7 @@ impl fmt::Display for Error {
             Self::Invalid { address, message } => write!(formatter, "{address}: {message}"),
             Self::Format { pointer, message } if pointer.is_empty() => write!(formatter, "{message}"),
             Self::Format { pointer, message } => write!(formatter, "{pointer}: {message}"),
-            Self::Read { path, message } => write!(formatter, "{path}: {message}"),
+            Self::Read { path, message } | Self::Write { path, message } => write!(formatter, "{path}: {message}"),
         }
     }
 }
