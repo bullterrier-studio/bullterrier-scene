@@ -954,7 +954,7 @@ def test_as_light_off_is_no_call_and_on_is_the_default():
 
 @pytest.mark.parametrize("value", [1, 0, "yes", None, 1.0])
 def test_light_that_is_no_bool_is_a_type_error_naming_on(value):
-    with pytest.raises(TypeError, match="on"):
+    with pytest.raises(TypeError, match=r"^on: a bool"):
         Layer.fill("#ffffff").as_light(value)
 
 

@@ -158,12 +158,21 @@ fn drawn_by_vector(
     Ok([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
 }
 
-/// How far scene's float pixel may be from vector's byte, in levels of 255. With an opaque source: the byte's own rounding
-/// (half a level) and vector's one level. With a translucent one vector holds the source premultiplied in 8 bits, so its
-/// colour is off by up to half a level over the alpha, and `color-burn` and `color-dodge` are steep enough to turn that
-/// into 2.1 levels (measured at alpha 0.5: 115.9 against 118, the W3C formula giving 115.86).
-const OPAQUE_BOUND: f32 = 1.5;
-const TRANSLUCENT_BOUND: f32 = 3.0;
+/// How far scene's float pixel may be from vector's byte, in levels of 255: the byte's own rounding (half a level) and vector's
+/// one level (measured at most 1.498, `exclusion`, with an opaque source). With a translucent source vector holds the source
+/// premultiplied in 8 bits, so its colour is off by up to half a level over the alpha; the modes that divide, `color-dodge` and
+/// `color-burn`, turn that into 2.14 levels (alpha 0.5: 115.9 against 118, the W3C formula giving 115.86), and no other
+/// mode passes 1.44.
+const BOUND: f32 = 1.5;
+
+/// The bound for a translucent source in the mode `word`.
+fn translucent_bound(word: &str) -> f32 {
+    if matches!(word, "color-dodge" | "color-burn") {
+        2.5
+    } else {
+        BOUND
+    }
+}
 
 /// The largest difference, in levels of 255, between scene's and vector's pixel for one mode, over the grid.
 fn most_levels_off(word: &str, alpha: u8, opacity: f64, bound: f32) -> Result<f32, Box<dyn std::error::Error>> {
@@ -196,7 +205,7 @@ fn most_levels_off(word: &str, alpha: u8, opacity: f64, bound: f32) -> Result<f3
 #[test]
 fn an_opaque_source_blends_as_vector_blends_it_in_every_separable_mode() -> Outcome {
     for word in SEPARABLE {
-        most_levels_off(word, 255, 1.0, OPAQUE_BOUND)?;
+        most_levels_off(word, 255, 1.0, BOUND)?;
     }
     Ok(())
 }
@@ -204,9 +213,9 @@ fn an_opaque_source_blends_as_vector_blends_it_in_every_separable_mode() -> Outc
 #[test]
 fn a_translucent_source_blends_as_vector_blends_it_in_every_separable_mode() -> Outcome {
     for word in SEPARABLE {
-        most_levels_off(word, 128, 1.0, TRANSLUCENT_BOUND)?;
-        most_levels_off(word, 255, 0.5, TRANSLUCENT_BOUND)?;
-        most_levels_off(word, 204, 0.5, TRANSLUCENT_BOUND)?;
+        for (alpha, opacity) in [(128, 1.0), (255, 0.5), (204, 0.5)] {
+            most_levels_off(word, alpha, opacity, translucent_bound(word))?;
+        }
     }
     Ok(())
 }
