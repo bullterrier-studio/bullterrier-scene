@@ -861,3 +861,106 @@ def test_a_boolean_map_is_refused_naming_the_dtype_and_the_fix():
 def test_a_bool_is_no_opacity(value):
     with pytest.raises(TypeError, match="opacity"):
         Layer.fill("#ffffff").opacity(value)
+
+
+# --- blend and light -----------------------------------------------------------------------------------------------
+
+BLEND_NAMES = [
+    "normal",
+    "multiply",
+    "screen",
+    "overlay",
+    "darken",
+    "lighten",
+    "color-dodge",
+    "color-burn",
+    "hard-light",
+    "soft-light",
+    "difference",
+    "exclusion",
+    "hue",
+    "saturation",
+    "color",
+    "luminosity",
+]
+
+
+def cell(rgba):
+    return Layer.picture(np.array([[rgba]], np.float32))
+
+
+def joined(backdrop, source):
+    return Scene(1, 1).add(cell(backdrop), source).render(1)[0, 0]
+
+
+@pytest.mark.parametrize("name", BLEND_NAMES)
+def test_every_css_name_is_a_blend_and_a_blend_is_a_new_layer(name):
+    below, plain = [0.5, 0.25, 0.5, 1], cell([0.25, 0.5, 0.75, 1])
+    blended = plain.blend(name)
+    assert blended is not plain
+    if name == "normal":
+        assert np.array_equal(joined(below, blended), joined(below, plain))
+    else:
+        assert not np.array_equal(joined(below, blended), joined(below, plain))
+    # the layer the call started from is unchanged
+    assert np.array_equal(joined(below, plain), [0.25, 0.5, 0.75, 1])
+
+
+def test_multiply_by_hand_and_the_layers_opacity_scales_what_is_blended():
+    # multiply of (1, 0.5, 0) at opacity 0.5 over the opaque (0.5, 0.5, 1): B = (0.5, 0.25, 0), and
+    # 0.5 Cb + 0.5 B = (0.5, 0.375, 0.5)
+    got = joined([0.5, 0.5, 1, 1], cell([1, 0.5, 0, 1]).blend("multiply").opacity(0.5))
+    assert np.allclose(got, [0.5, 0.375, 0.5, 1], atol=1e-6)
+
+
+@pytest.mark.parametrize("word", ["Multiply", "soft_light", "SCREEN", "softlight", "colour-dodge", "bogus", ""])
+def test_a_word_that_is_no_mode_is_refused_naming_blend_the_names_and_the_nearest(word):
+    with pytest.raises(InvalidError, match="blend") as raised:
+        Layer.fill("#ffffff").blend(word)
+    message = str(raised.value)
+    assert all(name in message for name in BLEND_NAMES)
+    assert "did you mean" in message
+
+
+@pytest.mark.parametrize(("word", "fix"), [("Multiply", "multiply"), ("soft_light", "soft-light")])
+def test_a_slip_of_case_or_underscore_names_the_fix(word, fix):
+    with pytest.raises(InvalidError, match=f'did you mean "{fix}"'):
+        Layer.fill("#ffffff").blend(word)
+
+
+@pytest.mark.parametrize("value", [None, 3, b"multiply", ["multiply"], True])
+def test_a_blend_that_is_no_text_is_a_type_error_naming_blend(value):
+    with pytest.raises(TypeError, match="blend"):
+        Layer.fill("#ffffff").blend(value)
+
+
+def test_a_light_layer_screened_over_black_gives_its_colour_black_adds_nothing_and_white_is_opaque():
+    black = cell([0, 0, 0, 1])
+    got = joined([0, 0, 0, 1], cell([0.25, 0.5, 0.75, 1]).as_light().blend("screen"))
+    assert np.allclose(got, [0.25, 0.5, 0.75, 1], atol=1e-6)
+    assert np.allclose(joined([0.2, 0.4, 0.6, 1], black.as_light().blend("screen")), [0.2, 0.4, 0.6, 1], atol=1e-6)
+    assert np.allclose(Scene(1, 1).add(cell([1, 1, 1, 1]).as_light()).render(1)[0, 0], [1, 1, 1, 1])
+    # (0.5, 0.5, 0.5) at 0.5 is 0.25 of light: alpha 0.25, straight colour white
+    assert np.allclose(Scene(1, 1).add(cell([0.5, 0.5, 0.5, 0.5]).as_light()).render(1)[0, 0], [1, 1, 1, 0.25])
+
+
+def test_as_light_off_is_no_call_and_on_is_the_default():
+    layer = cell([0.25, 0.5, 0.75, 0.5])
+    plain = Scene(1, 1).add(layer).render(1)
+    assert np.array_equal(Scene(1, 1).add(layer.as_light(False)).render(1), plain)
+    assert np.array_equal(Scene(1, 1).add(layer.as_light()).render(1), Scene(1, 1).add(layer.as_light(True)).render(1))
+    assert not np.array_equal(Scene(1, 1).add(layer.as_light()).render(1), plain)
+
+
+@pytest.mark.parametrize("value", [1, 0, "yes", None, 1.0])
+def test_light_that_is_no_bool_is_a_type_error_naming_on(value):
+    with pytest.raises(TypeError, match="on"):
+        Layer.fill("#ffffff").as_light(value)
+
+
+def test_a_mask_layer_with_a_blend_or_a_light_is_refused_at_the_mask_call_and_normal_is_not():
+    for made, word in [(Layer.fill("#ffffff").blend("screen"), "blend"), (Layer.fill("#ffffff").as_light(), "light")]:
+        with pytest.raises(InvalidError, match="mask") as raised:
+            Layer.fill("#ffffff").mask(made)
+        assert word in str(raised.value)
+    Layer.fill("#ffffff").mask(Layer.fill("#ffffff").blend("normal").as_light(False))

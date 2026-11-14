@@ -10,7 +10,7 @@ use numpy::{Element, PyArray1, PyArray3, PyArrayMethods, PyReadonlyArrayDyn, PyU
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 
-use bullterrier_scene::{Deg, Fit, Map, Mask, Place, Raster, Text, Use};
+use bullterrier_scene::{Blend, Deg, Fit, Map, Mask, Place, Raster, Text, Use};
 
 /// bullterrier-scene's Rust core.
 #[pymodule]
@@ -254,6 +254,17 @@ impl Layer {
     /// This layer at `value` of its own alpha, from 0 to 1.
     fn opacity(&self, py: Python<'_>, value: f64) -> PyResult<Self> {
         wrap(py, self.0.clone().opacity(value)).map(Self)
+    }
+
+    /// This layer joined to what is below by the blend mode named `mode`, a CSS name such as "multiply" or "soft-light".
+    fn blend(&self, py: Python<'_>, mode: &str) -> PyResult<Self> {
+        let mode: Blend = wrap(py, mode.parse())?;
+        Ok(Self(self.0.clone().blend(mode)))
+    }
+
+    /// This layer made light (`on`), or not.
+    fn as_light(&self, on: bool) -> Self {
+        Self(self.0.clone().as_light(on))
     }
 
     /// This layer's box fitted into `area` = (x, y, width, height) design pixels: `how` is "cover", "contain" or "stretch";

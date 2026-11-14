@@ -282,6 +282,32 @@ class Layer:
         """This layer at `value` of its own alpha, from 0 (hidden) to 1 (the default); `InvalidError` outside it."""
         return type(self)(self._core.opacity(_number("opacity", value)))
 
+    def blend(self, mode: str) -> Self:
+        """This layer joined to what is below by `mode`, one of the W3C compositing modes by its CSS name.
+
+        `"normal"` (the default), `"multiply"`, `"screen"`, `"overlay"`, `"darken"`, `"lighten"`, `"color-dodge"`,
+        `"color-burn"`, `"hard-light"`, `"soft-light"`, `"difference"`, `"exclusion"`, `"hue"`, `"saturation"`,
+        `"color"` or `"luminosity"`, in lower case with hyphens. Colours are blended as sRGB values, at the layer's
+        alpha after its masks and its opacity. Another word, `"Multiply"` and `"soft_light"` included, is an
+        `InvalidError` naming `blend`, the sixteen names and the nearest; a `mode` that is not a `str` is a `TypeError`.
+        A look's own `blend_mode` (image's spelling, `soft_light`) is inside the look and stays image's.
+        """
+        if not isinstance(mode, str):
+            raise TypeError(
+                f'blend: a mode name such as "multiply" is wanted, got {type(mode).__name__} {_shown(mode)}'
+            )
+        return type(self)(self._core.blend(mode))
+
+    def as_light(self, on: bool = True) -> Self:
+        """This layer made light (`on=True`, the default), or not (`on=False`, which is no call).
+
+        A light layer's premultiplied colour, after its looks and masks, is its colour over black, and its alpha is the
+        largest of the red, green and blue of that colour: black adds nothing, a `"screen"` of the layer over black
+        gives that colour exactly, and white is opaque white. A layer that is not light keeps the alpha of its source. A
+        mask layer cannot be light (`InvalidError` at `mask`). A value that is not a `bool` is a `TypeError`.
+        """
+        return type(self)(self._core.as_light(_flag("on", on)))
+
     def look(self, recipe: Any) -> Self:
         """This layer with an image look run on it, after the looks it has.
 
