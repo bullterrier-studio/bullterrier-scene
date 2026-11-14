@@ -16,7 +16,7 @@ use bullterrier_scene::{Blend, Deg, Fit, Map, Mask, Parameter, Place, Raster, Te
 #[pymodule]
 mod _core {
     #[pymodule_export]
-    use super::{Held, Layer, Scene};
+    use super::{Held, Layer, Scene, main};
 
     /// The most layers a scene holds.
     #[pymodule_export]
@@ -25,6 +25,18 @@ mod _core {
     /// The deepest masks nest.
     #[pymodule_export]
     const MAX_DEPTH: usize = bullterrier_scene::MAX_DEPTH;
+}
+
+/// Runs the command line `bt-scene` with `argv` (the arguments after the program's name) and returns its exit code. Results go
+/// to stdout and errors to stderr, as the process's own; `version` is what `--version` prints. Ctrl-C is not seen while it runs:
+/// the caller restores the default signal handler first.
+#[pyfunction]
+#[expect(clippy::needless_pass_by_value, reason = "PyO3 extracts a list by value")]
+fn main(py: Python<'_>, argv: Vec<String>, version: &str) -> i32 {
+    py.detach(|| {
+        let (mut out, mut err) = (std::io::stdout(), std::io::stderr());
+        bullterrier_scene_cli::main(&argv, version, &mut out, &mut err)
+    })
 }
 
 /// The red, green, blue and alpha values of `array` (height, width, 3 or 4 channels) as floats from 0 to 1: `scale` maps its

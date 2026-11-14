@@ -1,34 +1,24 @@
-"""Command line: `bt-scene --version`. Commands arrive with batch P1.
+"""Command line: `bt-scene render|parameters|validate`.
 
-A thin layer over the library: it parses the arguments, calls it and prints the answer. A failure the user can fix
-prints `error: <what is wrong>` and makes the exit code 1.
+The command line is the Rust core's (`crates/cli`); this is the entry point that starts it.
 """
 
-import argparse
+import signal
+import sys
 
 from . import __version__
-
-_EXIT_CODES = """\
-exit codes:
-  0    success
-  2    wrong usage: an unknown command or option (argparse explains)
-
-Errors go to stderr, results to stdout.
-"""
+from ._native import _core
 
 
-def main(argv: list[str] | None = None) -> int:
-    """Run the command line with `argv` (default: `sys.argv[1:]`) and return the exit code.
+def run(argv: list[str]) -> int:
+    """Run `bt-scene` with `argv` (the arguments after the program's name) and return its exit code: 0 success, 1 the
+    command failed (`error: <what is wrong>` on stderr), 2 wrong usage. Results go to stdout and errors to stderr, as
+    the process's own."""
+    return _core.main(argv, __version__)
 
-    Results go to stdout, errors to stderr. Without arguments it prints the help. See the exit codes in `--help`.
-    """
-    parser = argparse.ArgumentParser(
-        prog="bt-scene",
-        description="Puts layers into one picture. The commands arrive with the command-line batch (P1).",
-        epilog=_EXIT_CODES,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument("--version", action="version", version=f"bt-scene {__version__}")
-    parser.parse_args(argv)
-    parser.print_help()
-    return 0
+
+def main() -> None:
+    """The console script `bt-scene`: run the command line with `sys.argv` and exit with its code. Ctrl-C ends it at
+    once (the shell reports 130): Python's handler would wait for the Rust code, which does not look for it."""
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    sys.exit(run(sys.argv[1:]))

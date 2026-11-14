@@ -1,0 +1,253 @@
+//! `bt-scene render`: the picture it writes is the one the core renders, and a refusal is one line and exit 1.
+
+use bullterrier_scene::{Raster, Value, Values};
+
+use crate::common::{Outcome, Project, bt, decoded, text};
+
+/// The bytes the core's own writer makes of `raster`: what a render of it must be, byte for byte.
+fn written(raster: &Raster, path: &std::path::Path) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    raster.write(path)?;
+    Ok(std::fs::read(path)?)
+}
+
+#[test]
+fn it_writes_the_picture_the_core_renders_within_the_rounding_of_8_bits() -> Outcome {
+    let project = Project::new()?;
+    let out = project.file("out.png");
+    let ran = bt(&["render", text(&project.file("scene.json")), text(&out)]);
+    assert_eq!((ran.code, ran.out.trim(), ran.err.as_str()), (0, text(&out), ""));
+    let expected = project.scene()?.render(64)?;
+    let (width, height, bytes) = decoded(&out)?;
+    assert_eq!((width, height), (expected.width(), expected.height()));
+    let worst = expected
+        .pixels()
+        .iter()
+        .zip(&bytes)
+        .map(|(level, byte)| (level * 255.0 - f32::from(*byte)).abs())
+        .fold(0.0, f32::max);
+    assert!(worst <= 0.5 + 1e-3, "the largest difference is {worst} levels");
+    Ok(())
+}
+
+#[test]
+fn size_is_the_long_side() -> Outcome {
+    let project = Project::new()?;
+    let out = project.file("small.png");
+    let ran = bt(&["render", text(&project.file("scene.json")), text(&out), "--size", "32"]);
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    let (width, height, _) = decoded(&out)?;
+    assert_eq!((width, height), (32, 18));
+    Ok(())
+}
+
+#[test]
+fn set_gives_the_picture_of_with_values() -> Outcome {
+    let project = Project::new()?;
+    let scene = project.scene()?;
+    let plain = written(&scene.render(64)?, &project.file("plain.png"))?;
+    let rows: [(&str, &str, Value); 6] = [
+        ("a number", "band.opacity=0.2", 0.2.into()),
+        ("a colour", "title.color=#ff0000", "#ff0000".into()),
+        ("a text", "title.text=Pilot", "Pilot".into()),
+        ("a bool", "band.light=true", true.into()),
+        ("a choice", "band.blend=multiply", "multiply".into()),
+        (
+            "a picture file",
+            "photo.picture=other.png",
+            project.file("other.png").into(),
+        ),
+    ];
+    for (what, assignment, value) in rows {
+        let address = assignment.split_once('=').map_or(assignment, |(address, _)| address);
+        let expected = written(
+            &scene.with_values(&Values::new().set(address, value))?.render(64)?,
+            &project.file("expected.png"),
+        )?;
+        let out = project.file("out.png");
+        let ran = bt(&[
+            "render",
+            text(&project.file("scene.json")),
+            text(&out),
+            "--set",
+            assignment,
+            "--base",
+            text(project.folder.path()),
+        ]);
+        // a file given by a relative path is relative to the folder the command runs in: the test gives it whole
+        let ran = if what == "a picture file" {
+            let whole = format!("photo.picture={}", text(&project.file("other.png")));
+            bt(&["render", text(&project.file("scene.json")), text(&out), "--set", &whole])
+        } else {
+            ran
+        };
+        assert_eq!(ran.code, 0, "{what}: {}", ran.err);
+        assert!(
+            std::fs::read(&out)? == expected,
+            "{what}: not the picture with_values gives"
+        );
+        assert!(expected != plain, "{what}: the value changed nothing");
+    }
+    Ok(())
+}
+
+#[test]
+fn set_twice_takes_the_last_and_two_addresses_both() -> Outcome {
+    let project = Project::new()?;
+    let scene = project.scene()?;
+    let values = Values::new().set("band.opacity", 0.3).set("title.color", "#00ff00");
+    let expected = written(&scene.with_values(&values)?.render(64)?, &project.file("expected.png"))?;
+    let out = project.file("out.png");
+    let ran = bt(&[
+        "render",
+        text(&project.file("scene.json")),
+        text(&out),
+        "--set",
+        "band.opacity=0.9",
+        "--set",
+        "title.color=#00ff00",
+        "--set",
+        "band.opacity=0.3",
+    ]);
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    assert!(std::fs::read(&out)? == expected, "the last value of an address wins");
+    Ok(())
+}
+
+#[test]
+fn a_refusal_is_one_error_line_naming_the_value_and_exit_1_and_no_file() -> Outcome {
+    let project = Project::new()?;
+    let scene = text(&project.file("scene.json")).to_owned();
+    let rows: [(&str, Vec<&str>, &[&str]); 11] = [
+        (
+            "an unknown address",
+            vec!["--set", "band.opacty=0.5"],
+            &["band.opacty", "did you mean opacity"],
+        ),
+        (
+            "a layer that is not there",
+            vec!["--set", "banner.opacity=0.5"],
+            &["banner", "band"],
+        ),
+        (
+            "a word for a number",
+            vec!["--set", "band.opacity=high"],
+            &["band.opacity", "a number", "high"],
+        ),
+        (
+            "a number out of range",
+            vec!["--set", "band.opacity=7"],
+            &["band.opacity", "7"],
+        ),
+        ("NaN", vec!["--set", "band.opacity=NaN"], &["band.opacity"]),
+        (
+            "NaN for an angle that wraps",
+            vec!["--set", "title.rotate=NaN"],
+            &["title.rotate"],
+        ),
+        (
+            "a word for a bool",
+            vec!["--set", "band.light=yes"],
+            &["band.light", "true"],
+        ),
+        (
+            "a picture that is not there",
+            vec!["--set", "photo.picture=gone.png"],
+            &["gone.png"],
+        ),
+        ("a size of 0", vec!["--size", "0"], &["size"]),
+        ("a size over the limit", vec!["--size", "100000"], &["size"]),
+        ("a negative size", vec!["--size=-5"], &["size"]),
+    ];
+    for (what, extra, named) in rows {
+        let out = project.file("never.png");
+        let mut args = vec!["render", scene.as_str(), text(&out)];
+        args.extend(extra);
+        let ran = bt(&args);
+        assert_eq!(ran.code, 1, "{what}: {}", ran.err);
+        assert_eq!(ran.out, "", "{what}");
+        assert!(
+            ran.err.starts_with("error: ") && ran.err.trim_end().lines().count() == 1,
+            "{what}: {}",
+            ran.err
+        );
+        for word in named {
+            assert!(ran.err.contains(word), "{what}: `{word}` not in {}", ran.err);
+        }
+        assert!(!out.exists(), "{what}: a file was made");
+    }
+    Ok(())
+}
+
+#[test]
+fn a_file_that_cannot_be_read_or_written_is_exit_1_naming_it() -> Outcome {
+    let project = Project::new()?;
+    let missing = project.file("gone.json");
+    let ran = bt(&["render", text(&missing), text(&project.file("out.png"))]);
+    assert_eq!(ran.code, 1);
+    assert!(
+        ran.err.starts_with("error: ") && ran.err.contains("gone.json"),
+        "{}",
+        ran.err
+    );
+
+    for name in ["nowhere/out.png", "out.bmp", "out"] {
+        let out = project.file(name);
+        let ran = bt(&["render", text(&project.file("scene.json")), text(&out)]);
+        assert_eq!(ran.code, 1, "{name}");
+        assert!(
+            ran.err.starts_with("error: ") && ran.err.contains(name),
+            "{name}: {}",
+            ran.err
+        );
+        assert!(!out.exists(), "{name}");
+    }
+    Ok(())
+}
+
+#[test]
+fn hostile_input_is_refused_in_one_short_line() -> Outcome {
+    let project = Project::new()?;
+    let out = text(&project.file("out.png")).to_owned();
+    let scene = text(&project.file("scene.json")).to_owned();
+
+    // a megabyte of padding around a good document is read and drawn
+    let padded = project.file("padded.json");
+    std::fs::write(
+        &padded,
+        format!("{}{}", " ".repeat(1 << 20), std::fs::read_to_string(&scene)?),
+    )?;
+    let ran = bt(&["render", text(&padded), &out, "--base", text(project.folder.path())]);
+    assert_eq!(ran.code, 0, "{}", ran.err);
+
+    // a megabyte of nesting and of noise is not a scene, and costs neither the stack nor a long message
+    for (what, document) in [
+        ("nesting", "[".repeat(1 << 20)),
+        ("noise", "x".repeat(1 << 20)),
+        ("nothing", String::new()),
+    ] {
+        let bad = project.file("bad.json");
+        std::fs::write(&bad, document)?;
+        let ran = bt(&["render", text(&bad), &out]);
+        assert_eq!(ran.code, 1, "{what}");
+        assert!(
+            ran.err.starts_with("error: ") && ran.err.len() < 600,
+            "{what}: {} bytes",
+            ran.err.len()
+        );
+    }
+
+    // an address and a value of a megabyte are cut in the message
+    for assignment in [
+        format!("{}=1", "a".repeat(1 << 20)),
+        format!("band.opacity={}", "9".repeat(1 << 20)),
+    ] {
+        let ran = bt(&["render", &scene, &out, "--set", &assignment]);
+        assert_eq!(ran.code, 1);
+        assert!(
+            ran.err.starts_with("error: ") && ran.err.len() < 3000,
+            "{} bytes",
+            ran.err.len()
+        );
+    }
+    Ok(())
+}

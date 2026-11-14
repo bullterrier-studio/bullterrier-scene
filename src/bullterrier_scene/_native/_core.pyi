@@ -8,10 +8,12 @@ from typing import Any, final
 import numpy as np
 import numpy.typing as npt
 
-__all__ = ["MAX_DEPTH", "MAX_LAYERS", "Held", "Layer", "Scene"]
+__all__ = ["MAX_DEPTH", "MAX_LAYERS", "Held", "Layer", "Scene", "main"]
 
 MAX_LAYERS: int
 MAX_DEPTH: int
+
+def main(argv: list[str], version: str) -> int: ...
 
 @final
 class Held:
