@@ -273,11 +273,13 @@ fn value_of(py: Python<'_>, address: &str, value: &Bound<'_, PyAny>) -> PyResult
 }
 
 /// One layer of a scene: a source, and how it joins the layers below it. It never changes; a call returns a new one.
-#[pyclass(frozen, name = "Layer", module = "bullterrier_scene._native._core")]
+#[pyclass(frozen, eq, name = "Layer", module = "bullterrier_scene._native._core")]
+#[derive(PartialEq)]
 struct Layer(bullterrier_scene::Layer);
 
 /// A canvas and a stack of layers, bottom first. It never changes; a call returns a new one.
-#[pyclass(frozen, name = "Scene", module = "bullterrier_scene._native._core")]
+#[pyclass(frozen, eq, name = "Scene", module = "bullterrier_scene._native._core")]
+#[derive(PartialEq)]
 struct Scene(bullterrier_scene::Scene);
 
 /// `result` with a refusal of the core raised as the package's exception.
@@ -532,6 +534,18 @@ impl Scene {
             given = given.set(address, value);
         }
         wrap(py, self.0.with_values(&given)).map(Self)
+    }
+
+    /// This scene as JSON text.
+    fn to_json(&self, py: Python<'_>) -> PyResult<String> {
+        wrap(py, self.0.to_json())
+    }
+
+    /// The scene a JSON document describes; a relative path in it is relative to `base`.
+    #[staticmethod]
+    #[expect(clippy::needless_pass_by_value, reason = "pyo3 hands the extracted path over")]
+    fn from_json(py: Python<'_>, text: &str, base: PathBuf) -> PyResult<Self> {
+        wrap(py, bullterrier_scene::Scene::from_json(text, &base)).map(Self)
     }
 
     /// The picture as a new float32 array (height, width, 4): straight alpha, 0 to 1, rows from the top.

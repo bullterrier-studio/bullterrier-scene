@@ -41,6 +41,11 @@ impl Finish {
         self
     }
 
+    /// The masks by a map, in call order.
+    pub(crate) fn masks(&self) -> &[MapMask] {
+        &self.masks
+    }
+
     /// The looks, in call order.
     pub(crate) fn looks(&self) -> &[Look] {
         &self.looks

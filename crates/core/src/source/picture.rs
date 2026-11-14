@@ -2,13 +2,15 @@
 //! image crate reads a picture file, a recipe, and renders one.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use bullterrier_image::{Number, Options, Photo, Presets, RECIPE_FORMATS, Recipe};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::{Drawn, Given, Opened, Source};
+use crate::document::Form;
+use crate::files::Located;
 use crate::geometry::Rect;
 use crate::parameters::{Parameter, Value as Setting};
 use crate::warp::resize;
@@ -19,7 +21,7 @@ use crate::{Error, Map, Raster};
 #[derive(Debug, Clone)]
 enum Pixels {
     Held(Arc<Raster>),
-    File(PathBuf),
+    File(Located),
     /// Nothing given yet: a parameter fills it before the scene renders.
     Hole,
 }
@@ -153,6 +155,15 @@ impl Look {
         })
     }
 
+    /// This look as the document of a saved scene: `{"format": N, "recipe": {...}}`, with the lowest format the recipe needs.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `look` for a recipe image cannot write as data.
+    pub(crate) fn document(&self) -> Result<Value, Error> {
+        let recipe = serde_json::to_value(&self.recipe).map_err(|error| Error::invalid("look", error.to_string()))?;
+        Ok(json!({"format": self.recipe.format(), "recipe": recipe}))
+    }
+
     /// The names of the maps the recipe can be given (`subject`, `depth`, a `given` region).
     pub(crate) fn known_maps(&self) -> Vec<&str> {
         self.recipe.known_maps()
@@ -233,9 +244,9 @@ impl Picture {
     }
 
     /// A picture read from `path` when it is drawn.
-    pub(crate) fn file(path: PathBuf) -> Self {
+    pub(crate) fn file(file: Located) -> Self {
         Self {
-            pixels: Pixels::File(path),
+            pixels: Pixels::File(file),
             maps: BTreeMap::new(),
         }
     }
@@ -248,7 +259,7 @@ impl Picture {
                 let at = format!("map.{name}");
                 let map = match given {
                     Given::Held(map) => Arc::clone(map),
-                    Given::File(path) => Arc::new(read_map(path)?),
+                    Given::File(file) => Arc::new(read_map(file)?),
                     Given::Hole => {
                         return Err(Error::invalid(
                             &at,
@@ -272,9 +283,11 @@ impl Picture {
     }
 }
 
-/// The map in the file `path`: a grey picture read as image reads a map (upright, 0 to 1).
-fn read_map(path: &Path) -> Result<Map, Error> {
-    let layer = bullterrier_image::read_map(path).map_err(|error| Error::Read {
+/// The map in the file `file`: a grey picture read as image reads a map (upright, 0 to 1).
+fn read_map(file: &Located) -> Result<Map, Error> {
+    file.verified()?;
+    let path = file.resolved();
+    let layer = bullterrier_image::read_map(&path).map_err(|error| Error::Read {
         path: path.display().to_string(),
         message: error.to_string(),
     })?;
@@ -312,9 +325,11 @@ pub(crate) fn recipe_file(path: &Path) -> Result<Value, Error> {
     serde_json::to_value(&recipe).map_err(|error| Error::invalid("look", error.to_string()))
 }
 
-/// The picture in `path`: upright, in sRGB values, with its alpha if it has one.
-fn read(path: &Path) -> Result<Raster, Error> {
-    let image = bullterrier_image::read(path).map_err(|error| Error::Read {
+/// The picture in `file`: upright, in sRGB values, with its alpha if it has one.
+fn read(file: &Located) -> Result<Raster, Error> {
+    file.verified()?;
+    let path = file.resolved();
+    let image = bullterrier_image::read(&path).map_err(|error| Error::Read {
         path: path.display().to_string(),
         message: error.to_string(),
     })?;
@@ -340,13 +355,36 @@ fn read(path: &Path) -> Result<Raster, Error> {
 }
 
 impl Source for Picture {
+    /// `picture` (`null` for a hole), and `maps` if there are any.
+    fn document(&self, form: Form) -> Result<Vec<(&'static str, Value)>, Error> {
+        let picture = match &self.pixels {
+            Pixels::Held(raster) => form.held("picture", (raster.width(), raster.height()), raster.pixels())?,
+            Pixels::File(file) => form.file(file)?,
+            Pixels::Hole => Value::Null,
+        };
+        let mut found = vec![("picture", picture)];
+        if !self.maps.is_empty() {
+            let mut maps = serde_json::Map::new();
+            for (name, given) in &self.maps {
+                let map = match given {
+                    Given::Held(map) => form.held(&format!("map.{name}"), (map.width(), map.height()), map.values())?,
+                    Given::File(file) => form.file(file)?,
+                    Given::Hole => Value::Null,
+                };
+                maps.insert(name.clone(), map);
+            }
+            found.push(("maps", Value::Object(maps)));
+        }
+        Ok(found)
+    }
+
     /// With no look on the layer, the picture's own pixels (masked by a map where the layer says so), for the warp to resample
     /// once; with one, the window at the asked scale (a part of the picture, or all of it) and the maps its looks and masks
     /// use at that size, so that the look runs on the raster the layer will have.
     fn open(&self, _canvas: Rect) -> Result<Opened<'_>, Error> {
         let own = match &self.pixels {
             Pixels::Held(raster) => Arc::clone(raster),
-            Pixels::File(path) => Arc::new(read(path)?),
+            Pixels::File(file) => Arc::new(read(file)?),
             Pixels::Hole => {
                 return Err(Error::invalid(
                     "picture",
@@ -399,14 +437,14 @@ impl Source for Picture {
     fn parameters(&self) -> Vec<Parameter> {
         let value = match &self.pixels {
             Pixels::Held(raster) => Setting::Picture(Arc::clone(raster)),
-            Pixels::File(path) => Setting::File(path.clone()),
+            Pixels::File(file) => Setting::File(file.resolved()),
             Pixels::Hole => Setting::Hole,
         };
         let mut found = vec![Parameter::picture("picture", "the picture the layer shows", value)];
         for (name, given) in &self.maps {
             let value = match given {
                 Given::Held(map) => Setting::Map(Arc::clone(map)),
-                Given::File(path) => Setting::File(path.clone()),
+                Given::File(file) => Setting::File(file.resolved()),
                 Given::Hole => Setting::Hole,
             };
             found.push(Parameter::picture(
@@ -424,7 +462,7 @@ impl Source for Picture {
             if address == "picture" {
                 next.pixels = match value {
                     Setting::Picture(raster) => Pixels::Held(Arc::clone(raster)),
-                    Setting::File(path) => Pixels::File(path.clone()),
+                    Setting::File(path) => Pixels::File(Located::new(path)),
                     Setting::Hole => Pixels::Hole,
                     other => {
                         return Err(other.wrong(
@@ -436,7 +474,7 @@ impl Source for Picture {
             } else if let Some(name) = address.strip_prefix("map.") {
                 let given = match value {
                     Setting::Map(map) => Given::Held(Arc::clone(map)),
-                    Setting::File(path) => Given::File(path.clone()),
+                    Setting::File(path) => Given::File(Located::new(path)),
                     Setting::Hole => Given::Hole,
                     other => {
                         return Err(other.wrong(address, "a map (an array of shape (height, width)), a path or none"));

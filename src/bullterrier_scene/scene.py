@@ -1,6 +1,7 @@
 """`Scene`: a canvas and a stack of layers, drawn into one picture at any size."""
 
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any, Self
 
 import numpy as np
@@ -37,6 +38,14 @@ class Scene:
         made = cls.__new__(cls)
         made._core = core  # noqa: SLF001  (a new instance of this class)
         return made
+
+    def __eq__(self, other: object) -> bool:
+        """Scenes are equal when they write the same document ("Saved scene" in `docs/api.md`): the same canvas and
+        layers, a picture or map in memory by its pixels, a file by its path, a look and a drawing by their documents.
+        Equal scenes render the same pictures and list the same parameters. Not equal to anything but a `Scene`."""
+        return self._core == other._core if isinstance(other, Scene) else NotImplemented
+
+    __hash__ = None  # type: ignore[assignment]  # a scene is equal by its content, which a hash cannot afford
 
     def add(self, *layers: Layer) -> Self:
         """This scene with `layers` on top of its stack, the first lowest.
@@ -119,6 +128,32 @@ class Scene:
                 raise TypeError(f"values: an address is text like 'title.text', got {type(address).__name__}")
             given[address] = value.item() if isinstance(value, np.generic) else value
         return self._of(self._core.with_values(given))
+
+    def to_json(self) -> str:
+        """The scene as one self-contained JSON document ("Saved scene" in `docs/api.md`): the canvas and the layers, a
+        key only where it differs from its default, a look and a drawing inline, a picture, a map and a font file by its
+        path as the scene holds it and the SHA-256 of the file as it is now. The same scene gives the same text; the
+        scene writes nothing. `InvalidError` for a picture or a map that is an array (it has no file: save it, or
+        leave a hole); `ReadError` for a file whose digest cannot be made.
+        """
+        return self._core.to_json()
+
+    @classmethod
+    def from_json(cls, text: str, *, base: Path | None = None) -> Self:
+        """The scene a document written by `to_json` describes.
+
+        A relative path in it is relative to the folder `base` (default: the working folder). No picture or map is read
+        now: they are read when the scene renders, and a file that is not there, or whose SHA-256 is not the one saved,
+        is a `ReadError` then. A font file, a recipe file and a drawing file named by a path are read now. A document
+        that cannot be read is a `FormatError` carrying the JSON Pointer of the value that is wrong: text that is not
+        JSON, a key written twice, a version this release does not read, an unknown key, a value of the wrong kind or
+        range, a layer the scene refuses, a look or a drawing its crate does not read.
+        """
+        if not isinstance(text, str):
+            raise TypeError(f"text: the JSON text of a scene is wanted, got {type(text).__name__}")
+        if base is not None and not isinstance(base, Path):
+            raise TypeError(f"base: a Path is wanted, got {type(base).__name__}: pass Path({base!r})")
+        return cls._of(_core.Scene.from_json(text, Path() if base is None else base))
 
     def render(self, size: int) -> npt.NDArray[np.float32]:
         """The picture: a new float32 array (height, width, 4), 0 to 1, straight alpha, rows from the top, sRGB values.

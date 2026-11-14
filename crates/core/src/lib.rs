@@ -9,8 +9,10 @@
 
 mod blend;
 mod budget;
+mod document;
 mod error;
 mod feather;
+mod files;
 mod finish;
 mod geometry;
 mod landing;

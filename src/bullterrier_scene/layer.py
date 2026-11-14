@@ -103,6 +103,12 @@ class Layer:
         """Wrap the core's layer; callers make layers with the constructors below."""
         self._core = core
 
+    def __eq__(self, other: object) -> bool:
+        """Layers are equal when they write the same document (see `Scene.__eq__`); not equal to anything else."""
+        return self._core == other._core if isinstance(other, Layer) else NotImplemented
+
+    __hash__ = None  # type: ignore[assignment]  # a layer is equal by its content, which a hash cannot afford
+
     @classmethod
     def picture(
         cls,

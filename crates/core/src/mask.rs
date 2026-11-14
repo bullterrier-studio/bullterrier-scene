@@ -22,6 +22,16 @@ pub enum Use {
     Luminance,
 }
 
+impl Use {
+    /// The word `from_str` reads.
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Alpha => "alpha",
+            Self::Luminance => "luminance",
+        }
+    }
+}
+
 impl FromStr for Use {
     type Err = Error;
 
@@ -152,9 +162,9 @@ impl From<&str> for Mask {
 #[derive(Clone)]
 pub(crate) struct CanvasMask {
     layer: Layer,
-    uses: Use,
-    feather: f64,
-    invert: bool,
+    pub(crate) uses: Use,
+    pub(crate) feather: f64,
+    pub(crate) invert: bool,
     /// The place among the layer's `mask` calls, from 1.
     number: usize,
 }

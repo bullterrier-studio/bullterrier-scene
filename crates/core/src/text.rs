@@ -4,11 +4,13 @@ use std::path::PathBuf;
 
 use serde_json::Value;
 
+use crate::files::Located;
+
 /// The font of a text: a bundled one by name, or a font file.
 #[derive(Debug, Clone)]
 pub(crate) enum Face {
     Bundled(String),
-    File(PathBuf),
+    File(Located),
 }
 
 /// What a text layer says about its type besides the words: the font, the colour and vector's own text options
@@ -36,7 +38,16 @@ impl Text {
     /// Type set in the font file `path` (TrueType or OpenType), read when the layer is made, in black.
     pub fn from_file(path: impl Into<PathBuf>) -> Self {
         Self {
-            face: Face::File(path.into()),
+            face: Face::File(Located::new(path)),
+            color: "#000000".to_owned(),
+            options: Vec::new(),
+        }
+    }
+
+    /// Type set in the font file of a saved scene.
+    pub(crate) fn from_saved(file: Located) -> Self {
+        Self {
+            face: Face::File(file),
             color: "#000000".to_owned(),
             options: Vec::new(),
         }

@@ -7,6 +7,7 @@ use bullterrier_vector::{Font, Inputs, Param, ScaleBy, Size, Unit, Values};
 use serde_json::{Value, json};
 
 use super::{Drawn, Opened, Source};
+use crate::document::{Form, number};
 use crate::geometry::Rect;
 use crate::parameters::{Parameter, Value as Setting};
 use crate::text::{Face, Text};
@@ -82,14 +83,17 @@ impl Drawing {
                 Font::bundled(name).map_err(|error| Error::invalid("font", error.to_string()))?,
                 Inputs::new(),
             ),
-            Face::File(path) => {
-                let bytes = std::fs::read(path).map_err(|error| Error::Read {
-                    path: path.display().to_string(),
-                    message: format!("the font cannot be read: {error}"),
+            Face::File(file) => {
+                let bytes = file.bytes().map_err(|error| match error {
+                    Error::Read { path, message } => Error::Read {
+                        path,
+                        message: format!("the font cannot be read: {message}"),
+                    },
+                    other => other,
                 })?;
                 let font = Font::new(bytes.clone())
                     .and_then(|font| font.named("font"))
-                    .map_err(|error| Error::invalid("font", format!("{}: {error}", path.display())))?;
+                    .map_err(|error| Error::invalid("font", format!("{}: {error}", file.resolved().display())))?;
                 (font, Inputs::new().set("font", bytes))
             }
         };
@@ -212,6 +216,34 @@ fn unit_name(unit: Unit) -> &'static str {
 }
 
 impl Source for Drawing {
+    /// `text`, `font`, `color` and `options` for a text layer; `drawing` (vector's own canonical document) and `values` (the
+    /// Params that were set) for any other.
+    fn document(&self, form: Form) -> Result<Vec<(&'static str, Value)>, Error> {
+        if let Some(typeset) = &self.typeset {
+            let font = match &typeset.text.face {
+                Face::Bundled(name) => Value::String(name.clone()),
+                Face::File(file) => form.file(file)?,
+            };
+            let mut found = vec![
+                ("text", Value::String(typeset.content.clone())),
+                ("font", font),
+                ("color", Value::String(typeset.text.color.clone())),
+            ];
+            if !typeset.text.options.is_empty() {
+                found.push(("options", Value::Object(typeset.text.options.iter().cloned().collect())));
+            }
+            return Ok(found);
+        }
+        let text = self.document.to_json().map_err(|error| refused(&error))?;
+        let document = serde_json::from_str(&text).map_err(|error| Error::invalid("drawing", error.to_string()))?;
+        let mut found = vec![("drawing", document)];
+        if !self.values.is_empty() {
+            let values = self.values.iter().map(|(name, value)| (name.clone(), number(*value)));
+            found.push(("values", Value::Object(values.collect())));
+        }
+        Ok(found)
+    }
+
     /// `text` and `color` for a text layer; for any drawing `drawing.<param>` for each Param, as vector describes it: a cyclic
     /// one (degrees, cycles) spans one turn.
     fn parameters(&self) -> Vec<Parameter> {

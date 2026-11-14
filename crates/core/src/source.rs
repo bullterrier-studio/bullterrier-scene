@@ -4,10 +4,11 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::budget::Budget;
+use crate::document::Form;
+use crate::files::Located;
 use crate::finish::Finish;
 use crate::geometry::{Rect, Scale, whole_up};
 use crate::parameters::{Parameter, Value};
@@ -23,7 +24,7 @@ pub(crate) mod scene;
 #[derive(Debug, Clone)]
 pub(crate) enum Given {
     Held(Arc<Map>),
-    File(PathBuf),
+    File(Located),
     Hole,
 }
 
@@ -148,6 +149,14 @@ pub(crate) trait Source: Send + Sync + fmt::Debug {
     /// # Errors
     /// A file that cannot be read.
     fn open(&self, canvas: Rect) -> Result<Opened<'_>, Error>;
+
+    /// The keys this source adds to its layer's document, in order (`picture` and `maps`, `drawing`, `text`...). The document
+    /// is "Saved scene" in `docs/api.md`; `form` says whether it is written to be saved or to be compared.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] for a picture or a map held in memory when the document is to be saved, [`Error::Read`] for a file
+    /// whose digest cannot be made.
+    fn document(&self, form: Form) -> Result<Vec<(&'static str, serde_json::Value)>, Error>;
 
     /// The names of the maps this source holds, or `None` if it has no picture to hold them.
     fn map_names(&self) -> Option<Vec<&str>> {

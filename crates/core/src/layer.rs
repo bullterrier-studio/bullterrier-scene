@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use crate::blend::Blend;
 use crate::budget::{Budget, MAX_DEPTH};
+use crate::files::Located;
 use crate::finish::{Finish, MapMask};
 use crate::mask::{By, CanvasMask, Mask, Use};
 use crate::perspective::Quad;
@@ -200,7 +201,12 @@ impl Layer {
     /// alpha if it has one. A file that cannot be read is an [`Error::Read`] at `render`, naming the layer.
     #[must_use]
     pub fn picture_file(path: impl Into<PathBuf>) -> Self {
-        Self::from_source(Picture::file(path.into()))
+        Self::from_source(Picture::file(Located::new(path)))
+    }
+
+    /// A picture of a saved scene: the file as the document names it.
+    pub(crate) fn picture_saved(file: Located) -> Self {
+        Self::from_source(Picture::file(file))
     }
 
     /// A vector drawing, given as its JSON document (what the vector package's `Drawing.to_json()` writes): its box is its
@@ -325,7 +331,12 @@ impl Layer {
     /// # Errors
     /// As [`Layer::map`].
     pub fn map_file(self, name: &str, path: impl Into<PathBuf>) -> Result<Self, Error> {
-        self.given(name, Given::File(path.into()))
+        self.given(name, Given::File(Located::new(path)))
+    }
+
+    /// This picture layer with the map `name` in the file of a saved scene.
+    pub(crate) fn map_saved(self, name: &str, file: Located) -> Result<Self, Error> {
+        self.given(name, Given::File(file))
     }
 
     /// This picture layer with a hole under the map `name`: a map to be given later, which `with_values` fills

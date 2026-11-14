@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::collections::BTreeMap;
 
 use super::{Drawn, Opened, Source};
+use crate::document::Form;
 use crate::geometry::Rect;
 use crate::parameters::{Parameter, Value};
 use crate::{Error, Raster};
@@ -44,6 +45,10 @@ impl Fill {
 }
 
 impl Source for Fill {
+    fn document(&self, _form: Form) -> Result<Vec<(&'static str, serde_json::Value)>, Error> {
+        Ok(vec![("fill", self.color.clone().into())])
+    }
+
     fn parameters(&self) -> Vec<Parameter> {
         vec![Parameter::color("color", "the colour of the layer", &self.color)]
     }

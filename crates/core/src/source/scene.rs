@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use super::{Drawn, Opened, Source};
 use crate::budget::Budget;
+use crate::document::{Form, scene_document};
 use crate::geometry::{MAX_PIXELS, Rect};
 use crate::landing::Target;
 use crate::parameters::{Parameter, Value, Values};
@@ -37,6 +38,10 @@ impl fmt::Debug for Group {
 }
 
 impl Source for Group {
+    fn document(&self, form: Form) -> Result<Vec<(&'static str, serde_json::Value)>, Error> {
+        Ok(vec![("scene", scene_document(&self.scene, form)?)])
+    }
+
     /// The parameters of the scene, each under `scene.`.
     fn parameters(&self) -> Vec<Parameter> {
         self.scene

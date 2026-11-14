@@ -23,6 +23,17 @@ pub enum Fit {
     Stretch,
 }
 
+impl Fit {
+    /// The word `from_str` reads.
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Cover => "cover",
+            Self::Contain => "contain",
+            Self::Stretch => "stretch",
+        }
+    }
+}
+
 impl FromStr for Fit {
     type Err = Error;
 
@@ -139,9 +150,9 @@ impl Place {
 /// A layer's `fit`, as given.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Fitting {
-    area: Rect,
-    how: Fit,
-    align: (f64, f64),
+    pub(crate) area: Rect,
+    pub(crate) how: Fit,
+    pub(crate) align: (f64, f64),
 }
 
 impl Fitting {
@@ -201,16 +212,16 @@ fn wrapped(degrees: f64) -> f64 {
 /// A layer's placement, every field set.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Placed {
-    dx: f64,
-    dy: f64,
-    scale: f64,
-    aspect: f64,
-    rotate: f64,
-    skew_x: f64,
-    skew_y: f64,
-    flip_x: bool,
-    flip_y: bool,
-    anchor: (f64, f64),
+    pub(crate) dx: f64,
+    pub(crate) dy: f64,
+    pub(crate) scale: f64,
+    pub(crate) aspect: f64,
+    pub(crate) rotate: f64,
+    pub(crate) skew_x: f64,
+    pub(crate) skew_y: f64,
+    pub(crate) flip_x: bool,
+    pub(crate) flip_y: bool,
+    pub(crate) anchor: (f64, f64),
 }
 
 impl Default for Placed {
