@@ -32,8 +32,7 @@ drawn in the drawing: 3 s). Sources: the 71 s in `bullterrier-demos/feedback/sce
 7. After scene's first release: video (clock, mapping, encode), the web export, editor support (hit-test, tree edit), a
    frontend.
 
-C5b room (a halo or light spill past a layer's box) waits for image's sideways footprint ("Needs from others" in
-`api.md`). B1 stays deferred until image's position-aware effects and canvas hand-over exist.
+Room for light layers is built (C5c). B1 stays deferred until image's position-aware effects and canvas hand-over exist.
 
 ## Polish found by building real pieces
 
@@ -49,8 +48,8 @@ Each item has the evidence that found it. Fix by the usual rule: reproduce at th
 | 6 | `Layer.text` takes a flat colour only | M2 used vector's `text` with a gradient fill directly |
 | 7 | A picture cannot be trimmed to its matte | M2 cropped with numpy to put the reflection at the paws |
 | 8 | No keyline helper | the Conan poster used image's `outline` on a second picture with `lighten`: works, awkward; a look cannot return its stroke as alpha only |
-| 9 | A bloom on a magnified perspective layer takes 71 s (the perspective cap fix made it work). Performance of looks on large drawn rasters needs a look | M2 (`scene-m2.md`, 1): C7 and B1 |
-| 10 | Room for looks (a halo past the layer box) and light spill | needs image's sideways footprint (open row in "Needs from others") |
+| 9 | A bloom on a magnified perspective layer takes 71 s (the perspective cap fix made it work). Performance of looks on large drawn rasters needs a look. **Open**; C5c adds room only to a light layer, at most up to image's 2^26 pixels, so a light bloom on such a layer is looked at a larger raster still | M2 (`scene-m2.md`, 1): C7 and B1 |
+| 10 | ~~Room for looks (a halo past the layer box) and light spill~~ done (C5c): a light layer's looks run on its raster grown by image's `Recipe::spread`. **What remains:** a layer that is not light has none (its alpha is its source's); a recipe mixing a halo with a bounds effect shifts that effect by the room (two layers; image's `Options::with_room` would lift it); a look image cannot bound (`Unbounded`) gets none | `api.md`, "Looks" |
 | 11 | `fit` then `place(dx, dy)` composes correctly in either order | verified on renders (`scene-conan.md`, 3): no gap, listed so nobody re-checks |
 
 ## Context for the next agent
@@ -59,8 +58,8 @@ Each item has the evidence that found it. Fix by the usual rule: reproduce at th
 - **What exists:** the whole core roadmap through C7, O1 and P1 (`roadmap.md`): layers of picture, drawing, text, fill, scene
   and plugin kinds (C8); `fit`, `place`, `perspective`; masks, maps, references, groups; looks on every layer; the sixteen
   blends and light; parameters and `with_values`; the saved scene; the cache; PNG and raster PDF output; `bt-scene`. **What is missing:**
-  room for looks (C5b, image's footprint), bands (B1, deferred), vector PDF,
-  the open polish rows 9 and 10, the look chain cache above, the web export, hit-test and tree edit for an editor.
+  bands (B1, deferred), vector PDF,
+  the open polish row 9, the look chain cache above, the web export, hit-test and tree edit for an editor.
 - **The pieces** are in `bullterrier-demos` and use scene as a library from a checkout (`BT_SCENE_SRC`, the sibling's
   `src/`): 06 the two-ink poster, 07 the composed world, 08 the Conan poster, 09 the wow poster (a loop with a value set per
   frame: `with_values` then `render`), 10 the mill video. Its `feedback/scene-*.md` are the evidence of every polish row.

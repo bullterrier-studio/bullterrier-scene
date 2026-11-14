@@ -22,9 +22,9 @@ Neither crate is published (`publish = false`). A path dependency would tie scen
 branch. *Reason:* a pinned revision builds the same everywhere and a bump is a reviewed commit. *Consequence:* `deny.toml`
 allows exactly those two git sources; a dependency arrives with its first user (C1), since an unused crate fails the gate.
 
-## The pins: image `c6b58ac`, vector `5442066` (2026-11-13; image bumped 2026-11-14)
+## The pins: image `7f91eef`, vector `5442066` (2026-11-13; image bumped 2026-11-14 twice)
 
-`Cargo.toml` pins `bullterrier-image` (`c6b58acb0cfc908478c0893c9055556f76290700`; C1 began at `f319f13`, C5b-lite moved it to image's pushed `main`, with a canvas smaller than the picture allowed (a layer larger than the canvas): `Recipe.to_dict()` writes `format`, `RECIPE_FORMATS` is public, `Options::with_canvas`; the private copy of image's format list is gone) and `bullterrier-vector`
+`Cargo.toml` pins `bullterrier-image` (`7f91eefbc4695ae20d01dc2da3de1eaadc13a274`, which has `Recipe::spread` for C5c; before it `c6b58ac`; C1 began at `f319f13`, C5b-lite moved it to image's pushed `main`, with a canvas smaller than the picture allowed (a layer larger than the canvas): `Recipe.to_dict()` writes `format`, `RECIPE_FORMATS` is public, `Options::with_canvas`; the private copy of image's format list is gone) and `bullterrier-vector`
 (`5442066f9fa5e280ffab6f3a9f85456578900c7f`), the heads of their `main` when C1 began (vector's was `05debff`; C3 bumped it
 for text), with no feature turned on (image's `onnx` stays off). *Vector's bump brought* V10e (`Window`: a rectangle of the
 output drawn alone, the window drawing B1 and the C2 zoom limit wait for) and V10f (text runs: a text of several fonts and
@@ -574,7 +574,41 @@ Copied from the design of audio's measures by name (its A7), adapted to layer ki
   *Cost:* image takes whole pixels, so a fractional scale uses the rounded canvas (half a pixel of the long side).
 - **A layer larger than the canvas is legal,** so image relaxed its refusal of a canvas smaller than the picture (only a side of 0 is
   refused); the C5a test of a drawing at `scale` 2 now expects the doubled canvas, as it did the doubled picture.
-- **Room and light that spill wait** for a sideways footprint from image (api.md, "Needs from others").
+- **Room and light that spill** were built next, in C5c (below).
+
+## C5c: room for light layers (2026-11-14)
+
+- **The room is image's declared spread, summed.** `Look::room` adds `Recipe::spread(presets, longest side)` of each look of the
+  layer (a second look works on what the first made, so its halo starts where the first ends) at the canvas long side `Finish::run`
+  already hands image, rounds up with `Spread::pixels` and gives the sides top, right, bottom, left. *Reason:* image owns what its
+  effects paint and holds each to its word by a test; scene keeps no table of effects. A look image says is `Unbounded`, or a
+  layer that would pass image's 2^26 pixels grown, gets no room and **no error**: a render that ran must still run. A layer
+  larger than that was never looked at (image refuses it), so the limit is the one image has.
+- **Only a light layer has room.** A layer that is not light keeps its source's alpha, so room could only be transparent and
+  would be cut; and a look run on it with black room is not the look it had: a blur pulls the edge of an opaque picture dark
+  (image's own edge rule keeps the picture's colour). The C5a to C5b look tests, which compare a non-light layer with image's
+  render of its own picture bit for bit, failed with black room round it (four of them, by up to 0.11). *Consequence:* a layer
+  that is not light is as it was, bit for bit, and the plan's "tiny difference at the edge" is not made. A light layer's look
+  sees the colour over black, so black room is the picture it already had.
+- **The grown raster is kept.** `Drawn.room` (pixels) tells `Layout::warp` to let the window grown by it through; a raster that
+  ended at the window now ends at the window grown (`ends_at_window`), so nothing cuts the halo. Masks by a layer multiply where
+  the grown raster lands (canvas space); a mask by the layer's own map is continued by its nearest edge pixel (the rule a blur of
+  a map has). The cached raster is the grown one: the room follows from the look documents and the canvas, both in the key.
+- **The grown-picture caveat is documented, not guarded.** A look that mixes a halo with an effect that places itself by the
+  picture's bounds (vignette, `x`/`y` centres, noise numbered by place, whole-picture statistics) sees the grown picture as the
+  whole. Image does not say which effects those are (its architecture note lists them in prose), so a guard would be a table of
+  effect names kept in scene and wrong whenever image adds an effect. Most such effects are `Unbounded` in image and so get no
+  room already (the warps about a centre, the statistics); of the others a vignette spreads none, so alone it is untouched, and
+  only a recipe that mixes it with a halo shifts it. The idiom is two layers. A test pins the behaviour: the vignette of a
+  bloom-and-vignette look is the vignette of image's render of the grown picture. `Options::with_room` in image would lift it.
+- **The "bloom tints the whole box" report was the halo cut at the frame.** A transparent pixel is black to a light layer's look
+  and the bloom of black is black; a sun on a frame larger than itself showed a lit rectangle because the halo, wider than the
+  frame, stopped at its edge. With room the halo goes on past the frame; `a_halo_wider_than_the_frame_goes_on_past_the_frame_edge`
+  compares it with image's render on a frame as large as the halo needs.
+- **Oracle.** The layer equals image's own render of the content on a frame grown by hand by the declared room (to 1e-6, the
+  rounding of the light's division and product), for a drawing, a picture, a group and a fill; a frame grown by more than the room
+  has no light beyond it (below 1e-5, the Fourier blur's rounding); looks add. A hand-padded layer is not the oracle: it is a layer
+  with looks, so it gets room too.
 
 ## C6a: parameters, one listing per layer (2026-11-14)
 
