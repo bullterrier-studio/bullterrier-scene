@@ -1,11 +1,15 @@
 //! The canvas and its stack of layers.
 
 use std::collections::HashMap;
+use std::ops::Range;
+use std::path::Path;
 use std::sync::Arc;
 
 use crate::budget::Budget;
 use crate::cache::Cache;
-use crate::{Error, Layer, Raster, reference, render};
+use crate::pdf::PdfStream;
+use crate::stream::PngStream;
+use crate::{Error, Layer, PdfOptions, Raster, reference, render};
 
 /// The longest a canvas side is, in design pixels.
 const MAX_CANVAS: u32 = 100_000;
@@ -163,5 +167,80 @@ impl Scene {
     /// sibling crate refuses at this size.
     pub fn render(&self, size: impl Into<i128>) -> Result<Raster, Error> {
         render::render(self.width, self.height, &self.drawn, size.into(), &self.cache)
+    }
+
+    /// The columns and rows of the picture at `size`, the long side in output pixels: what [`render`](Scene::render) and
+    /// [`render_bands`](Scene::render_bands) make, whatever the number of pixels.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `size` for a size outside 1 to 65,000.
+    pub fn picture_size(&self, size: impl Into<i128>) -> Result<(usize, usize), Error> {
+        render::picture_size(self.width, self.height, size.into())
+    }
+
+    /// The picture of [`render`](Scene::render), drawn a band of rows at a time: `sink` is given each band in order, top to
+    /// bottom, as the rows it is (`0..band_rows`, then the next `band_rows`, the last with what is left) and the band's picture
+    /// (the whole width, those rows). The bands put together are the picture `render` makes, bit for bit, whatever
+    /// `band_rows`. The picture is never held whole: what is held is a band, the scene's cache and what the layers need
+    /// whole (below).
+    ///
+    /// **What is drawn by band and what whole.** A layer with no look is drawn for the rows of a band alone where its source
+    /// can be: a picture is read from where the band falls, a flat colour, a mask layer and the blend of a pixel are per
+    /// pixel. A layer with a look is drawn whole once, at the size it is drawn at, and cut per band (it stays held: the
+    /// floor of a looked layer), and so is a source that cannot draw a part. The limit of 2^27 pixels is on what is held at
+    /// once, so a picture past it can be drawn by bands; `render` keeps it.
+    ///
+    /// A refusal of `sink` ends the render and is returned as it is; nothing more is drawn.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `size` for a size outside its range, `band_rows` for a number of rows that is 0, more than the
+    /// picture has or makes a band of more than 2^27 pixels; whatever a layer cannot draw, as for `render`; and what `sink`
+    /// returns.
+    pub fn render_bands(
+        &self,
+        size: impl Into<i128>,
+        band_rows: usize,
+        mut sink: impl FnMut(Range<usize>, &Raster) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        render::render_bands(
+            (self.width, self.height),
+            &self.drawn,
+            size.into(),
+            band_rows,
+            &self.cache,
+            &mut sink,
+        )
+    }
+
+    /// The picture of [`render`](Scene::render) written to `path` as an 8-bit RGBA PNG (straight alpha, sRGB values, the PNG's
+    /// `sRGB` chunk), drawn by bands of [`BAND_PIXELS`](crate::BAND_PIXELS) pixels and written as each is made: a picture past
+    /// 2^27 pixels can be written, and what is held is a band (see [`render_bands`](Scene::render_bands) for what else). Each
+    /// level is rounded as [`Raster::write`] rounds it. The file is made under a temporary name beside `path` and put in place
+    /// when it is whole: a refusal leaves no file, and a file already there stays as it was.
+    ///
+    /// # Errors
+    /// As [`render_bands`](Scene::render_bands) for the picture, [`Error::Write`] naming `path` for a path that cannot be
+    /// written.
+    pub fn render_to_png(&self, size: impl Into<i128>, path: &Path) -> Result<(), Error> {
+        let size = size.into();
+        let (columns, rows) = self.picture_size(size)?;
+        let mut png = PngStream::create(path, columns, rows)?;
+        self.render_bands(size, render::default_band_rows(columns, rows), |_, band| png.push(band))?;
+        png.finish()
+    }
+
+    /// The picture of [`render`](Scene::render) written to `path` as a one-page PDF, as [`Raster::write_pdf`] writes a picture
+    /// (the same page, boxes and image), drawn by bands and written as each is made, with no limit on the pixels of the
+    /// image. What is held is a band and the compressed image, never the picture: the compressed image is at most about the
+    /// size of the file. The file is put in place when it is whole, as for [`render_to_png`](Scene::render_to_png).
+    ///
+    /// # Errors
+    /// As [`render_bands`](Scene::render_bands) for the picture, and as [`Raster::write_pdf`] for the options and the page.
+    pub fn render_to_pdf(&self, size: impl Into<i128>, path: &Path, options: &PdfOptions) -> Result<(), Error> {
+        let size = size.into();
+        let (columns, rows) = self.picture_size(size)?;
+        let mut pdf = PdfStream::create(path, (columns, rows), options, usize::MAX)?;
+        self.render_bands(size, render::default_band_rows(columns, rows), |_, band| pdf.push(band))?;
+        pdf.finish()
     }
 }

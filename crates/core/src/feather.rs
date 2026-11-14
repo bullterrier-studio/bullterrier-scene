@@ -54,6 +54,13 @@ pub(crate) fn reach(sigma: f64) -> usize {
     if sigma > 0.0 { Box1::of(sigma).reach() } else { 0 }
 }
 
+/// The width of the boxes of a pass along a line, for a blur of `sigma` pixels: 1 for none. The sums of a pass are added in
+/// blocks of this width counted from the start of the line, so a part of a line is blurred as the whole line is only if it
+/// starts at a multiple of it.
+pub(crate) fn box_width(sigma: f64) -> usize {
+    if sigma > 0.0 { 2 * Box1::of(sigma).n + 1 } else { 1 }
+}
+
 /// A plane of `columns` by `rows` values (pixels, margin included) with room for the reach of the blur on each side must not
 /// pass the pixels a picture may have: refused naming `field`.
 ///

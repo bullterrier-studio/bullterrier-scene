@@ -8,11 +8,16 @@
 
 use std::path::{Path, PathBuf};
 
-use moxcms::{ColorProfile, DataColorSpace, Layout, TransformOptions};
+use miniz_oxide::MZFlush;
+use miniz_oxide::deflate::core::{CompressorOxide, create_comp_flags_from_zip_params};
+use miniz_oxide::deflate::stream::deflate;
+use moxcms::{ColorProfile, DataColorSpace, Layout, Transform8BitExecutor, TransformOptions};
 use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref};
 
 use crate::geometry::MAX_PIXELS;
 use crate::ranges::{BLEED_MM, DPI};
+use crate::raster::eight_bit;
+use crate::stream::failed;
 use crate::{Error, Raster};
 
 /// Millimetres in an inch (exact, by definition).
@@ -98,24 +103,6 @@ impl PdfOptions {
     }
 }
 
-/// The picture, one byte a channel, in the colour space of the PDF.
-struct Planes {
-    /// The colour channels (3 for RGB, 4 for CMYK) of each pixel, the bleed included.
-    colour: Vec<u8>,
-    /// The alpha of each pixel, when some pixel is not opaque and the caller did not flatten.
-    alpha: Option<Vec<u8>>,
-}
-
-/// `level` (0 to 1) as an 8-bit number, rounded as image's writer rounds a PNG (`level * 255 + 0.5` cut to a whole number).
-#[expect(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "a level is 0..1, so the number is 0..255"
-)]
-fn byte(level: f32) -> u8 {
-    (level * 255.0 + 0.5) as u8
-}
-
 /// `value` in points, as the writer takes it.
 #[expect(
     clippy::cast_possible_truncation,
@@ -125,79 +112,214 @@ fn points(value: f64) -> f32 {
     value as f32
 }
 
-/// The planes of `raster` with `bleed` pixels of its edge repeated on every side, in `profile`'s colour if there is one.
-fn planes(raster: &Raster, bleed: usize, flatten: bool, profile: Option<&ColorProfile>) -> Result<Planes, Error> {
-    let (width, height) = (raster.width(), raster.height());
-    let (across, down) = (width + 2 * bleed, height + 2 * bleed);
-    let with_alpha = !flatten && raster.pixels().as_chunks::<4>().0.iter().any(|pixel| pixel[3] < 1.0);
-    let transform = profile
-        .map(|cmyk| {
-            ColorProfile::new_srgb().create_transform_8bit(Layout::Rgb, cmyk, Layout::Rgba, TransformOptions::default())
-        })
-        .transpose()
-        .map_err(|error| {
-            Error::invalid(
-                "cmyk_profile",
-                format!("no conversion from sRGB to the profile: {error}"),
-            )
-        })?;
-    let channels = if transform.is_some() { 4 } else { 3 };
-    let mut colour: Vec<u8> = Vec::with_capacity(across * down * channels);
-    let mut alpha: Vec<u8> = Vec::with_capacity(if with_alpha { across * down } else { 0 });
-    let (mut rgb, mut device) = (vec![0_u8; width * 3], vec![0_u8; width * channels]);
-    let mut previous = None;
-    for row in 0..down {
-        let source = row.saturating_sub(bleed).min(height - 1);
-        if previous == Some(source) {
-            // the rows of a bleed above and below repeat the edge row: copy what was written
-            let start = (row - 1) * across * channels;
-            colour.extend_from_within(start..start + across * channels);
-            if with_alpha {
-                let start = (row - 1) * across;
-                alpha.extend_from_within(start..start + across);
-            }
-            continue;
-        }
-        previous = Some(source);
-        let line = &raster.pixels()[source * width * 4..(source + 1) * width * 4];
-        let mut opacity = Vec::with_capacity(width);
-        for (pixel, out) in line
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .zip(rgb.as_chunks_mut::<3>().0.iter_mut())
-        {
-            let covered = pixel[3];
-            for (level, slot) in pixel[..3].iter().zip(out) {
-                *slot = byte(if flatten {
-                    level * covered + (1.0 - covered)
-                } else {
-                    *level
-                });
-            }
-            opacity.push(byte(covered));
-        }
-        match &transform {
-            Some(convert) => {
-                convert
-                    .transform(&rgb, &mut device)
-                    .map_err(|error| Error::invalid("cmyk_profile", format!("the conversion failed: {error}")))?;
-            }
-            None => device.copy_from_slice(&rgb),
-        }
-        colour.extend(device[..channels].repeat(bleed));
-        colour.extend_from_slice(&device);
-        colour.extend(device[(width - 1) * channels..].repeat(bleed));
-        if with_alpha {
-            alpha.extend(std::iter::repeat_n(opacity[0], bleed));
-            alpha.extend_from_slice(&opacity);
-            alpha.extend(std::iter::repeat_n(opacity[width - 1], bleed));
+/// The zlib level of the image streams: miniz's default.
+const FLATE_LEVEL: i32 = 6;
+
+/// A Flate (zlib) stream being written: bytes go in as they are made, the compressed bytes are kept.
+struct Flate {
+    compressor: Box<CompressorOxide>,
+    compressed: Vec<u8>,
+    /// Room for one call's output.
+    room: Vec<u8>,
+}
+
+impl Flate {
+    fn new() -> Self {
+        Self {
+            // a window of more than 0 bits writes the zlib header
+            compressor: Box::new(CompressorOxide::new(create_comp_flags_from_zip_params(
+                FLATE_LEVEL,
+                1,
+                0,
+            ))),
+            compressed: Vec::new(),
+            room: vec![0; 1 << 16],
         }
     }
-    Ok(Planes {
-        colour,
-        alpha: with_alpha.then_some(alpha),
-    })
+
+    /// Compresses `input`, which follows what came before.
+    fn push(&mut self, mut input: &[u8]) {
+        while !input.is_empty() {
+            let step = deflate(&mut self.compressor, input, &mut self.room, MZFlush::None);
+            self.compressed.extend_from_slice(&self.room[..step.bytes_written]);
+            input = &input[step.bytes_consumed..];
+        }
+    }
+
+    /// The compressed stream, ended.
+    fn finish(mut self) -> Vec<u8> {
+        loop {
+            let step = deflate(&mut self.compressor, &[], &mut self.room, MZFlush::Finish);
+            self.compressed.extend_from_slice(&self.room[..step.bytes_written]);
+            // `Ok(StreamEnd)` ends the stream; an error cannot come, the room is never empty
+            if step.status != Ok(miniz_oxide::MZStatus::Ok) {
+                return self.compressed;
+            }
+        }
+    }
+}
+
+/// A one-page PDF being written row by row: the picture's rows go in a band at a time, as one Flate stream of colour (and one
+/// of alpha), and what is held is the compressed streams, never the picture or its 8-bit planes. [`Raster::write_pdf`] is one
+/// push of the whole picture.
+pub(crate) struct PdfStream {
+    path: PathBuf,
+    options: PdfOptions,
+    layout: Geometry,
+    /// The CMYK profile file's bytes, and the conversion to it.
+    profile: Option<(Vec<u8>, std::sync::Arc<Transform8BitExecutor>)>,
+    width: usize,
+    height: usize,
+    colour: Flate,
+    alpha: Flate,
+    /// Whether some pixel is not opaque, so that the alpha is written.
+    translucent: bool,
+    /// The rows pushed so far.
+    rows: usize,
+    /// The row being made: `width` pixels of RGB, and of the colour space of the PDF.
+    rgb: Vec<u8>,
+    device: Vec<u8>,
+    opacity: Vec<u8>,
+    /// The row as it is written, bleed included.
+    colour_row: Vec<u8>,
+    alpha_row: Vec<u8>,
+}
+
+impl PdfStream {
+    /// A PDF of a picture of `width` by `height` pixels written to `path`, under `options`; `limit` is the most pixels the image
+    /// (the picture and its bleed) may have.
+    ///
+    /// # Errors
+    /// As [`Raster::write_pdf`], for a profile and a size.
+    pub(crate) fn create(
+        path: &Path,
+        (width, height): (usize, usize),
+        options: &PdfOptions,
+        limit: usize,
+    ) -> Result<Self, Error> {
+        let parsed = read_profile(options)?;
+        let layout = geometry((width, height), options, limit)?;
+        let profile = parsed
+            .map(|(bytes, cmyk)| {
+                ColorProfile::new_srgb()
+                    .create_transform_8bit(Layout::Rgb, &cmyk, Layout::Rgba, TransformOptions::default())
+                    .map(|transform| (bytes, transform))
+            })
+            .transpose()
+            .map_err(|error| {
+                Error::invalid(
+                    "cmyk_profile",
+                    format!("no conversion from sRGB to the profile: {error}"),
+                )
+            })?;
+        let channels = if profile.is_some() { 4 } else { 3 };
+        Ok(Self {
+            path: path.to_path_buf(),
+            options: options.clone(),
+            layout,
+            profile,
+            width,
+            height,
+            colour: Flate::new(),
+            alpha: Flate::new(),
+            translucent: false,
+            rows: 0,
+            rgb: vec![0; width * 3],
+            device: vec![0; width * channels],
+            opacity: Vec::with_capacity(width),
+            colour_row: Vec::new(),
+            alpha_row: Vec::new(),
+        })
+    }
+
+    /// The next rows of the picture.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `cmyk_profile` if the conversion fails.
+    pub(crate) fn push(&mut self, band: &Raster) -> Result<(), Error> {
+        let flatten = self.options.flatten;
+        let channels = if self.profile.is_some() { 4 } else { 3 };
+        let bleed = self.layout.bleed_pixels;
+        for line in band.pixels().chunks_exact(self.width * 4) {
+            self.opacity.clear();
+            for (pixel, out) in line
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(self.rgb.as_chunks_mut::<3>().0.iter_mut())
+            {
+                let covered = pixel[3];
+                self.translucent |= covered < 1.0;
+                for (level, slot) in pixel[..3].iter().zip(out) {
+                    *slot = eight_bit(if flatten {
+                        level * covered + (1.0 - covered)
+                    } else {
+                        *level
+                    });
+                }
+                self.opacity.push(eight_bit(covered));
+            }
+            match &self.profile {
+                Some((_, convert)) => {
+                    convert
+                        .transform(&self.rgb, &mut self.device)
+                        .map_err(|error| Error::invalid("cmyk_profile", format!("the conversion failed: {error}")))?;
+                }
+                None => self.device.copy_from_slice(&self.rgb),
+            }
+            // the picture's edge pixels are repeated outward: a row at the left and right ends of a line, and the first and last
+            // rows above and below
+            let last = (self.width - 1) * channels;
+            self.colour_row.clear();
+            self.colour_row.extend(self.device[..channels].repeat(bleed));
+            self.colour_row.extend_from_slice(&self.device);
+            self.colour_row.extend(self.device[last..].repeat(bleed));
+            self.alpha_row.clear();
+            self.alpha_row.extend(std::iter::repeat_n(self.opacity[0], bleed));
+            self.alpha_row.extend_from_slice(&self.opacity);
+            self.alpha_row
+                .extend(std::iter::repeat_n(self.opacity[self.width - 1], bleed));
+            let times = 1 + bleed * (usize::from(self.rows == 0) + usize::from(self.rows + 1 == self.height));
+            for _ in 0..times {
+                self.colour.push(&self.colour_row);
+                if !flatten {
+                    self.alpha.push(&self.alpha_row);
+                }
+            }
+            self.rows += 1;
+        }
+        Ok(())
+    }
+
+    /// The end of the picture: the PDF is written, and in place.
+    ///
+    /// # Errors
+    /// [`Error::Write`] naming the path if it cannot be written.
+    pub(crate) fn finish(self) -> Result<(), Error> {
+        let Self {
+            path,
+            options,
+            layout,
+            profile,
+            colour,
+            alpha,
+            translucent,
+            ..
+        } = self;
+        let colour = colour.finish();
+        let alpha = (translucent && !options.flatten).then(|| alpha.finish());
+        let bytes = assemble(
+            &layout,
+            &options,
+            profile.as_ref().map(|(bytes, _)| bytes.as_slice()),
+            &colour,
+            alpha.as_deref(),
+        )?;
+        let (part, mut file) = crate::stream::Part::create(&path)?;
+        std::io::Write::write_all(&mut file, &bytes).map_err(|error| failed(&path, error))?;
+        drop(file);
+        part.commit()
+    }
 }
 
 /// The crop marks: a horizontal and a vertical line at each corner of `trim`, outside `bleed_box`. Both are `[left, bottom,
@@ -248,11 +370,12 @@ fn float(count: usize) -> f64 {
     count as f64
 }
 
-/// The layout of `raster` under `options`.
+/// The layout of a picture of `width` by `height` pixels under `options`, its image (the picture and its bleed) of at most
+/// `limit` pixels.
 ///
 /// # Errors
 /// As [`Raster::write_pdf`] for a size.
-fn geometry(raster: &Raster, options: &PdfOptions) -> Result<Geometry, Error> {
+fn geometry((width, height): (usize, usize), options: &PdfOptions, limit: usize) -> Result<Geometry, Error> {
     #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
@@ -260,18 +383,18 @@ fn geometry(raster: &Raster, options: &PdfOptions) -> Result<Geometry, Error> {
     )]
     // rounded to a millionth of a pixel first, so that 0.2 mm at 254 dpi, which is 2.0000000000000004 pixels in doubles, is 2
     let bleed_pixels = ((options.bleed_mm / MM_PER_INCH * options.dpi * 1e6).round() / 1e6).ceil() as usize;
-    let image = (raster.width() + 2 * bleed_pixels, raster.height() + 2 * bleed_pixels);
-    if image.0.saturating_mul(image.1) > MAX_PIXELS {
+    let image = (width + 2 * bleed_pixels, height + 2 * bleed_pixels);
+    if image.0.saturating_mul(image.1) > limit {
         return Err(Error::invalid(
             if bleed_pixels == 0 { "raster" } else { "bleed_mm" },
             format!(
-                "the image of {} x {} pixels has more than {MAX_PIXELS} pixels (2^27)",
+                "the image of {} x {} pixels has more than {limit} pixels (2^27)",
                 image.0, image.1
             ),
         ));
     }
     let per_pixel = POINTS_PER_INCH / options.dpi;
-    let trim_size = (float(raster.width()) * per_pixel, float(raster.height()) * per_pixel);
+    let trim_size = (float(width) * per_pixel, float(height) * per_pixel);
     let bleed = options.bleed_mm / MM_PER_INCH * POINTS_PER_INCH;
     let margin = if options.crop_marks {
         (MARK_GAP_MM + MARK_LENGTH_MM) / MM_PER_INCH * POINTS_PER_INCH
@@ -331,19 +454,18 @@ fn read_profile(options: &PdfOptions) -> Result<Option<(Vec<u8>, ColorProfile)>,
     Ok(Some((bytes, parsed)))
 }
 
-/// `raster` written to `path` as a PDF.
+/// The bytes of the PDF of an image whose compressed colour is `colour` and alpha `alpha` (if it has one), laid out as `layout`
+/// says, with the ICC profile bytes `profile` of a CMYK image.
 ///
 /// # Errors
-/// As [`Raster::write_pdf`].
-pub(crate) fn write(raster: &Raster, path: &Path, options: &PdfOptions) -> Result<(), Error> {
-    let profile = read_profile(options)?;
-    let layout = geometry(raster, options)?;
-    let planes = planes(
-        raster,
-        layout.bleed_pixels,
-        options.flatten,
-        profile.as_ref().map(|(_, parsed)| parsed),
-    )?;
+/// [`Error::Invalid`] naming `raster` for a side that does not fit the PDF's 32-bit number.
+fn assemble(
+    layout: &Geometry,
+    options: &PdfOptions,
+    profile: Option<&[u8]>,
+    colour: &[u8],
+    alpha: Option<&[u8]>,
+) -> Result<Vec<u8>, Error> {
     let rect = |[x1, y1, x2, y2]: [f64; 4]| Rect::new(points(x1), points(y1), points(x2), points(y2));
 
     // the objects: catalog, page tree, page, image, soft mask, content, profile
@@ -369,29 +491,26 @@ pub(crate) fn write(raster: &Raster, path: &Path, options: &PdfOptions) -> Resul
     page.resources().x_objects().pair(name, image_id);
     page.finish();
 
-    let compressed = |bytes: &[u8]| miniz_oxide::deflate::compress_to_vec_zlib(bytes, 6);
     // a side is under 2^27, so it fits the 32-bit number of the PDF
     let size = |side: usize| i32::try_from(side).map_err(|_| Error::invalid("raster", "a side is too long"));
     let (image_width, image_height) = (size(layout.image.0)?, size(layout.image.1)?);
-    let colour = compressed(&planes.colour);
-    let mut image = pdf.image_xobject(image_id, &colour);
+    let mut image = pdf.image_xobject(image_id, colour);
     image.filter(Filter::FlateDecode);
     image.width(image_width);
     image.height(image_height);
     image.bits_per_component(8);
-    match &profile {
+    match profile {
         Some(_) => image.color_space().icc_based(profile_id),
         None => {
             image.color_space().device_rgb();
         }
     }
-    if planes.alpha.is_some() {
+    if alpha.is_some() {
         image.s_mask(mask_id);
     }
     image.finish();
-    if let Some(alpha) = &planes.alpha {
-        let coverage = compressed(alpha);
-        let mut mask = pdf.image_xobject(mask_id, &coverage);
+    if let Some(coverage) = alpha {
+        let mut mask = pdf.image_xobject(mask_id, coverage);
         mask.filter(Filter::FlateDecode);
         mask.width(image_width);
         mask.height(image_height);
@@ -399,7 +518,7 @@ pub(crate) fn write(raster: &Raster, path: &Path, options: &PdfOptions) -> Resul
         mask.bits_per_component(8);
         mask.finish();
     }
-    if let Some((bytes, _)) = &profile {
+    if let Some(bytes) = profile {
         pdf.icc_profile(profile_id, bytes).n(4).alternate().device_cmyk();
     }
 
@@ -426,9 +545,15 @@ pub(crate) fn write(raster: &Raster, path: &Path, options: &PdfOptions) -> Resul
         crop_marks(&mut content, layout.trim, layout.bleed_box);
     }
     pdf.stream(content_id, &content.finish());
+    Ok(pdf.finish())
+}
 
-    std::fs::write(path, pdf.finish()).map_err(|error| Error::Write {
-        path: path.display().to_string(),
-        message: error.to_string(),
-    })
+/// `raster` written to `path` as a PDF.
+///
+/// # Errors
+/// As [`Raster::write_pdf`].
+pub(crate) fn write(raster: &Raster, path: &Path, options: &PdfOptions) -> Result<(), Error> {
+    let mut stream = PdfStream::create(path, (raster.width(), raster.height()), options, MAX_PIXELS)?;
+    stream.push(raster)?;
+    stream.finish()
 }

@@ -609,3 +609,37 @@ fn a_cmyk_profile_gives_a_four_channel_image_in_that_profile_with_the_profile_em
     }
     Ok(())
 }
+
+/// The PDF streamed by bands has the page, the boxes and the image of the PDF of the whole picture, bit for bit once decoded: a
+/// bleed and crop marks, a picture past one band (so a bleed lies on the first and the last band), a translucent part.
+#[test]
+fn a_pdf_streamed_by_bands_is_the_pdf_of_the_picture_written_whole() -> Outcome {
+    let folder = tempfile::tempdir()?;
+    let scene = crate::bands::past_one_band()?;
+    let options = PdfOptions::new(300.0)?.bleed_mm(3.0)?.crop_marks(true);
+    let (streamed, whole) = (folder.path().join("streamed.pdf"), folder.path().join("whole.pdf"));
+    scene.render_to_pdf(4100, &streamed, &options)?;
+    scene.render(4100)?.write_pdf(&whole, &options)?;
+    let (a, b) = (Page::open(&streamed)?, Page::open(&whole)?);
+    for key in ["MediaBox", "TrimBox", "BleedBox"] {
+        assert_eq!(a.boxed(key)?, b.boxed(key)?, "{key}");
+    }
+    assert_eq!(
+        a.operations()?
+            .iter()
+            .map(|operation| &operation.operator)
+            .collect::<Vec<_>>(),
+        b.operations()?
+            .iter()
+            .map(|operation| &operation.operator)
+            .collect::<Vec<_>>()
+    );
+    let (a, b) = (a.image()?, b.image()?);
+    assert_eq!((a.width, a.height, &a.space), (b.width, b.height, &b.space));
+    assert_eq!(a.colour.len(), b.colour.len());
+    assert_eq!(a.colour.iter().zip(&b.colour).position(|(x, y)| x != y), None);
+    let (am, bm) = (a.mask.ok_or("no mask")?, b.mask.ok_or("no mask")?);
+    assert_eq!(am.iter().zip(&bm).position(|(x, y)| x != y), None);
+    assert_eq!(am.len(), bm.len());
+    Ok(())
+}

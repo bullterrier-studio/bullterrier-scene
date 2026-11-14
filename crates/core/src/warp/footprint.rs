@@ -19,7 +19,7 @@
 //! cases are measured in the decision entry, where a pyramid of 2 by 2 averages with taps along the major axis only is
 //! weighed against it.
 
-use super::{Affine, Projective, Rect, accumulate, finish, is_positive, lossless, reach, sample, share, taps};
+use super::{Affine, Output, Projective, Rect, accumulate, finish, is_positive, lossless, reach, sample, share, taps};
 use crate::Raster;
 use crate::geometry::{ROUNDING, whole_up};
 
@@ -150,18 +150,12 @@ impl Back for ProjectiveBack {
 
 /// [`warp_through`](super::warp_through) for an affine map that is not of the exact class: each output pixel by its
 /// footprint.
-pub(super) fn through(
-    source: &Raster,
-    map: Affine,
-    clip: Rect,
-    (columns, rows): (usize, usize),
-    put: &mut impl FnMut(usize, [f32; 4]),
-) {
+pub(super) fn through(source: &Raster, map: Affine, clip: Rect, output: Output, put: &mut impl FnMut(usize, [f32; 4])) {
     let back = AffineBack {
         map,
         inverse: map.inverse(),
     };
-    through_back(source, &back, clip, (columns, rows), put);
+    through_back(source, &back, clip, output, put);
 }
 
 /// The warp of a perspective: each output pixel by its footprint, which differs from pixel to pixel.
@@ -169,25 +163,20 @@ pub(super) fn through_projective(
     source: &Raster,
     map: Projective,
     clip: Rect,
-    (columns, rows): (usize, usize),
+    output: Output,
     put: &mut impl FnMut(usize, [f32; 4]),
 ) {
-    through_back(source, &ProjectiveBack::new(map, clip), clip, (columns, rows), put);
+    through_back(source, &ProjectiveBack::new(map, clip), clip, output, put);
 }
 
-fn through_back(
-    source: &Raster,
-    back: &impl Back,
-    clip: Rect,
-    (columns, rows): (usize, usize),
-    put: &mut impl FnMut(usize, [f32; 4]),
-) {
+fn through_back(source: &Raster, back: &impl Back, clip: Rect, output: Output, put: &mut impl FnMut(usize, [f32; 4])) {
+    let columns = output.columns;
     let (width, height) = (source.width(), source.height());
     let diagonal = lossless(width).hypot(lossless(height));
     let fixed = back.constant().map(|jacobian| Footprint::of(jacobian, diagonal));
     let (low_x, high_x) = (clip.x, clip.x + clip.width);
     let (low_y, high_y) = (clip.y, clip.y + clip.height);
-    let (first_row, last_row, first_column, last_column) = reach(|x, y| back.forward(x, y), clip, columns, rows);
+    let (first_row, last_row, first_column, last_column) = reach(|x, y| back.forward(x, y), clip, output);
     for row in first_row..last_row {
         let centre_y = lossless(row) + 0.5;
         for column in first_column..last_column {
@@ -221,7 +210,7 @@ fn through_back(
             } else {
                 footprint.sample(source, (x, y), cover)
             };
-            put(row * columns + column, pixel);
+            put((row - output.first) * columns + column, pixel);
         }
     }
 }

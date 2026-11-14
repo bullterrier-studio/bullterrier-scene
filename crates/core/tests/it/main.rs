@@ -9,6 +9,7 @@ mod common;
 mod cover_template;
 
 mod architecture;
+mod bands;
 mod blend;
 mod cache;
 mod compose;

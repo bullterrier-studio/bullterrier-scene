@@ -115,7 +115,7 @@ fn every_address_draws_as_a_cold_scene_does(
 
 /// A poster in which every layer shows through the ones above it: a looked picture with its map and masks, a drawing with Params,
 /// type, a group, a reference with a look and a place, and a feathered mask layer.
-fn poster() -> Result<Scene, Box<dyn std::error::Error>> {
+pub(crate) fn poster() -> Result<Scene, Box<dyn std::error::Error>> {
     const GRADE: &str = r#"{"steps": [{"effect": "grade", "params": {"exposure": 0.5}}]}"#;
     const SLIDER: &str = r##"{"params":[{"name":"x","default":0,"min":-10,"max":30,"unit":"px","meaning":"slide"}],"root":[{"stack":{"items":[[{"path":"M0 0 L18 0 L18 12 L0 12 Z"}]],"size":[60,40]}},{"translate":{"dx":{"param":"x"},"dy":0}},{"fill":{"color":"#ff0000"}}],"version":1}"##;
     let matte = Map::new(

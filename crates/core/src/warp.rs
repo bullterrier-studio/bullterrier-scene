@@ -115,6 +115,29 @@ impl Map {
     }
 }
 
+/// The output a warp fills: a plane of `columns` by `rows` pixels of which only the rows `first..first + count` are made and
+/// handed over (a band of the picture), each as `put(index, pixel)` with `index` counted from the first of them. A pixel is the
+/// same whichever rows are wanted: a row's pixels depend on the row's place in the plane alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Output {
+    pub(crate) columns: usize,
+    pub(crate) rows: usize,
+    pub(crate) first: usize,
+    pub(crate) count: usize,
+}
+
+impl Output {
+    /// The whole plane.
+    pub(crate) fn whole(columns: usize, rows: usize) -> Self {
+        Self {
+            columns,
+            rows,
+            first: 0,
+            count: rows,
+        }
+    }
+}
+
 /// Whether `map` and `clip` leave `source` exactly as it is on an output of `columns` by `rows` pixels.
 pub(crate) fn is_identity(source: &Raster, map: Affine, clip: Rect, columns: usize, rows: usize) -> bool {
     let whole = Rect {
@@ -162,27 +185,28 @@ fn keeps_axes(map: Affine) -> bool {
 /// true).
 fn warp_by(source: &Raster, map: Affine, clip: Rect, columns: usize, rows: usize, aligned: bool) -> Raster {
     let mut output = vec![0.0_f32; columns * rows * 4];
-    warp_through(source, map, clip, (columns, rows), aligned, &mut |at, pixel| {
-        output[at * 4..at * 4 + 4].copy_from_slice(&pixel);
-    });
+    warp_through(
+        source,
+        map,
+        clip,
+        Output::whole(columns, rows),
+        aligned,
+        &mut |at, pixel| {
+            output[at * 4..at * 4 + 4].copy_from_slice(&pixel);
+        },
+    );
     Raster::made(columns, rows, output)
 }
 
-/// [`warp`] giving each output pixel the picture reaches to `put(index, pixel)` (`index` is `row * columns + column`; a
-/// pixel it does not reach is not given: it is transparent). Both kernels for a map that keeps the axes give the same
+/// [`warp`] giving each output pixel the picture reaches to `put(index, pixel)` (`index` is `row * columns + column`, the row
+/// counted from the first one `output` wants; a pixel it does not reach is not given: it is transparent). Both kernels for a map that keeps the axes give the same
 /// pixels, bit for bit; the one for an axis-aligned map finds each column's and row's taps and coverage once instead of for
 /// every pixel, and handing the pixels over lets a caller blend them where they land instead of making a raster of the
 /// output first.
-pub(crate) fn warp_into(
-    source: &Raster,
-    map: Map,
-    clip: Rect,
-    (columns, rows): (usize, usize),
-    put: &mut impl FnMut(usize, [f32; 4]),
-) {
+pub(crate) fn warp_into(source: &Raster, map: Map, clip: Rect, output: Output, put: &mut impl FnMut(usize, [f32; 4])) {
     match map {
-        Map::Affine(map) => warp_through(source, map, clip, (columns, rows), keeps_axes(map), put),
-        Map::Projective(map) => footprint::through_projective(source, map, clip, (columns, rows), put),
+        Map::Affine(map) => warp_through(source, map, clip, output, keeps_axes(map), put),
+        Map::Projective(map) => footprint::through_projective(source, map, clip, output, put),
     }
 }
 
@@ -196,14 +220,14 @@ fn warp_through(
     source: &Raster,
     map: Affine,
     clip: Rect,
-    (columns, rows): (usize, usize),
+    output: Output,
     aligned: bool,
     put: &mut impl FnMut(usize, [f32; 4]),
 ) {
     if is_exact_class(map) {
-        exact_through(source, map, clip, (columns, rows), aligned, put);
+        exact_through(source, map, clip, output, aligned, put);
     } else {
-        footprint::through(source, map, clip, (columns, rows), put);
+        footprint::through(source, map, clip, output, put);
     }
 }
 
@@ -213,10 +237,11 @@ fn exact_through(
     source: &Raster,
     map: Affine,
     clip: Rect,
-    (columns, rows): (usize, usize),
+    output: Output,
     aligned: bool,
     put: &mut impl FnMut(usize, [f32; 4]),
 ) {
+    let columns = output.columns;
     let (source, map, clip) = prefiltered(source, map, clip);
     let (width, height) = (source.width(), source.height());
     let pixels = source.pixels();
@@ -225,7 +250,7 @@ fn exact_through(
     let (across_x, across_y) = (inverse.a.hypot(inverse.b), inverse.d.hypot(inverse.e));
     let (low_x, high_x) = (clip.x, clip.x + clip.width);
     let (low_y, high_y) = (clip.y, clip.y + clip.height);
-    let (first_row, last_row, first_column, last_column) = reach(|x, y| map.at(x, y), clip, columns, rows);
+    let (first_row, last_row, first_column, last_column) = reach(|x, y| map.at(x, y), clip, output);
     #[expect(
         clippy::cast_possible_truncation,
         reason = "a share from 0 to 1 is held as a 32-bit float"
@@ -276,7 +301,7 @@ fn exact_through(
                     Some([red, green, blue, alpha]) => [red, green, blue, alpha * single(cover)],
                     None => sample(pixels, width, [*x_taps, y_taps], single(cover)),
                 };
-                put(row * columns + column, pixel);
+                put((row - output.first) * columns + column, pixel);
             }
         }
     } else {
@@ -296,7 +321,7 @@ fn exact_through(
                     [taps(x - 0.5, width), taps(y - 0.5, height)],
                     single(cover),
                 );
-                put(row * columns + column, pixel);
+                put((row - output.first) * columns + column, pixel);
             }
         }
     }
@@ -413,13 +438,14 @@ fn finish(mixed: [f32; 4], total: f32, cover: f32) -> [f32; 4] {
 }
 
 /// The rows and columns of the output that the clip can reach, as `(first row, end row, first column, end column)`: the
-/// bounding box of its corners under `forward`, a pixel wider, within the output.
-fn reach(
-    forward: impl Fn(f64, f64) -> (f64, f64),
-    clip: Rect,
-    columns: usize,
-    rows: usize,
-) -> (usize, usize, usize, usize) {
+/// bounding box of its corners under `forward`, a pixel wider, within the output, and the rows within those `output` wants.
+fn reach(forward: impl Fn(f64, f64) -> (f64, f64), clip: Rect, output: Output) -> (usize, usize, usize, usize) {
+    let Output {
+        columns,
+        rows,
+        first,
+        count,
+    } = output;
     let corners = [
         (clip.x, clip.y),
         (clip.x + clip.width, clip.y),
@@ -450,7 +476,9 @@ fn reach(
     };
     let (first_column, last_column) = range(|corner| corner.0, columns);
     let (first_row, last_row) = range(|corner| corner.1, rows);
-    (first_row, last_row, first_column, last_column)
+    // an empty range where the clip lies outside the rows wanted
+    let (first_row, last_row) = (first_row.max(first), last_row.min(first + count));
+    (first_row, last_row.max(first_row), first_column, last_column)
 }
 
 /// `source`, `map` and `clip` with each raster axis the map shrinks (the norm of its column of the map below 1) averaged by

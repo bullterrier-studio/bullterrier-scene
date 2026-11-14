@@ -11,7 +11,7 @@ use crate::geometry::{MAX_LOOKED_PIXELS, MAX_PIXELS, Rect, Scale};
 use crate::layer::Body;
 use crate::placement::{Layout, Placement};
 use crate::source::{Drawn, Request};
-use crate::warp::{Map, is_identity, warp_into};
+use crate::warp::{Map, Output, is_identity, warp_into};
 use crate::{Error, Raster};
 
 /// Where a layer is drawn: the output grid of the canvas, with `margin` more pixels on each side (along x and y) for a mask
@@ -25,6 +25,9 @@ pub(crate) struct Target<'a> {
     pub(crate) columns: usize,
     pub(crate) rows: usize,
     pub(crate) margin: (usize, usize),
+    /// The rows of the plane (margin included) that are drawn: `(first, count)`. The whole plane for the whole canvas, a band
+    /// of it for a band: a pixel is the same whichever rows are drawn with it.
+    pub(crate) window: (usize, usize),
     /// How far, in output pixels, the canvas's top left lies from the grid's (margin not counted): 0 for the whole canvas, and
     /// the part of a pixel a scene used as a layer starts at when its box is not on a pixel.
     pub(crate) offset: (f64, f64),
@@ -40,10 +43,36 @@ impl Target<'_> {
         (self.columns + 2 * self.margin.0, self.rows + 2 * self.margin.1)
     }
 
-    /// This target with `reach` more pixels of margin on each side, along x and y.
-    pub(crate) fn grown(&self, reach: (usize, usize)) -> Self {
+    /// The pixels that are drawn: the plane's columns, and the rows of the window.
+    pub(crate) fn drawn_size(&self) -> (usize, usize) {
+        (self.size().0, self.window.1)
+    }
+
+    /// The plane and the rows of it that are drawn, as a warp is told them.
+    pub(crate) fn output(&self) -> Output {
+        let (columns, rows) = self.size();
+        Output {
+            columns,
+            rows,
+            first: self.window.0,
+            count: self.window.1,
+        }
+    }
+
+    /// This target with `reach` more pixels of margin on each side, along x and y, and the rows a blur of that reach (whose
+    /// pass along y is made of boxes `width` pixels wide, 1 for none) needs to give this target's rows: the rows of this
+    /// window and `reach.1` more on each side, the first moved up to a multiple of `width` so that the boxes of the blur
+    /// fall where they fall on the whole plane (a sum of floats is the same only if it is added in the same order).
+    pub(crate) fn grown(&self, reach: (usize, usize), width: usize) -> Self {
+        let first = if reach.1 == 0 {
+            self.window.0
+        } else {
+            self.window.0 / width * width
+        };
+        let end = self.window.0 + self.window.1 + 2 * reach.1;
         Self {
             margin: (self.margin.0 + reach.0, self.margin.1 + reach.1),
+            window: (first, end - first),
             ..*self
         }
     }
@@ -57,6 +86,7 @@ impl Target<'_> {
             self.columns,
             self.rows,
             self.margin,
+            self.window,
             self.offset,
             self.held,
         ));
@@ -115,24 +145,32 @@ pub(crate) struct Landed {
     pub(crate) drawn: Drawn,
     pub(crate) map: Map,
     pub(crate) clip: Rect,
-    pub(crate) size: (usize, usize),
+    pub(crate) output: Output,
 }
 
 impl Landed {
     /// Whether the raster is the target as it is (an unmoved layer the size of the output).
     pub(crate) fn is_unmoved(&self) -> bool {
-        matches!(self.map, Map::Affine(affine) if is_identity(&self.drawn.raster, affine, self.clip, self.size.0, self.size.1))
+        matches!(self.map, Map::Affine(affine) if is_identity(&self.drawn.raster, affine, self.clip, self.output.columns, self.output.rows))
+    }
+
+    /// The pixels of the raster that are the output's wanted rows, where the layer is unmoved.
+    pub(crate) fn unmoved_pixels(&self) -> &[f32] {
+        let Output {
+            columns, first, count, ..
+        } = self.output;
+        &self.drawn.raster.pixels()[first * columns * 4..(first + count) * columns * 4]
     }
 
     /// Gives `put(index, pixel)` each pixel (straight RGBA) the layer lands on, `index` being its place in the target, row
     /// after row. A pixel the layer does not reach is not given.
     pub(crate) fn each(&self, put: &mut impl FnMut(usize, [f32; 4])) {
         if self.is_unmoved() {
-            for (at, pixel) in self.drawn.raster.pixels().as_chunks::<4>().0.iter().enumerate() {
+            for (at, pixel) in self.unmoved_pixels().as_chunks::<4>().0.iter().enumerate() {
                 put(at, *pixel);
             }
         } else {
-            warp_into(&self.drawn.raster, self.map, self.clip, self.size, put);
+            warp_into(&self.drawn.raster, self.map, self.clip, self.output, put);
         }
     }
 }
@@ -208,6 +246,6 @@ pub(crate) fn land(body: &Body, target: &Target, light: bool) -> Result<Landed, 
         drawn,
         map,
         clip,
-        size: target.size(),
+        output: target.output(),
     })
 }

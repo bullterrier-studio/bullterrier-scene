@@ -122,6 +122,7 @@ impl Source for Group {
                 columns,
                 rows,
                 margin: (0, 0),
+                window: (0, rows),
                 offset: request.phase,
                 held,
                 cache,

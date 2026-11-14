@@ -237,10 +237,10 @@ impl CanvasMask {
             self.feather * target.scale.y.pixels(1.0),
         );
         let reach = (feather::reach(sigma.0), feather::reach(sigma.1));
-        feather::fits("feather", target.size(), reach)?;
+        feather::fits("feather", target.drawn_size(), reach)?;
         // the layer is drawn as far past the target as the blur reaches, so an edge that crosses the target feathers as it
         // would on a larger canvas
-        let wide = target.grown(reach);
+        let wide = target.grown(reach, feather::box_width(sigma.1));
         let factor = product(&self.layer.join, &wide)?;
         // a look never changes alpha, so a mask that reads only the alpha does not run them
         let body = self.layer.drawable()?;
@@ -253,18 +253,20 @@ impl CanvasMask {
         };
         let landed = land(body, &wide, false)?;
         let opacity = self.layer.join.opacity;
-        let mut values = vec![0.0_f32; wide.size().0 * wide.size().1];
+        let mut values = vec![0.0_f32; wide.drawn_size().0 * wide.drawn_size().1];
         landed.each(&mut |at, pixel| {
             let value = self.uses.of(pixel) * opacity;
             values[at] = factor.as_ref().map_or(value, |factor| value * factor.values[at]);
         });
         let mut plane = Plane {
-            size: wide.size(),
+            size: wide.drawn_size(),
             values,
         };
         if reach != (0, 0) {
             feather::blur(&mut plane.values, plane.size, sigma);
-            plane = plane.cropped(reach, target.size());
+            // the rows of the target are `reach.1` below where the target's window starts on the wide plane
+            let from = (reach.0, target.window.0 + reach.1 - wide.window.0);
+            plane = plane.cropped(from, target.drawn_size());
         }
         if self.invert {
             for value in &mut plane.values {
@@ -282,11 +284,11 @@ pub(crate) struct Plane {
 }
 
 impl Plane {
-    /// The part of this plane `margin` pixels in from each side, `size` pixels.
-    fn cropped(&self, margin: (usize, usize), size: (usize, usize)) -> Self {
+    /// The part of this plane of `size` pixels whose top left is the pixel `from` (column, row).
+    fn cropped(&self, from: (usize, usize), size: (usize, usize)) -> Self {
         let mut values = Vec::with_capacity(size.0 * size.1);
-        for row in margin.1..margin.1 + size.1 {
-            let start = row * self.size.0 + margin.0;
+        for row in from.1..from.1 + size.1 {
+            let start = row * self.size.0 + from.0;
             values.extend_from_slice(&self.values[start..start + size.0]);
         }
         Self { size, values }

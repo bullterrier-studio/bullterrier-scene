@@ -8,6 +8,16 @@ use crate::files::{Fingerprint, digest_floats};
 use crate::pdf::{self, PdfOptions};
 use crate::source::picture;
 
+/// `level` (0 to 1) as an 8-bit number, rounded as image's writer rounds a PNG: `level * 255 + 0.5` cut to a whole number.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "a level is 0..1, so the number is 0..255"
+)]
+pub(crate) fn eight_bit(level: f32) -> u8 {
+    (level * 255.0 + 0.5) as u8
+}
+
 /// A picture of straight (not premultiplied) RGBA, 32-bit floats from 0 to 1, row after row from the top, pixel after
 /// pixel from the left, four values a pixel. Colours are sRGB values.
 #[derive(Clone)]

@@ -1,6 +1,8 @@
 //! Drawing a scene: the size of the picture, each layer drawn at it, joined by its blend mode in premultiplied floats, and
 //! given back as straight alpha.
 
+use std::ops::Range;
+
 use crate::blend::{Blend, join, lit};
 use crate::cache::Cache;
 use crate::geometry::{MAX_PIXELS, Rect, Scale};
@@ -13,8 +15,16 @@ use crate::{Error, Layer, Raster};
 /// The longest side of a picture, in output pixels.
 const MAX_SIZE: u32 = 65_000;
 
-/// `layers` drawn on a canvas of `width` by `height` design pixels at `size` output pixels on the long side.
-pub(crate) fn render(width: u32, height: u32, layers: &[Layer], size: i128, cache: &Cache) -> Result<Raster, Error> {
+/// The pixels a band of a picture written straight to a file holds at most: 2^24 (a band of float32 RGBA is 256 MiB), an
+/// eighth of what a whole render may draw ([`MAX_PIXELS`]). A picture of no more pixels than this is one band, the same as a
+/// whole render: the command line writes it as one, and streams only a larger one.
+pub const BAND_PIXELS: usize = MAX_PIXELS / 8;
+
+/// The columns and rows of the picture a canvas of `width` by `height` design pixels makes at `size` on its long side.
+///
+/// # Errors
+/// [`Error::Invalid`] naming `size` for a size outside 1 to 65,000.
+pub(crate) fn picture_size(width: u32, height: u32, size: i128) -> Result<(usize, usize), Error> {
     let Some(size) = u32::try_from(size).ok().filter(|size| (1..=MAX_SIZE).contains(size)) else {
         return Err(Error::invalid(
             "size",
@@ -25,7 +35,18 @@ pub(crate) fn render(width: u32, height: u32, layers: &[Layer], size: i128, cach
     let output = |canvas: u32| {
         usize::try_from((u64::from(canvas) * u64::from(size)).div_ceil(u64::from(long))).unwrap_or(usize::MAX)
     };
-    let (columns, rows) = (output(width), output(height));
+    Ok((output(width), output(height)))
+}
+
+/// The rows a band of a picture of `columns` by `rows` has when the caller does not choose: as many as [`BAND_PIXELS`] holds,
+/// and at least one.
+pub(crate) fn default_band_rows(columns: usize, rows: usize) -> usize {
+    (BAND_PIXELS / columns).clamp(1, rows)
+}
+
+/// `layers` drawn on a canvas of `width` by `height` design pixels at `size` output pixels on the long side.
+pub(crate) fn render(width: u32, height: u32, layers: &[Layer], size: i128, cache: &Cache) -> Result<Raster, Error> {
+    let (columns, rows) = picture_size(width, height, size)?;
     if columns.saturating_mul(rows) > MAX_PIXELS {
         return Err(Error::invalid(
             "size",
@@ -34,6 +55,46 @@ pub(crate) fn render(width: u32, height: u32, layers: &[Layer], size: i128, cach
             ),
         ));
     }
+    band(width, height, layers, (columns, rows), 0..rows, cache)
+}
+
+/// `layers` drawn as the bands of the picture, each `band_rows` rows (the last has what is left), top to bottom: `sink` is
+/// given the rows a band is and the band, and a refusal of it ends the render and is the render's. The bands put together are
+/// the picture [`render`] makes, bit for bit, whatever `band_rows`; no more than a band of the picture is held at a time.
+pub(crate) fn render_bands(
+    (width, height): (u32, u32),
+    layers: &[Layer],
+    size: i128,
+    band_rows: usize,
+    cache: &Cache,
+    sink: &mut impl FnMut(Range<usize>, &Raster) -> Result<(), Error>,
+) -> Result<(), Error> {
+    let (columns, rows) = picture_size(width, height, size)?;
+    if !(1..=rows).contains(&band_rows) || columns.saturating_mul(band_rows) > MAX_PIXELS {
+        return Err(Error::invalid(
+            "band_rows",
+            format!(
+                "a band has from 1 to {rows} rows (the picture's height) and at most {MAX_PIXELS} pixels (2^27), {columns} wide here; got {band_rows}"
+            ),
+        ));
+    }
+    for first in (0..rows).step_by(band_rows) {
+        let rows_of = first..(first + band_rows).min(rows);
+        let drawn = band(width, height, layers, (columns, rows), rows_of.clone(), cache)?;
+        sink(rows_of, &drawn)?;
+    }
+    Ok(())
+}
+
+/// The rows `rows_of` of the picture of `columns` by `rows` pixels that `layers` make on the canvas, as a raster.
+fn band(
+    width: u32,
+    height: u32,
+    layers: &[Layer],
+    (columns, rows): (usize, usize),
+    rows_of: Range<usize>,
+    cache: &Cache,
+) -> Result<Raster, Error> {
     let target = Target {
         canvas: Rect {
             x: 0.0,
@@ -45,18 +106,19 @@ pub(crate) fn render(width: u32, height: u32, layers: &[Layer], size: i128, cach
         columns,
         rows,
         margin: (0, 0),
+        window: (rows_of.start, rows_of.len()),
         offset: (0.0, 0.0),
         held: 0,
         cache,
     };
     let joined = draw(layers, &target)?;
-    Ok(Raster::made(columns, rows, straight(joined)))
+    Ok(Raster::made(columns, rows_of.len(), straight(joined)))
 }
 
 /// `layers` drawn one over the other on `target`: premultiplied red, green, blue and alpha of each of its pixels. The one
 /// entry that draws a stack, for the whole canvas ([`render`]) and for a scene used as a layer.
 pub(crate) fn draw(layers: &[Layer], target: &Target) -> Result<Vec<f32>, Error> {
-    let mut joined = vec![0.0_f32; target.columns * target.rows * 4];
+    let mut joined = vec![0.0_f32; target.drawn_size().0 * target.drawn_size().1 * 4];
     for (index, layer) in layers.iter().enumerate() {
         let name = layer.name.clone().unwrap_or_else(|| format!("layer{}", index + 1));
         lay(layer, target, &mut joined).map_err(|error| error.in_layer(&name))?;
@@ -87,13 +149,13 @@ fn lay(layer: &Layer, target: &Target, joined: &mut [f32]) -> Result<(), Error> 
     } else if let Some(factor) = factor {
         landed.each(&mut |at, above| over_pixel(&mut joined[at * 4..at * 4 + 4], above, opacity * factor.values[at]));
     } else if landed.is_unmoved() {
-        over(joined, landed.drawn.raster.pixels(), opacity);
+        over(joined, landed.unmoved_pixels(), opacity);
     } else {
         warp_into(
             &landed.drawn.raster,
             landed.map,
             landed.clip,
-            landed.size,
+            landed.output,
             &mut |at, above| {
                 over_pixel(&mut joined[at * 4..at * 4 + 4], above, opacity);
             },

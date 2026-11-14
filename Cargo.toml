@@ -25,6 +25,7 @@ miniz_oxide = "0.9"  # the Flate encoder of a PDF's picture (already in the tree
 moxcms = "0.8"  # RGB to a caller's CMYK profile (already in the tree through image)
 numpy = "0.30"
 pdf-writer = "0.15"  # writes the PDF's objects
+png = "0.18"  # the streaming PNG writer of a picture drawn by bands (already in the tree through image): `docs/design-decisions.md`, "Banded rendering"
 proptest = "1.12"
 lopdf = { version = "0.47", default-features = false }  # reads the PDF back in the tests: an oracle independent of the writer
 tempfile = "3.27"
