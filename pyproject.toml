@@ -200,6 +200,8 @@ project-triggers = []
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# `from tests.example_scenes import ...`: the example scenes the tests of the examples share (tests/ has no __init__.py)
+pythonpath = ["."]
 # test files are named after the module they test, so equal names in different folders must never collide
 # a misspelt marker or option is an error, not a silently ignored typo
 # with xdist (`-n`), a test file runs on one worker, so a module fixture that spawns tools is built once (`xdist_group` marks
