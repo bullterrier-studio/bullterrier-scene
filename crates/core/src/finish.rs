@@ -249,7 +249,7 @@ impl Finish {
                     ends_at_window,
                     room,
                 };
-                cache.put(*key, stage, bytes);
+                cache.put(*key, stage, bytes, true);
             }
         }
         let values = maps

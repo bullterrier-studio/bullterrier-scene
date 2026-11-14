@@ -76,6 +76,8 @@ struct Entry {
     value: Arc<dyn Any + Send + Sync>,
     bytes: usize,
     used: u64,
+    /// Whether this entry is the first to go: a stage of a look chain, which a finished raster can be made from again.
+    expendable: bool,
 }
 
 #[derive(Default)]
@@ -134,7 +136,7 @@ impl Cache {
             return Ok(found);
         }
         let (value, bytes) = make()?;
-        Ok(self.put(*key, value, bytes))
+        Ok(self.put(*key, value, bytes, false))
     }
 
     /// The value kept under `key`, made the most recently used.
@@ -147,17 +149,19 @@ impl Cache {
         Arc::clone(&entry.value).downcast().ok()
     }
 
-    /// Keeps `value` of `bytes` bytes under `key` if it fits (see `keep`), and hands it back.
-    pub(crate) fn put<T: Send + Sync + 'static>(&self, key: Key, value: T, bytes: usize) -> Arc<T> {
+    /// Keeps `value` of `bytes` bytes under `key` if it fits (see `keep`), and hands it back. An `expendable` value (a stage a
+    /// finished value can be made from again) is kept only where it fits by making other expendable values leave, and is the
+    /// first to leave when a value that is not expendable needs room: it never costs the cache a finished value.
+    pub(crate) fn put<T: Send + Sync + 'static>(&self, key: Key, value: T, bytes: usize, expendable: bool) -> Arc<T> {
         let value = Arc::new(value);
         let shared: Arc<dyn Any + Send + Sync> = Arc::clone(&value) as Arc<dyn Any + Send + Sync>;
-        self.keep(key, shared, bytes);
+        self.keep(key, shared, bytes, expendable);
         value
     }
 
-    /// Keeps `value` of `bytes` bytes under `key`, after making room: the least recently used entries go first. A value larger
-    /// than the whole cache is not kept.
-    fn keep(&self, key: Key, value: Arc<dyn Any + Send + Sync>, bytes: usize) {
+    /// Keeps `value` of `bytes` bytes under `key`, after making room: expendable entries go first, then the least recently
+    /// used. A value larger than the whole cache is not kept.
+    fn keep(&self, key: Key, value: Arc<dyn Any + Send + Sync>, bytes: usize, expendable: bool) {
         if bytes > self.capacity {
             return;
         }
@@ -165,11 +169,23 @@ impl Cache {
         if let Some(replaced) = kept.entries.remove(&key) {
             kept.bytes -= replaced.bytes;
         }
+        if expendable {
+            let others: usize = kept
+                .entries
+                .values()
+                .filter(|entry| !entry.expendable)
+                .map(|entry| entry.bytes)
+                .sum();
+            if others + bytes > self.capacity {
+                return;
+            }
+        }
         while kept.bytes + bytes > self.capacity {
             let Some(oldest) = kept
                 .entries
                 .iter()
-                .min_by_key(|(_, entry)| entry.used)
+                .filter(|(_, entry)| entry.expendable || !expendable)
+                .min_by_key(|(_, entry)| (!entry.expendable, entry.used))
                 .map(|(key, _)| *key)
             else {
                 break;
@@ -181,7 +197,15 @@ impl Cache {
         kept.clock += 1;
         let used = kept.clock;
         kept.bytes += bytes;
-        kept.entries.insert(key, Entry { value, bytes, used });
+        kept.entries.insert(
+            key,
+            Entry {
+                value,
+                bytes,
+                used,
+                expendable,
+            },
+        );
     }
 }
 
@@ -239,6 +263,26 @@ mod tests {
         made(&cache, "small", 100, &mut makes)?;
         assert_eq!(makes, 3, "a value exactly as large as the cache is kept");
         Ok(())
+    }
+
+    #[test]
+    fn an_expendable_value_never_costs_the_cache_a_finished_one_and_is_the_first_to_go() {
+        let cache = Cache::with_capacity(100);
+        cache.put(key("stage1"), 1_u8, 40, true);
+        cache.put(key("stage2"), 2_u8, 40, true);
+        cache.put(key("done1"), 3_u8, 40, false); // 120 > 100: the oldest stage goes, not the finished value
+        assert!(cache.get::<u8>(&key("stage1")).is_none());
+        assert!(cache.get::<u8>(&key("stage2")).is_some());
+        cache.put(key("done2"), 4_u8, 40, false); // 120 > 100 again: the other stage goes, though `done1` is older
+        assert!(cache.get::<u8>(&key("stage2")).is_none());
+        assert!(cache.get::<u8>(&key("done1")).is_some());
+        // no room without a finished value leaving: the stage is not kept, and nothing leaves for it
+        cache.put(key("stage3"), 5_u8, 40, true);
+        assert!(cache.get::<u8>(&key("stage3")).is_none());
+        assert!(cache.get::<u8>(&key("done1")).is_some() && cache.get::<u8>(&key("done2")).is_some());
+        // a stage is kept where it fits beside the finished values
+        cache.put(key("stage4"), 6_u8, 20, true);
+        assert!(cache.get::<u8>(&key("stage4")).is_some());
     }
 
     #[test]
