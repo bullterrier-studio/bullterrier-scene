@@ -512,6 +512,29 @@ counts its `draw` calls (`Layer.make`, arrives with C7).
   refused); the C5a test of a drawing at `scale` 2 now expects the doubled canvas, as it did the doubled picture.
 - **Room and light that spill wait** for a sideways footprint from image (api.md, "Needs from others").
 
+## C6a: parameters, one listing per layer (2026-11-14)
+
+- **A value is set only at an address the layer lists.** `Layer::parameters` writes the addresses and `Layer::with_values`
+  refuses any address that list lacks, so the two cannot disagree and an unknown address needs no parser: the message
+  is the layer's own list and the nearest by the one search `blend` uses (`suggest.rs`). The grammar is written in one file
+  (`parameters.rs`); a source says its own fields (`picture`, `map.<name>`, `text`, `color`, `drawing.<param>`,
+  `scene.<address>`), a sibling's address stays verbatim after its head. Reason: a second reader of addresses is a second
+  grammar, and the round trip (every listed parameter set to its own value) is the cheap proof that one list serves both.
+- **Values live on the layers as they were added, and the scene is built again through `add`.** A reference is resolved from
+  the changed layers, so a change under a named layer reaches its references, the budgets and the names are checked again, and
+  nothing resolved is patched. The price is a rebuild of the stack: 0.34 ms for 1,000 layers, 72 microseconds for a mill-sized frame
+  ("What is built", Parameters), under a thousandth of a render.
+- **Siblings keep their own checks.** Image's `Recipe::with_values` takes the settings of one look as a set; vector's Params are
+  checked by `Param::accept` and held beside the document (vector's own `with_values` fixes a Param and removes it from the
+  list, which would make a set value vanish from `parameters()`). A text is made again by vector when its words or colour change.
+- **What is not listed** is stated where it is built ("What is built", Parameter limits): a layer under `perspective` has no
+  placement field, a map mask has no field, a mask layer has no blend or light. Each range holds only valid values of that
+  number alone, so a slider built from `parameters()` cannot ask for an error by itself.
+- **What C6b to C7 inherit.** C6b: `Parameter` holds the value a saved scene needs for every address, and a picture's value is
+  its file or its array (an array has no file: `to_json` refuses it); `==` is not built. C7: values are on the layers and a layer
+  nothing was set on shares its source, so a cache key by layer value sees what did not change; looks are cloned with their
+  recipe at each draw (`Finish::clone`), which a cache would avoid.
+
 ## Smaller choices of the API (2026-11-13)
 
 - **A group is a scene, a mask is a layer.** No group type and no mask type; one `Layer` does both.
