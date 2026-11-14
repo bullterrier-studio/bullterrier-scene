@@ -7,6 +7,7 @@ use std::str::FromStr;
 use crate::error::label;
 use crate::feather;
 use crate::landing::{Target, land};
+use crate::layer::Join;
 use crate::ranges::FEATHER;
 use crate::{Error, Layer};
 
@@ -164,7 +165,7 @@ impl fmt::Debug for CanvasMask {
         write!(
             formatter,
             "CanvasMask {{ number: {}, uses: {:?}, feather: {}, invert: {}, depth: {} }}",
-            self.number, self.uses, self.feather, self.invert, self.layer.depth
+            self.number, self.uses, self.feather, self.invert, self.layer.join.depth
         )
     }
 }
@@ -192,9 +193,9 @@ impl CanvasMask {
         // the layer is drawn as far past the target as the blur reaches, so an edge that crosses the target feathers as it
         // would on a larger canvas
         let wide = target.grown(reach);
-        let factor = product(&self.layer, &wide)?;
-        let landed = land(&self.layer, &wide)?;
-        let opacity = self.layer.opacity;
+        let factor = product(&self.layer.join, &wide)?;
+        let landed = land(&self.layer.body, &wide)?;
+        let opacity = self.layer.join.opacity;
         let mut values = vec![0.0_f32; wide.size().0 * wide.size().1];
         landed.each(&mut |at, pixel| {
             let value = self.uses.of(pixel) * opacity;
@@ -235,11 +236,11 @@ impl Plane {
     }
 }
 
-/// What the canvas masks of `layer` multiply it by over `target`: their product, one value a pixel, or `None` for a layer
+/// What the canvas masks of `join` multiply a layer by over `target`: their product, one value a pixel, or `None` for a layer
 /// with none. An error from a mask's layer is addressed under the mask (`mask.size`, `mask#2.feather`).
-pub(crate) fn product(layer: &Layer, target: &Target) -> Result<Option<Plane>, Error> {
+pub(crate) fn product(join: &Join, target: &Target) -> Result<Option<Plane>, Error> {
     let mut product: Option<Plane> = None;
-    for mask in &layer.masks {
+    for mask in &join.masks {
         let plane = mask
             .plane(target)
             .map_err(|error| error.in_layer(&label(mask.number)))?;

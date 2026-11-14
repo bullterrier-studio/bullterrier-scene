@@ -2,11 +2,12 @@
 //! past it), and the one warp that puts the layer's drawn raster on it. The renderer lays layers over one another through it,
 //! and a mask draws its layer through it onto a plane of its own.
 
+use crate::Error;
 use crate::geometry::{Rect, Scale};
+use crate::layer::Body;
 use crate::placement::{Layout, Placement};
 use crate::source::Drawn;
 use crate::warp::{Map, is_identity, warp_into};
-use crate::{Error, Layer};
 
 /// Where a layer is drawn: the output grid of the canvas, with `margin` more pixels on each side (along x and y) for a mask
 /// whose blur reaches past the canvas.
@@ -80,17 +81,15 @@ impl Landed {
     }
 }
 
-/// `layer` drawn at the scale it will have, and put on `target`: the source asked for the part of its box that shows, then the
+/// `body` drawn at the scale it will have, and put on `target`: the source asked for the part of its box that shows, then the
 /// map of the one warp worked out.
-pub(crate) fn land(layer: &Layer, target: &Target) -> Result<Landed, Error> {
+pub(crate) fn land(body: &Body, target: &Target) -> Result<Landed, Error> {
     // a source with no box of its own (a fill) takes the part of the canvas the target holds, margin included, so that a mask
     // that fills the canvas goes on into the margin; but only where nothing acts on the box, for `fit` and `place` work on
     // it and a layer must be the same shape whatever its blur adds
-    let unplaced = layer.fit.is_none() && layer.placement == Placement::default();
-    let opened = layer
-        .source
-        .open(if unplaced { target.rect() } else { target.canvas })?;
-    let layout = Layout::new(layer.fit, layer.placement, opened.own, target.scale);
+    let unplaced = body.fit.is_none() && body.placement == Placement::default();
+    let opened = body.source.open(if unplaced { target.rect() } else { target.canvas })?;
+    let layout = Layout::new(body.fit, body.placement, opened.own, target.scale);
     let request = layout.request(opened.own, opened.whole);
     // the one place the drawn-size limit is checked, before any source draws
     request.scale.size(request.window)?;

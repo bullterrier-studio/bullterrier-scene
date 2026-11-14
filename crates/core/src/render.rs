@@ -4,6 +4,7 @@
 use crate::blend::{Blend, join, lit};
 use crate::geometry::{MAX_PIXELS, Rect, Scale};
 use crate::landing::{Target, land};
+use crate::layer::Join;
 use crate::mask::product;
 use crate::warp::warp_into;
 use crate::{Error, Layer, Raster};
@@ -57,11 +58,11 @@ pub(crate) fn render(width: u32, height: u32, layers: &[Layer], size: i128) -> R
 /// of which is blended where it lands. A layer that is not moved is blended as it is. Where the layer has masks, each pixel
 /// is blended at its mask's value too.
 fn lay(layer: &Layer, target: &Target, joined: &mut [f32]) -> Result<(), Error> {
-    let factor = product(layer, target)?;
-    let landed = land(layer, target)?;
-    let opacity = layer.opacity;
-    let blend = layer.blend;
-    let light = layer.light;
+    let factor = product(&layer.join, target)?;
+    let landed = land(&layer.body, target)?;
+    let Join {
+        opacity, blend, light, ..
+    } = layer.join;
     if blend != Blend::Normal || light {
         // every pixel is made light if the layer is (stage 7), scaled by the masks and the opacity (stages 6 and 8), and
         // joined where it lands by the compositing equation of its mode (stage 9)

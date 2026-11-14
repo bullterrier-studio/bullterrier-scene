@@ -25,13 +25,27 @@ pub const MAX_DEPTH: usize = 16;
 #[derive(Debug, Clone)]
 pub struct Layer {
     pub(crate) name: Option<String>,
+    pub(crate) body: Body,
+    pub(crate) join: Join,
+}
+
+/// What a layer draws before it meets the scene: its source (with its looks and its own-map masks) and where that goes,
+/// stages 1 to 5 of "How a layer is drawn". A reference inherits it.
+#[derive(Debug, Clone)]
+pub(crate) struct Body {
+    pub(crate) source: Arc<dyn Source>,
+    pub(crate) fit: Option<Fitting>,
+    pub(crate) placement: Placement,
+}
+
+/// How a layer joins the scene, stages 6 to 9: its masks by layers drawn on the canvas, light, opacity and blend. A
+/// reference owns its own.
+#[derive(Debug, Clone)]
+pub(crate) struct Join {
     pub(crate) opacity: f32,
     pub(crate) blend: Blend,
     /// Whether the layer's alpha is made from the brightness of its colour (stage 7).
     pub(crate) light: bool,
-    pub(crate) source: Arc<dyn Source>,
-    pub(crate) fit: Option<Fitting>,
-    pub(crate) placement: Placement,
     /// Masks by layers drawn on the canvas (stage 6), in call order; those by a map are in the source.
     pub(crate) masks: Vec<CanvasMask>,
     /// How many `mask` calls this layer has had: the number of the next is one more.
@@ -56,19 +70,23 @@ fn check_name(field: &str, name: &str) -> Result<(), Error> {
 }
 
 impl Layer {
-    fn of(source: impl Source + 'static) -> Self {
+    fn from_source(source: impl Source + 'static) -> Self {
         Self {
             name: None,
-            opacity: 1.0,
-            blend: Blend::Normal,
-            light: false,
-            source: Arc::new(source),
-            fit: None,
-            placement: Placement::default(),
-            masks: Vec::new(),
-            mask_calls: 0,
-            depth: 0,
-            mask_layers: 0,
+            body: Body {
+                source: Arc::new(source),
+                fit: None,
+                placement: Placement::default(),
+            },
+            join: Join {
+                opacity: 1.0,
+                blend: Blend::Normal,
+                light: false,
+                masks: Vec::new(),
+                mask_calls: 0,
+                depth: 0,
+                mask_layers: 0,
+            },
         }
     }
 
@@ -77,14 +95,14 @@ impl Layer {
     /// where it is reduced.
     #[must_use]
     pub fn picture(raster: Raster) -> Self {
-        Self::of(Picture::held(raster))
+        Self::from_source(Picture::held(raster))
     }
 
     /// A picture read from a file when the scene renders: as [`Layer::picture`] draws it, upright, in sRGB values, with its
     /// alpha if it has one. A file that cannot be read is an [`Error::Read`] at `render`, naming the layer.
     #[must_use]
     pub fn picture_file(path: impl Into<PathBuf>) -> Self {
-        Self::of(Picture::file(path.into()))
+        Self::from_source(Picture::file(path.into()))
     }
 
     /// A vector drawing, given as its JSON document (what the vector package's `Drawing.to_json()` writes): its box is its
@@ -95,7 +113,7 @@ impl Layer {
     /// [`Error::Format`] (pointer under `/drawing`) for a document the linked vector crate cannot read, a version it does
     /// not read included; [`Error::Invalid`] naming `drawing` for a drawing without a frame.
     pub fn drawing(json: &str) -> Result<Self, Error> {
-        Ok(Self::of(Drawing::parse(json)?))
+        Ok(Self::from_source(Drawing::parse(json)?))
     }
 
     /// `content` set in type: `text` says the font, the colour and vector's text options (`size`, `axes`, `tracking`, `leading`,
@@ -109,7 +127,7 @@ impl Layer {
     /// font, `content` for a text with no glyph to draw, the option for one vector refuses (in its words) and for `anchor`,
     /// `inside`, `runs`, expressions and Params; [`Error::Read`] for a font file that cannot be read.
     pub fn text(content: &str, text: &Text) -> Result<Self, Error> {
-        Ok(Self::of(Drawing::text(content, text)?))
+        Ok(Self::from_source(Drawing::text(content, text)?))
     }
 
     /// A flat colour over the whole canvas: `#rrggbb` or `#rrggbbaa`, in sRGB values; the alpha is straight.
@@ -117,7 +135,7 @@ impl Layer {
     /// # Errors
     /// [`Error::Invalid`] naming `fill` for any other text.
     pub fn fill(color: &str) -> Result<Self, Error> {
-        Ok(Self::of(Fill::parse(color)?))
+        Ok(Self::from_source(Fill::parse(color)?))
     }
 
     /// This layer with an image look run on it, after the looks it has: `json` is the recipe document that the image package's
@@ -133,7 +151,7 @@ impl Layer {
             pointer: "/look".to_owned(),
             message: format!("not JSON: {error}"),
         })?;
-        self.source = self.source.looked(&recipe)?;
+        self.body.source = self.body.source.looked(&recipe)?;
         Ok(self)
     }
 
@@ -142,7 +160,7 @@ impl Layer {
     /// # Errors
     /// [`Error::Read`] if the file cannot be read; otherwise as [`Layer::look`].
     pub fn look_file(mut self, path: impl AsRef<Path>) -> Result<Self, Error> {
-        self.source = self.source.looked(&recipe_file(path.as_ref())?)?;
+        self.body.source = self.body.source.looked(&recipe_file(path.as_ref())?)?;
         Ok(self)
     }
 
@@ -191,7 +209,7 @@ impl Layer {
 
     fn given(mut self, name: &str, given: Given) -> Result<Self, Error> {
         check_name("map", name)?;
-        self.source = self.source.with_map(name, given)?;
+        self.body.source = self.body.source.with_map(name, given)?;
         Ok(self)
     }
 
@@ -206,7 +224,7 @@ impl Layer {
     /// [`Error::Invalid`] naming `box` for a size not above 0 or a number that is not finite, and `align` for a fraction
     /// outside 0 to 1.
     pub fn fit(mut self, area: [f64; 4], how: Fit, align: [f64; 2]) -> Result<Self, Error> {
-        self.fit = Some(Fitting::new(area, how, align)?);
+        self.body.fit = Some(Fitting::new(area, how, align)?);
         Ok(self)
     }
 
@@ -218,7 +236,7 @@ impl Layer {
     /// [`Error::Invalid`] naming the field for a `scale` or `aspect` outside 0.001 to 1000, a skew outside -89 to 89, a `dx`
     /// or `dy` outside -1e6 to 1e6, an `anchor` outside 0 to 1, or a number that is not finite.
     pub fn place(mut self, place: Place) -> Result<Self, Error> {
-        self.placement = self.placement.placed(place)?;
+        self.body.placement = self.body.placement.placed(place)?;
         Ok(self)
     }
 
@@ -234,7 +252,7 @@ impl Layer {
     /// [`Error::Invalid`] naming `corners` for a number that is not finite or is beyond -1e6 to 1e6, and for corners that
     /// are not a strictly convex quadrilateral (a dart, a bowtie, three on a line, a corner twice).
     pub fn perspective(mut self, corners: [[f64; 2]; 4]) -> Result<Self, Error> {
-        self.placement = Placement::Perspective(Quad::new(corners)?);
+        self.body.placement = Placement::Perspective(Quad::new(corners)?);
         Ok(self)
     }
 
@@ -251,7 +269,7 @@ impl Layer {
     pub fn mask(mut self, mask: impl Into<Mask>) -> Result<Self, Error> {
         let mask = mask.into();
         mask.checked()?;
-        let number = self.mask_calls + 1;
+        let number = self.join.mask_calls + 1;
         match &mask.by.0 {
             By::Map(name) => {
                 if mask.uses == Use::Luminance {
@@ -260,7 +278,7 @@ impl Layer {
                         "a map is its own values: read it as \"alpha\", not \"luminance\"",
                     ));
                 }
-                self.source = self.source.masked(&MapMask {
+                self.body.source = self.body.source.masked(&MapMask {
                     name: name.clone(),
                     number,
                     feather: mask.feather,
@@ -274,31 +292,31 @@ impl Layer {
                         format!("a mask layer has no name (it is owned by the layer it masks), got {name:?}"),
                     ));
                 }
-                if by.blend != Blend::Normal {
+                if by.join.blend != Blend::Normal {
                     return Err(Error::invalid(
                         "mask",
                         format!(
                             "a mask layer has no blend (a mask is not joined to what is below), got {}",
-                            by.blend
+                            by.join.blend
                         ),
                     ));
                 }
-                if by.light {
+                if by.join.light {
                     return Err(Error::invalid(
                         "mask",
                         "a mask layer is not a light (its alpha is its own), got as_light(true)",
                     ));
                 }
-                if by.depth + 1 > MAX_DEPTH {
+                if by.join.depth + 1 > MAX_DEPTH {
                     return Err(Error::invalid(
                         "mask",
                         format!(
                             "masks nest at most {MAX_DEPTH} deep, and this mask layer has masks {} deep",
-                            by.depth
+                            by.join.depth
                         ),
                     ));
                 }
-                let layers = self.mask_layers + 1 + by.mask_layers;
+                let layers = self.join.mask_layers + 1 + by.join.mask_layers;
                 if layers > MAX_LAYERS {
                     return Err(Error::invalid(
                         "mask",
@@ -307,12 +325,12 @@ impl Layer {
                         ),
                     ));
                 }
-                self.depth = self.depth.max(by.depth + 1);
-                self.mask_layers = layers;
-                self.masks.push(CanvasMask::new((**by).clone(), &mask, number));
+                self.join.depth = self.join.depth.max(by.join.depth + 1);
+                self.join.mask_layers = layers;
+                self.join.masks.push(CanvasMask::new((**by).clone(), &mask, number));
             }
         }
-        self.mask_calls = number;
+        self.join.mask_calls = number;
         Ok(self)
     }
 
@@ -332,7 +350,7 @@ impl Layer {
             reason = "a value from 0 to 1 is held as a 32-bit float"
         )]
         {
-            self.opacity = value as f32;
+            self.join.opacity = value as f32;
         }
         Ok(self)
     }
@@ -341,7 +359,7 @@ impl Layer {
     /// opacity: where the layer lands it is blended with the colour below by the W3C compositing equation.
     #[must_use]
     pub fn blend(mut self, blend: Blend) -> Self {
-        self.blend = blend;
+        self.join.blend = blend;
         self
     }
 
@@ -351,7 +369,7 @@ impl Layer {
     /// layer that is not light keeps the alpha of its source.
     #[must_use]
     pub fn as_light(mut self, on: bool) -> Self {
-        self.light = on;
+        self.join.light = on;
         self
     }
 }
