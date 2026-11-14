@@ -36,6 +36,8 @@ PIECES: list[Piece] = [
     ("c4a_blends.py", "blend_sheet", 660, GALLERY / "c4a-blend-sheet.png"),
     ("c4b_references.py", "build", 1200, LOOK / "c4b-references.png"),
     ("c4b_references.py", "build", 800, GALLERY / "c4b-references.png"),
+    ("c4c_groups.py", "build", 1200, LOOK / "c4c-groups.png"),
+    ("c4c_groups.py", "build", 800, GALLERY / "c4c-groups.png"),
 ]
 
 

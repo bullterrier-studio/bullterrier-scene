@@ -344,3 +344,46 @@ def test_the_headline_passes_behind_the_figure_and_shows_either_side_of_it(eveni
     inside = drawn[row, 600, :3]  # the body of the figure, where the type is hidden
     assert np.allclose(inside, skin[row - (evening.FEET - 520), 600 - (evening.W // 2 - 180)], atol=1e-6)
     assert (np.abs(drawn[row, :, :3] - paper).max(axis=-1) < 1e-3).sum() > 150  # the letters either side
+
+
+# --- C4c: groups: a badge twice, a pair of cards faded as one and one by one -----------------------------------------
+
+
+@pytest.fixture(scope="module")
+def groups() -> ModuleType:
+    return load("c4c_groups", ROOT / "docs" / "examples" / "c4c_groups.py")
+
+
+def level(color: str) -> np.ndarray:
+    """A `"#rrggbb"` as a float32 triple."""
+    return np.array([int(color[at : at + 2], 16) for at in (1, 3, 5)], np.float32) / 255
+
+
+def test_a_group_fades_as_one_picture_and_the_layers_of_the_other_pair_each_fade(groups):
+    drawn = groups.build().render(groups.W)
+    band, bottom, top = level(groups.INK), level("#ff9f1c"), level("#2ec4b6")
+    # the pairs are 360 by 240 boxes at (120, 500) and (720, 500); the cards overlap at x 96 to 264, y 72 to 168 in them
+    for left, overlap, bottom_only in ((120, 0.5 * top + 0.5 * band, 0.5 * bottom + 0.5 * band),):
+        assert np.allclose(drawn[620, left + 180, :3], overlap, atol=2e-5)
+        assert np.allclose(drawn[520, left + 30, :3], bottom_only, atol=2e-5)
+    # the same cards as two layers each at half: the bottom card shows through the top one
+    assert np.allclose(drawn[620, 720 + 180, :3], 0.5 * top + 0.25 * bottom + 0.25 * band, atol=2e-5)
+    assert np.allclose(drawn[520, 720 + 30, :3], 0.5 * bottom + 0.5 * band, atol=2e-5)
+
+
+def test_the_badge_is_drawn_at_the_size_each_use_has(groups):
+    scene = groups.build()
+    first = scene.render(groups.W)
+    assert first.shape == (groups.H, groups.W, 4)
+    assert np.array_equal(first, scene.render(groups.W))
+    assert (first[..., 3] == 1).all()  # the paper is opaque everywhere
+    # above the word, inside each badge's disc: the large one (a box at (70, 30), 380 across) is red, the small one blue
+    assert np.allclose(first[110, 260, :3], level("#ff4b3e"), atol=1e-5)
+    assert np.allclose(first[150, 875, :3], level("#2f6fdb"), atol=1e-5)
+
+
+def test_the_badge_example_renders(tmp_path):
+    badge = load("badge_scene_in_scene", ROOT / "docs" / "examples" / "badge_scene_in_scene.py")
+    drawn = badge.build().render(300)
+    assert drawn.shape == (200, 300, 4)
+    assert 0.0 <= drawn.min() <= drawn.max() <= 1.0
