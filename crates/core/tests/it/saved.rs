@@ -10,7 +10,11 @@ use bullterrier_scene::{
 use proptest::prelude::*;
 use serde_json::Value;
 
-use crate::common::{Outcome, rectangle, scene, varied};
+use crate::common::{Outcome, made, rectangle, scene, varied};
+
+#[path = "../../../../docs/examples/cover_template.rs"]
+#[expect(dead_code, reason = "the example's own `main`")]
+mod cover_template;
 
 const FONT: &str = "bricolage_grotesque";
 const GRADE: &str = r#"{"steps": [{"effect": "grade", "params": {"exposure": 1.0}, "name": "up"}]}"#;
@@ -670,4 +674,32 @@ fn a_thousand_layers_round_trip() -> Outcome {
     let layers = (0..MAX_LAYERS).map(|at| Layer::fill(&format!("#{:06x}", at * 977 % 0x00ff_ffff))?.opacity(0.5));
     let made = scene(64, 64, layers.collect::<Result<Vec<_>, _>>()?)?;
     round_trips(&made, Path::new(""), true)
+}
+
+/// The Rust cover template of `docs/examples` builds, is saved and read back, and draws an episode of its own.
+#[test]
+fn the_rust_cover_template_is_saved_read_back_and_filled_with_an_episode() -> Outcome {
+    let files = Files::new()?;
+    let other = files.path("other.png");
+    write_picture(
+        &other,
+        &made(12, 8, |x, y| {
+            [
+                f32::from(u8::try_from(x).unwrap_or(0)) / 12.0,
+                f32::from(u8::try_from(y).unwrap_or(0)) / 8.0,
+                0.25,
+                1.0,
+            ]
+        })?,
+    )?;
+    let episode = cover_template::cover(&files.path("photo.png"), &other)?;
+    assert_eq!((episode.width(), episode.height()), (1280, 720));
+    let template = Scene::from_json(
+        &cover_template::build(&files.path("photo.png"))?.to_json()?,
+        Path::new("."),
+    )?;
+    assert_eq!(template, cover_template::build(&files.path("photo.png"))?);
+    // the band's colour and the photo of the episode show: the episode is not the template drawn as it is
+    assert!(!same_bits(&episode, &template.render(1280)?));
+    Ok(())
 }
