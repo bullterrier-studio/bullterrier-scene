@@ -7,6 +7,7 @@
 
 #![forbid(unsafe_code)]
 
+mod blend;
 mod error;
 mod feather;
 mod geometry;
@@ -24,6 +25,7 @@ mod source;
 mod text;
 mod warp;
 
+pub use blend::Blend;
 pub use error::Error;
 pub use layer::{Layer, MAX_DEPTH};
 pub use map::Map;

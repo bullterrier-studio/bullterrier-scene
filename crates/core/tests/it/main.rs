@@ -5,6 +5,7 @@
 mod common;
 
 mod architecture;
+mod blend;
 mod compose;
 mod data_boundary;
 mod drawing;

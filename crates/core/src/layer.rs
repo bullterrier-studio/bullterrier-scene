@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::blend::Blend;
 use crate::mask::{By, CanvasMask, Mask, Use};
 use crate::perspective::Quad;
 use crate::placement::{Fit, Fitting, Place, Placement};
@@ -25,6 +26,7 @@ pub const MAX_DEPTH: usize = 16;
 pub struct Layer {
     pub(crate) name: Option<String>,
     pub(crate) opacity: f32,
+    pub(crate) blend: Blend,
     pub(crate) source: Arc<dyn Source>,
     pub(crate) fit: Option<Fitting>,
     pub(crate) placement: Placement,
@@ -56,6 +58,7 @@ impl Layer {
         Self {
             name: None,
             opacity: 1.0,
+            blend: Blend::Normal,
             source: Arc::new(source),
             fit: None,
             placement: Placement::default(),
@@ -313,5 +316,13 @@ impl Layer {
             self.opacity = value as f32;
         }
         Ok(self)
+    }
+
+    /// This layer joined to what is below by `blend` (default [`Blend::Normal`]), in sRGB values, after its masks and its
+    /// opacity: where the layer lands it is blended with the colour below by the W3C compositing equation.
+    #[must_use]
+    pub fn blend(mut self, blend: Blend) -> Self {
+        self.blend = blend;
+        self
     }
 }
