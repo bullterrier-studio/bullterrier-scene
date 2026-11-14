@@ -29,7 +29,7 @@ fn write_grey(path: &Path, width: usize, height: usize) -> Outcome {
     Ok(())
 }
 
-fn write_picture(path: &Path, picture: &Raster) -> Outcome {
+pub(crate) fn write_picture(path: &Path, picture: &Raster) -> Outcome {
     bullterrier_image::write(
         path,
         &bullterrier_image::Image::rgba(picture.height(), picture.width(), picture.pixels())?,
@@ -38,12 +38,12 @@ fn write_picture(path: &Path, picture: &Raster) -> Outcome {
 }
 
 /// The files a scene names, in a folder of its own.
-struct Files {
+pub(crate) struct Files {
     folder: tempfile::TempDir,
 }
 
 impl Files {
-    fn new() -> Result<Self, Box<dyn std::error::Error>> {
+    pub(crate) fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let files = Self {
             folder: tempfile::tempdir()?,
         };
@@ -52,7 +52,7 @@ impl Files {
         Ok(files)
     }
 
-    fn path(&self, name: &str) -> PathBuf {
+    pub(crate) fn path(&self, name: &str) -> PathBuf {
         self.folder.path().join(name)
     }
 
@@ -62,7 +62,7 @@ impl Files {
 }
 
 /// A scene that uses every part of the document, naming the files of `files` by relative path.
-fn rich(files: &Files) -> Result<Scene, Error> {
+pub(crate) fn rich(files: &Files) -> Result<Scene, Error> {
     let badge = scene(
         20,
         10,

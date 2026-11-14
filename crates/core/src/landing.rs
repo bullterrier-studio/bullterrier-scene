@@ -2,17 +2,21 @@
 //! past it), and the one warp that puts the layer's drawn raster on it. The renderer lays layers over one another through it,
 //! and a mask draws its layer through it onto a plane of its own.
 
-use crate::Error;
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+use crate::cache::{Cache, Keyed};
 use crate::geometry::{MAX_LOOKED_PIXELS, MAX_PIXELS, Rect, Scale};
 use crate::layer::Body;
 use crate::placement::{Layout, Placement};
 use crate::source::{Drawn, Request};
 use crate::warp::{Map, is_identity, warp_into};
+use crate::{Error, Raster};
 
 /// Where a layer is drawn: the output grid of the canvas, with `margin` more pixels on each side (along x and y) for a mask
 /// whose blur reaches past the canvas.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Target {
+pub(crate) struct Target<'a> {
     /// The scene's canvas, in design pixels.
     pub(crate) canvas: Rect,
     pub(crate) scale: Scale,
@@ -25,9 +29,11 @@ pub(crate) struct Target {
     pub(crate) offset: (f64, f64),
     /// The pixels the scenes drawn round this one hold in their own rasters while it is drawn: 0 for the whole canvas.
     pub(crate) held: usize,
+    /// What the renders of the scene kept: shared by every layer drawn on this target and by the scenes inside it.
+    pub(crate) cache: &'a Cache,
 }
 
-impl Target {
+impl Target<'_> {
     /// The size in pixels, margin included: `(columns, rows)`.
     pub(crate) fn size(&self) -> (usize, usize) {
         (self.columns + 2 * self.margin.0, self.rows + 2 * self.margin.1)
@@ -39,6 +45,20 @@ impl Target {
             margin: (self.margin.0 + reach.0, self.margin.1 + reach.1),
             ..*self
         }
+    }
+
+    /// Writes into `key` what a plane or a raster drawn for this target depends on: the grid it is drawn on and where the canvas
+    /// lies on it. Not the cache.
+    pub(crate) fn keyed(&self, key: &mut Keyed) {
+        key.debug(&(
+            self.canvas,
+            self.scale,
+            self.columns,
+            self.rows,
+            self.margin,
+            self.offset,
+            self.held,
+        ));
     }
 
     /// The part of the canvas plane the target holds, in design pixels: the canvas grown by the margin.
@@ -54,6 +74,33 @@ impl Target {
             y: self.canvas.y - down,
             width: self.canvas.width + 2.0 * across,
             height: self.canvas.height + 2.0 * down,
+        }
+    }
+}
+
+/// What the cache keeps of a layer drawn: the raster its source drew and its looks and masks by its own maps finished, before
+/// the one warp puts it on a target. Where the raster is held in the cache, it is shared (it is read, never changed).
+pub(crate) struct Kept {
+    raster: Arc<Raster>,
+    covers: Rect,
+    ends_at_window: bool,
+}
+
+impl Kept {
+    fn of(drawn: Drawn) -> Self {
+        Self {
+            raster: drawn.raster,
+            covers: drawn.covers,
+            ends_at_window: drawn.ends_at_window,
+        }
+    }
+
+    fn drawn(&self) -> Drawn {
+        Drawn {
+            raster: Arc::clone(&self.raster),
+            covers: self.covers,
+            ends_at_window: self.ends_at_window,
+            maps: BTreeMap::new(),
         }
     }
 }
@@ -93,7 +140,9 @@ pub(crate) fn land(body: &Body, target: &Target, light: bool) -> Result<Landed, 
     // that fills the canvas goes on into the margin; but only where nothing acts on the box, for `fit` and `place` work on
     // it and a layer must be the same shape whatever its blur adds
     let unplaced = body.fit.is_none() && body.placement == Placement::default() && body.extras.is_empty();
-    let opened = body.source.open(if unplaced { target.rect() } else { target.canvas })?;
+    let opened = body
+        .source
+        .open(if unplaced { target.rect() } else { target.canvas }, target.cache)?;
     let layout = Layout::new(body.fit, body.placement, &body.extras, opened.own, target.scale).offset(target.offset);
     let request = Request {
         held: target.held,
@@ -110,7 +159,28 @@ pub(crate) fn land(body: &Body, target: &Target, light: bool) -> Result<Landed, 
     };
     // the one place the drawn-size limit is checked, before any source draws
     request.scale.size(request.window)?;
-    let drawn = opened.draw(request, &body.finish, light)?;
+    let drawn = if body.keeps_drawn() {
+        let mut key = Keyed::new("layer");
+        body.source.keyed(&mut key)?;
+        body.finish.keyed(&mut key)?;
+        // the phase and the pixels held round the scene are inputs only of a source that draws on the grid: a picture that
+        // moves, or sits in a group drawn at another phase, keeps its raster
+        let grid = body.source.follows_grid();
+        let (phase, held) = if grid {
+            (request.phase, request.held)
+        } else {
+            ((0.0, 0.0), 0)
+        };
+        key.debug(&(light, Request { phase, held, ..request }));
+        let kept = target.cache.fetch(&key.finish(), || {
+            let drawn = opened.draw(request, &body.finish, light, target.cache)?;
+            let bytes = size_of_val(drawn.raster.pixels());
+            Ok((Kept::of(drawn), bytes))
+        })?;
+        kept.drawn()
+    } else {
+        opened.draw(request, &body.finish, light, target.cache)?
+    };
     let (map, clip) = layout.warp(&drawn);
     // the output starts `margin` pixels, and the offset, up and left of the canvas
     #[expect(clippy::cast_precision_loss, reason = "a margin of at most 2^27 pixels")]

@@ -3,7 +3,9 @@
 
 use std::fmt;
 use std::str::FromStr;
+use std::sync::Arc;
 
+use crate::cache::Keyed;
 use crate::error::label;
 use crate::feather;
 use crate::landing::{Target, land};
@@ -213,8 +215,23 @@ impl CanvasMask {
         self.number
     }
 
-    /// The values of this mask over `target`: the layer drawn on it, read, blurred, inverted.
-    fn plane(&self, target: &Target) -> Result<Plane, Error> {
+    /// The values of this mask over `target`: the layer drawn on it, read, blurred, inverted. A mask layer that several layers
+    /// share, or that a reference draws again, is drawn once for a target: the plane is kept by what the layer is made of, the
+    /// reading, the blur and the target.
+    fn plane(&self, target: &Target) -> Result<Arc<Plane>, Error> {
+        let mut key = Keyed::new("plane");
+        self.layer.keyed(&mut key)?;
+        key.debug(&(self.uses, self.feather, self.invert));
+        target.keyed(&mut key);
+        target.cache.fetch(&key.finish(), || {
+            let plane = self.drawn(target)?;
+            let bytes = size_of_val(plane.values.as_slice());
+            Ok((plane, bytes))
+        })
+    }
+
+    /// [`CanvasMask::plane`], drawn.
+    fn drawn(&self, target: &Target) -> Result<Plane, Error> {
         let sigma = (
             self.feather * target.scale.x.pixels(1.0),
             self.feather * target.scale.y.pixels(1.0),
@@ -269,20 +286,24 @@ impl Plane {
 
 /// What the canvas masks of `join` multiply a layer by over `target`: their product, one value a pixel, or `None` for a layer
 /// with none. An error from a mask's layer is addressed under the mask (`mask.size`, `mask#2.feather`).
-pub(crate) fn product(join: &Join, target: &Target) -> Result<Option<Plane>, Error> {
-    let mut product: Option<Plane> = None;
+pub(crate) fn product(join: &Join, target: &Target) -> Result<Option<Arc<Plane>>, Error> {
+    let mut product: Option<Arc<Plane>> = None;
     for mask in &join.masks {
         let plane = mask
             .plane(target)
             .map_err(|error| error.in_layer(&label(mask.number)))?;
-        match &mut product {
-            None => product = Some(plane),
-            Some(so_far) => {
-                for (value, other) in so_far.values.iter_mut().zip(&plane.values) {
-                    *value *= other;
-                }
-            }
-        }
+        product = Some(match product {
+            None => plane,
+            Some(so_far) => Arc::new(Plane {
+                size: so_far.size,
+                values: so_far
+                    .values
+                    .iter()
+                    .zip(&plane.values)
+                    .map(|(value, other)| value * other)
+                    .collect(),
+            }),
+        });
     }
     Ok(product)
 }

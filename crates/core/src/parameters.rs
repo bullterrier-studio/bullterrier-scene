@@ -585,6 +585,6 @@ impl Scene {
                 .with_values(false, &settings)
                 .map_err(|error| error.in_layer(&name))?;
         }
-        Self::new(self.width(), self.height())?.add(layers)
+        self.emptied().add(layers)
     }
 }

@@ -1,13 +1,15 @@
 //! A vector drawing as a layer, and the one place that knows how the vector crate reads and draws a document.
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use bullterrier_vector::{Font, Inputs, Param, ScaleBy, Size, Unit, Values};
 use serde_json::{Value, json};
 
 use super::{Drawn, Opened, Source};
+use crate::cache::{Cache, Keyed};
 use crate::document::{Form, number};
+use crate::files::{Fingerprint, digest_bytes};
 use crate::geometry::Rect;
 use crate::parameters::{Parameter, Value as Setting};
 use crate::text::{Face, Text};
@@ -24,6 +26,11 @@ pub(crate) struct Drawing {
     values: BTreeMap<String, f64>,
     /// What a text layer was made from, to make it again when its content or colour is set.
     typeset: Option<Typeset>,
+    /// The digest of the document, made when first asked for: a document never changes in a drawing (a value or a rebuilt text
+    /// makes another), so it is kept through the copies a value makes.
+    fingerprint: OnceLock<Fingerprint>,
+    /// The digest of the font file a text was set in: the bytes are read when the layer is made and are not in the document.
+    font: Option<Fingerprint>,
     /// The top left of the box in the layer's space: `(0, 0)` for a drawing, the glyphs' bounds for a text.
     x: f64,
     y: f64,
@@ -65,6 +72,8 @@ impl Drawing {
             document,
             values: BTreeMap::new(),
             typeset: None,
+            fingerprint: OnceLock::new(),
+            font: None,
             x: 0.0,
             y: 0.0,
             width,
@@ -78,10 +87,11 @@ impl Drawing {
         for (name, value) in &text.options {
             check_option(name, value)?;
         }
-        let (font, inputs) = match &text.face {
+        let (font, inputs, font_digest) = match &text.face {
             Face::Bundled(name) => (
                 Font::bundled(name).map_err(|error| Error::invalid("font", error.to_string()))?,
                 Inputs::new(),
+                None,
             ),
             Face::File(file) => {
                 let bytes = file.bytes().map_err(|error| match error {
@@ -94,7 +104,11 @@ impl Drawing {
                 let font = Font::new(bytes.clone())
                     .and_then(|font| font.named("font"))
                     .map_err(|error| Error::invalid("font", format!("{}: {error}", file.resolved().display())))?;
-                (font, Inputs::new().set("font", bytes))
+                (
+                    font,
+                    Inputs::new().set("font", bytes.clone()),
+                    Some(digest_bytes(&bytes)),
+                )
             }
         };
         // vector writes the document of a text in this font; the options are put in as the plain data they are and vector's
@@ -148,6 +162,8 @@ impl Drawing {
                 content: content.to_owned(),
                 text: text.clone(),
             }),
+            fingerprint: OnceLock::new(),
+            font: font_digest,
             x,
             y,
             width,
@@ -244,6 +260,35 @@ impl Source for Drawing {
         Ok(found)
     }
 
+    /// The document, the font file of a text, the Params that were set and the box: what a drawing is drawn from.
+    fn keyed(&self, key: &mut Keyed) -> Result<(), Error> {
+        let fingerprint = if let Some(found) = self.fingerprint.get() {
+            *found
+        } else {
+            let text = self.document.to_json().map_err(|error| refused(&error))?;
+            *self.fingerprint.get_or_init(|| digest_bytes(text.as_bytes()))
+        };
+        key.text("drawing").digest(&fingerprint).debug(&(
+            self.font,
+            &self.values,
+            self.x,
+            self.y,
+            self.width,
+            self.height,
+        ));
+        Ok(())
+    }
+
+    /// A drawing is drawn at the fraction of a pixel its box starts at.
+    fn follows_grid(&self) -> bool {
+        true
+    }
+
+    /// A drawing takes vector's drawing of its shapes.
+    fn is_costly(&self) -> bool {
+        true
+    }
+
     /// `text` and `color` for a text layer; for any drawing `drawing.<param>` for each Param, as vector describes it: a cyclic
     /// one (degrees, cycles) spans one turn.
     fn parameters(&self) -> Vec<Parameter> {
@@ -319,7 +364,7 @@ impl Source for Drawing {
     /// `Request::phase` says, and put in a frame that is exactly the raster at one scale. The raster then covers the box
     /// from `phase` before its top left, at that density; the warp copies it onto whole pixels and cuts the box out of it
     /// by coverage, so an edge on a pixel boundary is hard and `stretch` stretches.
-    fn open(&self, _canvas: Rect) -> Result<Opened<'_>, Error> {
+    fn open(&self, _canvas: Rect, _cache: &Cache) -> Result<Opened<'_>, Error> {
         let own = Rect {
             x: self.x,
             y: self.y,
@@ -330,7 +375,7 @@ impl Source for Drawing {
             .values
             .iter()
             .fold(Values::new(), |given, (name, value)| given.set(name.clone(), *value));
-        let opened = Opened::new(own, move |request| {
+        let opened = Opened::new(own, move |request, _| {
             // output pixels per design pixel of the box along each axis, and the fractions of a pixel the box starts at
             let (across, down) = (request.scale.x.pixels(1.0), request.scale.y.pixels(1.0));
             let (shift_x, shift_y) = request.phase;

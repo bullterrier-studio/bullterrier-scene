@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use sha2::{Digest, Sha256};
 
 use crate::Error;
+use crate::cache::Keyed;
 
 /// `bytes` as lower-case hexadecimal digits.
 fn hex(bytes: &[u8]) -> String {
@@ -20,6 +21,11 @@ fn hex(bytes: &[u8]) -> String {
 /// The SHA-256 of `bytes`, as 64 lower-case hexadecimal digits.
 pub(crate) fn sha256(bytes: &[u8]) -> String {
     hex(&Sha256::digest(bytes))
+}
+
+/// The SHA-256 of `bytes`, as 32 bytes.
+pub(crate) fn digest_bytes(bytes: &[u8]) -> Fingerprint {
+    Sha256::digest(bytes).into()
 }
 
 /// A SHA-256 digest.
@@ -72,6 +78,29 @@ impl Located {
             base: base.to_owned(),
             sha256,
         }
+    }
+
+    /// The size and the modification time of the file as it is now: what tells a changed file from the one read before. `None`
+    /// for a file that cannot be asked (missing, or on a system that keeps no time).
+    fn stamp(&self) -> Option<(u64, u128)> {
+        let found = std::fs::metadata(self.resolved()).ok()?;
+        let since = found.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?;
+        Some((found.len(), since.as_nanos()))
+    }
+
+    /// Writes into `key` which file this is and what state it is in (where it is, its size and its modification time, and the
+    /// digest the scene was saved with): a change that keeps the size and the time is not seen. Gives `false`, and writes
+    /// nothing a read could be taken for, when the file cannot be asked: the caller reads it and gets the error.
+    pub(crate) fn keyed(&self, key: &mut Keyed) -> bool {
+        let Some((size, time)) = self.stamp() else {
+            key.text("unreadable");
+            return false;
+        };
+        key.text(&self.resolved().to_string_lossy())
+            .number(usize::try_from(size).unwrap_or(usize::MAX))
+            .text(&time.to_string())
+            .text(self.sha256.as_deref().unwrap_or(""));
+        true
     }
 
     /// The path as written.

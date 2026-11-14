@@ -9,6 +9,7 @@
 
 mod blend;
 mod budget;
+mod cache;
 mod document;
 mod error;
 mod feather;

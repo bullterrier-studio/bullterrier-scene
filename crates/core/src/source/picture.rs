@@ -3,14 +3,15 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use bullterrier_image::{Number, Options, Photo, Presets, RECIPE_FORMATS, Recipe};
 use serde_json::{Value, json};
 
 use super::{Drawn, Given, Opened, Source};
+use crate::cache::{Cache, Keyed};
 use crate::document::Form;
-use crate::files::Located;
+use crate::files::{Fingerprint, Located, digest_bytes};
 use crate::geometry::Rect;
 use crate::parameters::{Parameter, Value as Setting};
 use crate::warp::resize;
@@ -43,6 +44,8 @@ pub(crate) struct Look {
     presets: Arc<Presets>,
     /// The numbers of the recipe that can be set, as image lists them now.
     numbers: Arc<[Number]>,
+    /// The digest of the look's document, made when first asked for: a look is never changed, `with_values` makes another.
+    fingerprint: OnceLock<Fingerprint>,
 }
 
 /// The numbers of `recipe` that can be set. Image lists the frame's too, whether the recipe sets a frame or not; a look sets no
@@ -114,6 +117,7 @@ impl Look {
             numbers: numbers_of(&recipe)?,
             recipe,
             presets: Arc::new(presets),
+            fingerprint: OnceLock::new(),
         })
     }
 
@@ -152,6 +156,7 @@ impl Look {
             numbers: numbers_of(&recipe)?,
             recipe,
             presets: Arc::clone(&self.presets),
+            fingerprint: OnceLock::new(),
         })
     }
 
@@ -162,6 +167,22 @@ impl Look {
     pub(crate) fn document(&self) -> Result<Value, Error> {
         let recipe = serde_json::to_value(&self.recipe).map_err(|error| Error::invalid("look", error.to_string()))?;
         Ok(json!({"format": self.recipe.format(), "recipe": recipe}))
+    }
+
+    /// Writes into `key` the look's document: the recipe as image writes it, the same text for the same look. **Limit:** a file a
+    /// recipe names (a table or a picture given as a path) is in the document by its path, not by its content.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `look` for a recipe image cannot write as data.
+    pub(crate) fn keyed(&self, key: &mut Keyed) -> Result<(), Error> {
+        let fingerprint = if let Some(found) = self.fingerprint.get() {
+            *found
+        } else {
+            let text = self.document()?.to_string();
+            *self.fingerprint.get_or_init(|| digest_bytes(text.as_bytes()))
+        };
+        key.digest(&fingerprint);
+        Ok(())
     }
 
     /// The names of the maps the recipe can be given (`subject`, `depth`, a `given` region).
@@ -251,15 +272,16 @@ impl Picture {
         }
     }
 
-    /// The maps as maps of a picture of `size` = (columns, rows): files read, holes and maps of another size refused.
-    fn resolved(&self, (columns, rows): (usize, usize)) -> Result<Vec<(&str, Arc<Map>)>, Error> {
+    /// The maps as maps of a picture of `size` = (columns, rows): files read (or taken from `cache`), holes and maps of another
+    /// size refused.
+    fn resolved(&self, (columns, rows): (usize, usize), cache: &Cache) -> Result<Vec<(&str, Arc<Map>)>, Error> {
         self.maps
             .iter()
             .map(|(name, given)| {
                 let at = format!("map.{name}");
                 let map = match given {
                     Given::Held(map) => Arc::clone(map),
-                    Given::File(file) => Arc::new(read_map(file)?),
+                    Given::File(file) => kept(cache, "map", file, read_map, |map| map.values().len())?,
                     Given::Hole => {
                         return Err(Error::invalid(
                             &at,
@@ -281,6 +303,27 @@ impl Picture {
             })
             .collect()
     }
+}
+
+/// What `read` makes of the file `file`: the one the cache holds if the file is in the state it was when it was read (its size and
+/// modification time are the same: **limit**, a change that keeps both is not seen), else read now and kept. `floats` says how
+/// many floats the value holds. A file that cannot be asked is read, and refused, as before.
+fn kept<T: Send + Sync + 'static>(
+    cache: &Cache,
+    what: &str,
+    file: &Located,
+    read: impl FnOnce(&Located) -> Result<T, Error>,
+    floats: impl FnOnce(&T) -> usize,
+) -> Result<Arc<T>, Error> {
+    let mut key = Keyed::new(what);
+    if !file.keyed(&mut key) {
+        return read(file).map(Arc::new);
+    }
+    cache.fetch(&key.finish(), || {
+        let value = read(file)?;
+        let bytes = floats(&value) * size_of::<f32>();
+        Ok((value, bytes))
+    })
 }
 
 /// The map in the file `file`: a grey picture read as image reads a map (upright, 0 to 1).
@@ -391,13 +434,52 @@ impl Source for Picture {
         Ok(found)
     }
 
+    /// The picture (its pixels held, or its file as it is now) and each map by its name.
+    fn keyed(&self, key: &mut Keyed) -> Result<(), Error> {
+        key.text("picture");
+        match &self.pixels {
+            Pixels::Held(raster) => {
+                key.text("held")
+                    .number(raster.width())
+                    .number(raster.height())
+                    .digest(raster.digest());
+            }
+            Pixels::File(file) => {
+                key.text("file");
+                file.keyed(key);
+            }
+            Pixels::Hole => {
+                key.text("hole");
+            }
+        }
+        for (name, given) in &self.maps {
+            key.text(name);
+            match given {
+                Given::Held(map) => {
+                    key.text("held")
+                        .number(map.width())
+                        .number(map.height())
+                        .digest(map.digest());
+                }
+                Given::File(file) => {
+                    key.text("file");
+                    file.keyed(key);
+                }
+                Given::Hole => {
+                    key.text("hole");
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// With no look on the layer, the picture's own pixels (masked by a map where the layer says so), for the warp to resample
     /// once; with one, the window at the asked scale (a part of the picture, or all of it) and the maps its looks and masks
     /// use at that size, so that the look runs on the raster the layer will have.
-    fn open(&self, _canvas: Rect) -> Result<Opened<'_>, Error> {
+    fn open(&self, _canvas: Rect, cache: &Cache) -> Result<Opened<'_>, Error> {
         let own = match &self.pixels {
             Pixels::Held(raster) => Arc::clone(raster),
-            Pixels::File(file) => Arc::new(read(file)?),
+            Pixels::File(file) => kept(cache, "picture", file, read, |raster| raster.pixels().len())?,
             Pixels::Hole => {
                 return Err(Error::invalid(
                     "picture",
@@ -413,8 +495,8 @@ impl Source for Picture {
             width: own.width() as f64,
             height: own.height() as f64,
         };
-        let maps = self.resolved((own.width(), own.height()))?;
-        Ok(Opened::finishing(whole, move |request, finish| {
+        let maps = self.resolved((own.width(), own.height()), cache)?;
+        Ok(Opened::finishing(whole, move |request, finish, _| {
             if !finish.is_looked() {
                 // the picture's own pixels, for the warp to resample once; a mask multiplies them where they are, at the
                 // density of source pixels per design pixel of the fitted layer

@@ -1,8 +1,10 @@
 //! The canvas and its stack of layers.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::budget::Budget;
+use crate::cache::Cache;
 use crate::{Error, Layer, Raster, reference, render};
 
 /// The longest a canvas side is, in design pixels.
@@ -10,6 +12,12 @@ const MAX_CANVAS: u32 = 100_000;
 
 /// A canvas and a stack of layers, bottom first, drawn into one picture at any size. A scene is an immutable value: every
 /// call returns a new one, and the old one can be used again.
+///
+/// A scene keeps what its renders drew (the raster of each layer before it is placed, the planes of its masks, the pictures it
+/// read from files) in one bounded cache that every scene made from it by [`add`](Scene::add) and
+/// [`with_values`](Scene::with_values) shares, so that a render redraws only what depends on what changed. The cache is
+/// never part of the value: it changes no picture, and `==` and `to_json` do not see it. Scenes made apart (two calls of
+/// [`Scene::new`], a scene read from JSON twice) share nothing.
 #[derive(Debug, Clone)]
 pub struct Scene {
     width: u32,
@@ -20,6 +28,8 @@ pub struct Scene {
     pub(crate) drawn: Vec<Layer>,
     /// What drawing the scene costs, kept as layers are added so that a check is a sum, not a walk.
     pub(crate) budget: Budget,
+    /// What renders of this scene and the scenes made from it kept, shared by all of them.
+    cache: Arc<Cache>,
 }
 
 impl Scene {
@@ -43,7 +53,18 @@ impl Scene {
             layers: Vec::new(),
             drawn: Vec::new(),
             budget: Budget::NONE,
+            cache: Arc::new(Cache::new()),
         })
+    }
+
+    /// A scene of the same canvas with no layer, sharing this scene's cache: the start of a scene made from this one.
+    pub(crate) fn emptied(&self) -> Self {
+        Self {
+            layers: Vec::new(),
+            drawn: Vec::new(),
+            budget: Budget::NONE,
+            ..self.clone()
+        }
     }
 
     /// This scene with `layers` on top of its stack, the first lowest.
@@ -107,6 +128,7 @@ impl Scene {
             layers: stack,
             drawn,
             budget,
+            cache: Arc::clone(&self.cache),
         })
     }
 
@@ -138,6 +160,6 @@ impl Scene {
     /// layer cannot draw, naming the layer: [`Error::Read`] for a file, [`Error::Invalid`] for a look or a drawing the
     /// sibling crate refuses at this size.
     pub fn render(&self, size: impl Into<i128>) -> Result<Raster, Error> {
-        render::render(self.width, self.height, &self.drawn, size.into())
+        render::render(self.width, self.height, &self.drawn, size.into(), &self.cache)
     }
 }

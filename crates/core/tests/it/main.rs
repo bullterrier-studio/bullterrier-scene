@@ -10,6 +10,7 @@ mod cover_template;
 
 mod architecture;
 mod blend;
+mod cache;
 mod compose;
 mod data_boundary;
 mod drawing;

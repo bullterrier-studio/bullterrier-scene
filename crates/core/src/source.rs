@@ -7,6 +7,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use crate::budget::Budget;
+use crate::cache::{Cache, Keyed};
 use crate::document::Form;
 use crate::files::Located;
 use crate::finish::Finish;
@@ -90,7 +91,7 @@ pub(crate) struct Drawn {
 }
 
 /// How a source answers: told the request and what the layer's finish needs.
-type Draw<'a> = dyn FnOnce(Request, &Finish) -> Result<Drawn, Error> + 'a;
+type Draw<'a> = dyn FnOnce(Request, &Finish, &Cache) -> Result<Drawn, Error> + 'a;
 
 /// A source that has said how big its box is and waits to be told what to draw. The renderer decides the request (and
 /// refuses one that is too large) between the two, so no source has to remember to.
@@ -105,14 +106,17 @@ pub(crate) struct Opened<'a> {
 
 impl<'a> Opened<'a> {
     /// A source of box `own` that answers a request by `draw`, at the size it is asked for: the layer's looks run on the
-    /// raster it gives back.
-    pub(crate) fn new(own: Rect, draw: impl FnOnce(Request) -> Result<Drawn, Error> + 'a) -> Self {
-        Self::finishing(own, move |request, _| draw(request))
+    /// raster it gives back. `draw` is given the cache of the render, for a source that draws layers of its own.
+    pub(crate) fn new(own: Rect, draw: impl FnOnce(Request, &Cache) -> Result<Drawn, Error> + 'a) -> Self {
+        Self::finishing(own, move |request, _, cache| draw(request, cache))
     }
 
     /// A source of box `own` that answers a request by `draw`, and that has more to hand over when the layer runs looks on
     /// it (its own pixels, a map): `draw` is told what the layer's finish needs.
-    pub(crate) fn finishing(own: Rect, draw: impl FnOnce(Request, &Finish) -> Result<Drawn, Error> + 'a) -> Self {
+    pub(crate) fn finishing(
+        own: Rect,
+        draw: impl FnOnce(Request, &Finish, &Cache) -> Result<Drawn, Error> + 'a,
+    ) -> Self {
         Self {
             own,
             whole: false,
@@ -131,8 +135,8 @@ impl<'a> Opened<'a> {
     ///
     /// # Errors
     /// What the source cannot draw, and a look the sibling refuses at this size.
-    pub(crate) fn draw(self, request: Request, finish: &Finish, light: bool) -> Result<Drawn, Error> {
-        let drawn = (self.draw)(request, finish)?;
+    pub(crate) fn draw(self, request: Request, finish: &Finish, light: bool, cache: &Cache) -> Result<Drawn, Error> {
+        let drawn = (self.draw)(request, finish, cache)?;
         finish.run(drawn, &request, light)
     }
 }
@@ -144,12 +148,36 @@ pub(crate) trait Source: Send + Sync + fmt::Debug {
         Budget::LAYER
     }
 
-    /// Opens this source: reads what gives its box its size (a file is read here, once) and says how big the box is.
-    /// `canvas` is the scene's canvas, the box of a source that has none of its own.
+    /// Opens this source: reads what gives its box its size (a file is read here, once, or taken from `cache` if an earlier
+    /// render read it) and says how big the box is. `canvas` is the scene's canvas, the box of a source that has none of its
+    /// own.
     ///
     /// # Errors
     /// A file that cannot be read.
-    fn open(&self, canvas: Rect) -> Result<Opened<'_>, Error>;
+    fn open(&self, canvas: Rect, cache: &Cache) -> Result<Opened<'_>, Error>;
+
+    /// Writes into `key` everything this source draws from, besides the request it is asked to answer: what two sources with the
+    /// same key and the same request draw alike. The one place each source says what its picture depends on: a source that
+    /// leaves an input out is caught by the oracle of `tests/it/cache.rs`.
+    ///
+    /// # Errors
+    /// A source whose document cannot be written.
+    fn keyed(&self, key: &mut Keyed) -> Result<(), Error>;
+
+    /// Whether this source draws on the grid it is put on: at the pixel phase of `Request::phase` (a layer that moves by a
+    /// fraction of a pixel is drawn again) and, for a scene, within the pixels `Request::held` of the scenes round it. A source
+    /// that does not (a picture, a fill, a kind) is asked once for a layer that only moves, and again only for another window or
+    /// scale.
+    fn follows_grid(&self) -> bool {
+        false
+    }
+
+    /// Whether what this source draws is worth keeping even when its layer has no look and no mask by a map: it takes work
+    /// (a drawing, a group, a kind of the caller). A picture without a look hands over its own pixels and a fill draws one
+    /// pixel: nothing to keep.
+    fn is_costly(&self) -> bool {
+        false
+    }
 
     /// The keys this source adds to its layer's document, in order (`picture` and `maps`, `drawing`, `text`...). The document
     /// is "Saved scene" in `docs/api.md`; `form` says whether it is written to be saved or to be compared.

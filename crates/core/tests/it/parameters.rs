@@ -302,7 +302,7 @@ fn same(left: &Raster, right: &Raster) -> bool {
 }
 
 /// The scene to render: `everything()` without the picture hole.
-fn drawable() -> Result<Scene, Box<dyn std::error::Error>> {
+pub(crate) fn drawable() -> Result<Scene, Box<dyn std::error::Error>> {
     let all = everything()?;
     let hole = all.parameters();
     let blank = at(&hole, "blank.picture")?.address.clone();

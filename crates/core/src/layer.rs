@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use crate::blend::Blend;
 use crate::budget::{Budget, MAX_DEPTH};
+use crate::cache::Keyed;
 use crate::files::Located;
 use crate::finish::{Finish, MapMask};
 use crate::mask::{By, CanvasMask, Mask, Use};
@@ -84,6 +85,23 @@ fn check_name(field: &str, name: &str) -> Result<(), Error> {
 }
 
 impl Body {
+    /// Whether what this body draws before it is placed is worth keeping: a look or a mask by a map ran on it, or its source
+    /// takes work to draw. A picture that is only moved hands over its own pixels, and a fill is one pixel.
+    pub(crate) fn keeps_drawn(&self) -> bool {
+        self.finish.is_looked() || !self.finish.masks().is_empty() || self.source.is_costly()
+    }
+
+    /// Writes into `key` everything this body draws: its source, its looks and masks, and where it goes.
+    ///
+    /// # Errors
+    /// What the source or a look cannot write.
+    fn keyed(&self, key: &mut Keyed) -> Result<(), Error> {
+        self.source.keyed(key)?;
+        self.finish.keyed(key)?;
+        key.debug(&(self.fit, &self.placement, &self.extras));
+        Ok(())
+    }
+
     /// This body with the mask `mask` by a map of its picture, after its looks and masks.
     ///
     /// # Errors
@@ -146,6 +164,23 @@ impl Layer {
                 budget: Budget::LAYER,
             },
         }
+    }
+
+    /// Writes into `key` everything the layer draws and how it joins, bar its name (which only addresses an error) and the
+    /// numbers of its masks: its body, opacity, blend, light and mask layers, each by what it draws.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] for a reference no scene has resolved, and what a source or a look cannot write.
+    pub(crate) fn keyed(&self, key: &mut Keyed) -> Result<(), Error> {
+        self.drawable()?.keyed(key)?;
+        let join = &self.join;
+        key.debug(&(join.opacity, join.blend, join.light))
+            .number(join.masks.len());
+        for mask in &join.masks {
+            mask.layer().keyed(key)?;
+            key.debug(&(mask.uses, mask.feather, mask.invert));
+        }
+        Ok(())
     }
 
     /// What drawing this layer costs: itself, its mask layers (and, once `Scene::add` has resolved a reference, the

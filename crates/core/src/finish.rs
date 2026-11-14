@@ -5,6 +5,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use crate::cache::Keyed;
 use crate::error::label;
 use crate::feather;
 use crate::geometry::whole_up;
@@ -60,6 +61,22 @@ impl Finish {
     /// This finish with `mask` multiplied in after the looks and the masks it has.
     pub(crate) fn add_mask(&mut self, mask: MapMask) {
         self.masks.push(mask);
+    }
+
+    /// Writes into `key` the looks in order and the masks by a map: what this finish does to what a source drew.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] for a look image cannot write as data.
+    pub(crate) fn keyed(&self, key: &mut Keyed) -> Result<(), Error> {
+        key.number(self.looks.len());
+        for look in &self.looks {
+            look.keyed(key)?;
+        }
+        key.number(self.masks.len());
+        for mask in &self.masks {
+            key.text(&mask.name).debug(&(mask.feather, mask.invert));
+        }
+        Ok(())
     }
 
     /// Whether a look runs: the source then draws at the size the look runs at and hands over the maps in `uses_map`. With no

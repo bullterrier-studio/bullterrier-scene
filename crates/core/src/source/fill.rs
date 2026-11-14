@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::collections::BTreeMap;
 
 use super::{Drawn, Opened, Source};
+use crate::cache::{Cache, Keyed};
 use crate::document::Form;
 use crate::geometry::Rect;
 use crate::parameters::{Parameter, Value};
@@ -63,10 +64,15 @@ impl Source for Fill {
         Ok(Arc::new(Self::parse(&color).map_err(|error| error.about("color"))?))
     }
 
+    fn keyed(&self, key: &mut Keyed) -> Result<(), Error> {
+        key.text("fill").debug(&self.rgba);
+        Ok(())
+    }
+
     /// One pixel: a flat colour is the same at any scale, so it is the one place that draws less than it was asked. A layer
     /// that runs a look on it is drawn at the size the look runs at, the window of the box that shows.
-    fn open(&self, canvas: Rect) -> Result<Opened<'_>, Error> {
-        Ok(Opened::finishing(canvas, move |request, finish| {
+    fn open(&self, canvas: Rect, _cache: &Cache) -> Result<Opened<'_>, Error> {
+        Ok(Opened::finishing(canvas, move |request, finish, _| {
             let (raster, covers) = if finish.is_looked() {
                 let (columns, rows) = request.scale.size(request.window)?;
                 (

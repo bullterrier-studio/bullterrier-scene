@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use super::{Drawn, Opened, Source};
 use crate::budget::Budget;
+use crate::cache::{Cache, Keyed};
 use crate::document::{Form, scene_document};
 use crate::geometry::{MAX_PIXELS, Rect};
 use crate::landing::Target;
@@ -63,6 +64,27 @@ impl Source for Group {
         Ok(Arc::new(Self::new(scene)))
     }
 
+    /// What the group draws is its scene as a value: the canvas and every layer it draws, each by what it is made of.
+    fn keyed(&self, key: &mut Keyed) -> Result<(), Error> {
+        key.text("group")
+            .debug(&(self.scene.width(), self.scene.height()))
+            .number(self.scene.drawn.len());
+        for layer in &self.scene.drawn {
+            layer.keyed(key)?;
+        }
+        Ok(())
+    }
+
+    /// A group is drawn at the phase of its place, as a drawing is.
+    fn follows_grid(&self) -> bool {
+        true
+    }
+
+    /// A group takes the drawing of its layers.
+    fn is_costly(&self) -> bool {
+        true
+    }
+
     /// This layer, and the layers its scene draws (each time the scene is used), one level deeper than the scene leans.
     fn budget(&self) -> Budget {
         Budget::LAYER.needing(self.scene.budget)
@@ -72,14 +94,14 @@ impl Source for Group {
     /// `Request::phase` into the grid the outer layer will have, so that a group put at a fraction of a pixel is not resampled.
     /// A layer that ends at the box ends there by its own coverage (as in a scene drawn whole), and the outer warp does not cut
     /// the box again; a layer that overflows the box shows in the pixel its edge falls in, less than a pixel past it.
-    fn open(&self, _canvas: Rect) -> Result<Opened<'_>, Error> {
+    fn open(&self, _canvas: Rect, _cache: &Cache) -> Result<Opened<'_>, Error> {
         let own = Rect {
             x: 0.0,
             y: 0.0,
             width: f64::from(self.scene.width()),
             height: f64::from(self.scene.height()),
         };
-        let opened = Opened::new(own, move |request| {
+        let opened = Opened::new(own, move |request, cache| {
             let covers = request.whole(own);
             let (columns, rows) = request.scale.size(covers)?;
             // the pictures of the groups drawn inside one another are alive together: their sum is the bound, checked before
@@ -102,6 +124,7 @@ impl Source for Group {
                 margin: (0, 0),
                 offset: request.phase,
                 held,
+                cache,
             };
             let joined = draw(&self.scene.drawn, &target).map_err(|error| error.in_layer("scene"))?;
             Ok(Drawn {

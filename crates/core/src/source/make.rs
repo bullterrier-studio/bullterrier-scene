@@ -6,6 +6,7 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 
 use super::{Drawn, Opened, Source};
+use crate::cache::{Cache, Keyed};
 use crate::document::Form;
 use crate::geometry::Rect;
 use crate::{Error, LayerKind};
@@ -45,9 +46,22 @@ impl Source for Make {
         }
     }
 
+    /// What a kind draws depends on its name and options (and the request): the promise of [`LayerKind`].
+    fn keyed(&self, key: &mut Keyed) -> Result<(), Error> {
+        key.text("make")
+            .text(self.kind.name())
+            .text(&self.kind.options().to_string());
+        Ok(())
+    }
+
+    /// What the kind draws is kept: asking again is its own cost.
+    fn is_costly(&self) -> bool {
+        true
+    }
+
     /// The part of the canvas the layer shows, at the asked scale.
-    fn open(&self, canvas: Rect) -> Result<Opened<'_>, Error> {
-        Ok(Opened::new(canvas, move |request| {
+    fn open(&self, canvas: Rect, _cache: &Cache) -> Result<Opened<'_>, Error> {
+        Ok(Opened::new(canvas, move |request, _| {
             let window = request.window;
             let (columns, rows) = request.scale.size(window)?;
             let raster = self.kind.draw(

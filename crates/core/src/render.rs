@@ -2,6 +2,7 @@
 //! given back as straight alpha.
 
 use crate::blend::{Blend, join, lit};
+use crate::cache::Cache;
 use crate::geometry::{MAX_PIXELS, Rect, Scale};
 use crate::landing::{Target, land};
 use crate::layer::Join;
@@ -13,7 +14,7 @@ use crate::{Error, Layer, Raster};
 const MAX_SIZE: u32 = 65_000;
 
 /// `layers` drawn on a canvas of `width` by `height` design pixels at `size` output pixels on the long side.
-pub(crate) fn render(width: u32, height: u32, layers: &[Layer], size: i128) -> Result<Raster, Error> {
+pub(crate) fn render(width: u32, height: u32, layers: &[Layer], size: i128, cache: &Cache) -> Result<Raster, Error> {
     let Some(size) = u32::try_from(size).ok().filter(|size| (1..=MAX_SIZE).contains(size)) else {
         return Err(Error::invalid(
             "size",
@@ -46,6 +47,7 @@ pub(crate) fn render(width: u32, height: u32, layers: &[Layer], size: i128) -> R
         margin: (0, 0),
         offset: (0.0, 0.0),
         held: 0,
+        cache,
     };
     let joined = draw(layers, &target)?;
     Ok(Raster::made(columns, rows, straight(joined)))
