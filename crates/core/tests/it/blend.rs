@@ -116,7 +116,7 @@ fn a_word_that_is_no_mode_is_refused_naming_blend_the_names_and_the_nearest() {
 // --- the separable modes against vector ---
 
 /// Colours whose channels sit on both sides of the branches of the formulas (0.25 and 0.5) and at their ends.
-const BACKDROPS: [[u8; 3]; 7] = [
+const BACKDROPS: [[u8; 3]; 10] = [
     [0, 64, 128],
     [63, 127, 200],
     [255, 128, 0],
@@ -124,8 +124,13 @@ const BACKDROPS: [[u8; 3]; 7] = [
     [127, 0, 255],
     [64, 200, 127],
     [128, 63, 64],
+    // 0.239, 0.259 and 0.302, then 0.251, 0.271 and 0.286, then 0.259, 0.247 and 0.255: both sides of the quarter where
+    // soft-light changes its curve, and out to 0.30
+    [61, 66, 77],
+    [64, 69, 73],
+    [66, 63, 65],
 ];
-const SOURCES: [[u8; 3]; 7] = [
+const SOURCES: [[u8; 3]; 10] = [
     [255, 0, 127],
     [128, 200, 63],
     [0, 255, 64],
@@ -133,6 +138,10 @@ const SOURCES: [[u8; 3]; 7] = [
     [64, 128, 255],
     [200, 64, 0],
     [63, 0, 128],
+    // 0.490, 0.510 and 1; 1, 0.498 and 0.506; 0.502, 0.490 and 0.510: both sides of the half where soft-light changes its curve
+    [125, 130, 255],
+    [255, 127, 129],
+    [128, 125, 130],
 ];
 
 /// What vector draws at the middle of an opaque backdrop with a square of `source` (alpha `alpha`, opacity `opacity`) blended
@@ -158,21 +167,13 @@ fn drawn_by_vector(
     Ok([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
 }
 
-/// How far scene's float pixel may be from vector's byte, in levels of 255: the byte's own rounding (half a level) and vector's
-/// one level (measured at most 1.498, `exclusion`, with an opaque source). With a translucent source vector holds the source
-/// premultiplied in 8 bits, so its colour is off by up to half a level over the alpha; the modes that divide, `color-dodge` and
-/// `color-burn`, turn that into 2.14 levels (alpha 0.5: 115.9 against 118, the W3C formula giving 115.86), and no other
-/// mode passes 1.44.
-const BOUND: f32 = 1.5;
-
-/// The bound for a translucent source in the mode `word`.
-fn translucent_bound(word: &str) -> f32 {
-    if matches!(word, "color-dodge" | "color-burn") {
-        2.5
-    } else {
-        BOUND
-    }
-}
+/// How far scene's float pixel may be from vector's byte, in levels of 255. Vector draws in 8 bits with a rounded division by
+/// 255 in each product, so it is off the W3C formula by up to 1.86 levels with an opaque source (`exclusion`) and, holding a
+/// translucent source premultiplied in 8 bits, by up to 2.16 (`hard-light`; `color-burn` 2.14, `color-dodge` 1.94, where a
+/// division steepens the rounding: 115.9 against 118 where the formula gives 115.86). Measured over the grid below. Scene's
+/// own values are held to the formula much tighter, by the closed forms of this file.
+const OPAQUE_BOUND: f32 = 2.0;
+const TRANSLUCENT_BOUND: f32 = 2.5;
 
 /// The largest difference, in levels of 255, between scene's and vector's pixel for one mode, over the grid.
 fn most_levels_off(word: &str, alpha: u8, opacity: f64, bound: f32) -> Result<f32, Box<dyn std::error::Error>> {
@@ -205,7 +206,7 @@ fn most_levels_off(word: &str, alpha: u8, opacity: f64, bound: f32) -> Result<f3
 #[test]
 fn an_opaque_source_blends_as_vector_blends_it_in_every_separable_mode() -> Outcome {
     for word in SEPARABLE {
-        most_levels_off(word, 255, 1.0, BOUND)?;
+        most_levels_off(word, 255, 1.0, OPAQUE_BOUND)?;
     }
     Ok(())
 }
@@ -214,7 +215,7 @@ fn an_opaque_source_blends_as_vector_blends_it_in_every_separable_mode() -> Outc
 fn a_translucent_source_blends_as_vector_blends_it_in_every_separable_mode() -> Outcome {
     for word in SEPARABLE {
         for (alpha, opacity) in [(128, 1.0), (255, 0.5), (204, 0.5)] {
-            most_levels_off(word, alpha, opacity, translucent_bound(word))?;
+            most_levels_off(word, alpha, opacity, TRANSLUCENT_BOUND)?;
         }
     }
     Ok(())
@@ -317,6 +318,37 @@ fn the_non_separable_modes_give_what_the_specifications_pseudo_code_gives() -> O
         assert!(
             close(got, [expected[0], expected[1], expected[2], 1.0], 2e-6),
             "{word} {backdrop:?} over {source:?}: wanted {expected:?}, got {got:?}"
+        );
+    }
+    Ok(())
+}
+
+/// `(backdrop, source, result)` of `soft-light` on one channel, worked out in 64 bits from section 10.1 of the specification
+/// (`D(x)` is the polynomial up to a quarter and the root above it; the source's half is where the curve changes). The
+/// backdrops cross the quarter closely (a boundary moved to 0.30 or 0.20 changes these by 5e-4 to 4e-3) and the sources the half
+/// (to 0.52 or 0.48: 1.4e-3), which a comparison with vector, about 2 levels (8e-3) loose, cannot see.
+const SOFT_LIGHT: [(f32, f32, f32); 9] = [
+    (0.22, 1.0, 0.469_568),
+    (0.24, 1.0, 0.489_984),
+    (0.26, 1.0, 0.509_901_9),
+    (0.28, 1.0, 0.529_150_3),
+    (0.30, 1.0, 0.547_722_6),
+    (0.32, 1.0, 0.565_685_4),
+    (0.64, 0.49, 0.635_392),
+    (0.64, 0.51, 0.643_2),
+    (0.64, 0.5, 0.64),
+];
+
+#[test]
+fn soft_light_changes_its_curve_at_a_quarter_of_the_backdrop_and_at_half_of_the_source() -> Outcome {
+    for (backdrop, source, expected) in SOFT_LIGHT {
+        let got = one([
+            cell([backdrop, backdrop, backdrop, 1.0])?,
+            cell([source, source, source, 1.0])?.blend(Blend::SoftLight),
+        ])?;
+        assert!(
+            close(got, [expected, expected, expected, 1.0], 2e-6),
+            "backdrop {backdrop}, source {source}: wanted {expected}, got {got:?}"
         );
     }
     Ok(())
