@@ -1,10 +1,10 @@
 //! Light layers (stage 7): the layer's colour over black is its colour, and its alpha is the largest of red, green and blue
 //! of that colour. Every expected value is worked out by hand.
 
-use bullterrier_scene::{Blend, Error, Layer, Raster};
+use bullterrier_scene::{Blend, Error, Layer, Place, Raster, Text};
 use proptest::prelude::*;
 
-use crate::common::{Outcome, close, exactly, pixel, scene};
+use crate::common::{Outcome, close, exactly, pixel, pixels, rectangle, scene};
 
 const PLUS_ONE_STOP: &str =
     r#"{"steps": [{"effect": "grade", "params": {"exposure": 1.0}, "opacity": 1.0, "blend_mode": "normal"}]}"#;
@@ -103,6 +103,55 @@ fn a_mask_scales_the_light_then_opacity_then_the_blend() -> Outcome {
     // the light alone shows the mask's share: alpha 0.25
     assert!(close(one([source])?, [1.0, 0.5, 0.0, 0.25], 1e-6));
     Ok(())
+}
+
+/// A layer drawn alone, plain and then made light: where the plain pixel is straight colour `C` at alpha `a`, the light one is
+/// the same colour over black, `C a`, at alpha the largest of its channels, with straight colour `C a` over that. A source
+/// that is no picture (a drawing, a text) is a light by the same rule, edges of partial alpha included.
+fn is_the_light_of_its_plain_self(layer: &Layer, (width, height): (u32, u32)) -> Outcome {
+    let plain = scene(width, height, [layer.clone()])?.render(width.max(height))?;
+    let light = scene(width, height, [layer.clone().as_light(true)])?.render(width.max(height))?;
+    let (mut partial, mut changed) = (0, 0);
+    for (plain, light) in pixels(&plain).zip(pixels(&light)) {
+        let over_black = [plain[0] * plain[3], plain[1] * plain[3], plain[2] * plain[3]];
+        let brightest = over_black[0].max(over_black[1]).max(over_black[2]);
+        let expected = if brightest > 0.0 {
+            [
+                over_black[0] / brightest,
+                over_black[1] / brightest,
+                over_black[2] / brightest,
+                brightest,
+            ]
+        } else {
+            [0.0; 4]
+        };
+        assert!(
+            close(light, expected, 2e-6),
+            "plain {plain:?}: wanted {expected:?}, got {light:?}"
+        );
+        partial += usize::from(plain[3] > 0.05 && plain[3] < 0.95);
+        changed += usize::from((light[3] - plain[3]).abs() > 0.01);
+    }
+    assert!(
+        partial > 4,
+        "the layer has an edge of partial alpha to check ({partial} pixels)"
+    );
+    assert!(changed > 4, "light changes the alpha of the layer ({changed} pixels)");
+    Ok(())
+}
+
+#[test]
+fn a_drawing_is_a_light_by_the_same_rule_as_a_picture() -> Outcome {
+    // a rectangle whose edges fall between pixels, in a colour whose channels differ
+    let drawing = Layer::drawing(&rectangle((24, 24), (3.4, 4.6), (19.3, 17.7), "#d04020"))?;
+    is_the_light_of_its_plain_self(&drawing, (24, 24))
+}
+
+#[test]
+fn a_text_is_a_light_by_the_same_rule_as_a_picture() -> Outcome {
+    let text = Text::new("bricolage_grotesque").color("#40a0e0").option("size", 40.0);
+    let layer = Layer::text("Hi", &text)?.place(Place::new().dx(6.0).dy(40.0))?;
+    is_the_light_of_its_plain_self(&layer, (80, 56))
 }
 
 proptest! {
