@@ -38,15 +38,14 @@ class Scene:
         it is drawn where it is written. `InvalidError` for a name used twice (the message names both layers), a
         default name (`layer3`) anywhere but at its own place, a reference that names no layer or whose chain leads
         back to itself (also through masks), more than `MAX_LAYERS` layers drawn (the layers, their mask layers and
-        references, a layer used twice counted twice) or leaning on other layers deeper than `MAX_DEPTH`; `TypeError`
-        for anything that is
-        not a `Layer`.
+        references and the layers of each scene used as a layer, each use counted) or leaning on other layers (masks,
+        references, scenes as layers) deeper than `MAX_DEPTH`; `TypeError` for anything that is not a `Layer`.
         """
         for layer in layers:
             if not isinstance(layer, Layer):
                 raise TypeError(
-                    "add takes layers (Layer.picture, Layer.drawing, Layer.text, Layer.fill, Layer.of), "
-                    f"got {type(layer).__name__}"
+                    "add takes layers (Layer.picture, Layer.drawing, Layer.text, Layer.fill, Layer.scene, Layer.of; "
+                    f"wrap a Scene with Layer.scene), got {type(layer).__name__}"
                 )
         return self._of(self._core.add([layer._core for layer in layers]))  # noqa: SLF001  (the layers' own module)
 

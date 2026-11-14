@@ -223,3 +223,36 @@ def test_a_reference_names_a_layer_with_text():
 def test_a_reference_in_a_scene_keeps_what_was_written_in_layers():
     scene = Scene(4, 4).add(swatch("#ff0000").named("a"), Layer.of("a"))
     assert len(scene.layers) == 2
+
+
+def test_a_scene_as_a_layer_is_drawn_as_the_scene_and_fades_as_one_picture():
+    inner = Scene(4, 2).add(
+        Layer.fill("#ff0000").fit((0, 0, 2, 2), "stretch"), Layer.fill("#0000ff").fit((2, 0, 2, 2), "stretch")
+    )
+    assert np.array_equal(Scene(4, 2).add(Layer.scene(inner)).render(4), inner.render(4))
+    # a group at 0.5 over white is each child at 0.5 over white, once (the isolation oracle is in the Rust tests)
+    faded = Scene(4, 2).add(Layer.fill("#ffffff"), Layer.scene(inner).opacity(0.5)).render(4)
+    assert faded[0, 0].tolist() == [1.0, 0.5, 0.5, 1.0]
+    assert faded[0, 3].tolist() == [0.5, 0.5, 1.0, 1.0]
+
+
+def test_a_scene_as_a_layer_counts_its_layers_and_its_depth_at_each_use():
+    inner = Scene(2, 2).add(*[swatch("#00000001") for _ in range(600)])
+    with pytest.raises(InvalidError, match="1202"):
+        Scene(2, 2).add(Layer.scene(inner), Layer.scene(inner))
+    nested = Scene(2, 2).add(swatch("#000000"))
+    for _ in range(bts.MAX_DEPTH):
+        nested = Scene(2, 2).add(Layer.scene(nested))
+    with pytest.raises(InvalidError, match="17"):
+        Scene(2, 2).add(Layer.scene(nested))
+
+
+def test_a_scene_as_a_layer_takes_a_scene_and_no_look():
+    with pytest.raises(TypeError, match="Scene"):
+        Layer.scene("a scene")  # type: ignore[arg-type]  # a wrong type, on purpose
+    with pytest.raises(TypeError, match="Scene"):
+        Layer.scene(swatch("#ff0000"))  # type: ignore[arg-type]  # a wrong type, on purpose
+    with pytest.raises(InvalidError, match="C5"):
+        Layer.scene(Scene(2, 2)).look({"steps": []})
+    with pytest.raises(TypeError, match=r"Layer\.scene"):
+        Scene(2, 2).add(Scene(2, 2))  # type: ignore[arg-type]  # a wrong type, on purpose

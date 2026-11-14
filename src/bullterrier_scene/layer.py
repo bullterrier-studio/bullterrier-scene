@@ -10,7 +10,7 @@ import math
 from collections.abc import Callable, Mapping, Sequence
 from numbers import Real
 from pathlib import Path
-from typing import Any, Self
+from typing import Any, Protocol, Self
 
 import numpy as np
 import numpy.typing as npt
@@ -77,12 +77,24 @@ def _pair(name: str, value: object) -> tuple[float, ...]:
     return _items(name, value, "(x, y), two numbers", _number, 2)
 
 
+class _Scene(Protocol):
+    """What `Layer.scene` takes: a `Scene` (named by what it has, because `scene.py` imports this module)."""
+
+    @property
+    def width(self) -> int:
+        """The canvas's width in design pixels."""
+
+    @property
+    def height(self) -> int:
+        """The canvas's height in design pixels."""
+
+
 class Layer:
     """One layer of a scene: a source, and how it joins the layers below it.
 
     A layer never changes: every call returns a new one, and a layer can be used in several scenes. Make one with
-    `Layer.picture`, `Layer.drawing`, `Layer.text` or `Layer.fill`, or refer to another layer of the scene with
-    `Layer.of`.
+    `Layer.picture`, `Layer.drawing`, `Layer.text`, `Layer.fill` or `Layer.scene`, or refer to another layer of the
+    scene with `Layer.of`.
     """
 
     __slots__ = ("_core",)
@@ -185,6 +197,25 @@ class Layer:
     def fill(cls, color: str) -> Self:
         """A flat colour over the whole canvas: `"#rrggbb"` or `"#rrggbbaa"`, sRGB values, straight alpha."""
         return cls(_core.Layer.fill(color))
+
+    @classmethod
+    def scene(cls, inner: _Scene) -> Self:
+        """A scene as a layer, a group: its canvas is the layer's box, at the canvas origin like a picture.
+
+        The scene is drawn on its own, its layers each joined as they say over the group's own content, and the finished
+        picture is then a layer like any other: `fit`, `place`, `perspective`, `mask`, `blend`, `opacity` and
+        `as_light` act on it as one. A group at opacity 0.5 fades as one picture (two overlapping children are not each
+        faded), a `multiply` child inside it meets the group's content and not what is below it, and a group blended
+        `multiply` meets what is below. It is drawn at the density it will have, so it is as sharp at any size, and
+        one scene may be used any number of times. A look is an `InvalidError` until batch C5. The scene counts in
+        `MAX_LAYERS` at each use (one layer and the layers it draws) and in `MAX_DEPTH`, which `Scene.add` checks; the
+        pictures of scenes drawn inside one another are at most 2^27 pixels together (`InvalidError` at `render`). A
+        non-scene is a `TypeError`.
+        """
+        core = getattr(inner, "_core", None)
+        if not isinstance(core, _core.Scene):
+            raise TypeError(f"scene: a Scene is wanted, got {type(inner).__name__} {_shown(inner)}")
+        return cls(_core.Layer.scene(core))
 
     @classmethod
     def of(cls, name: str) -> Self:

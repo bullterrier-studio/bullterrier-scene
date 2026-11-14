@@ -217,6 +217,12 @@ impl Layer {
         wrap(py, bullterrier_scene::Layer::fill(color)).map(Self)
     }
 
+    /// The scene `inner` as a layer: a group.
+    #[staticmethod]
+    fn scene(inner: &Scene) -> Self {
+        Self(bullterrier_scene::Layer::scene(inner.0.clone()))
+    }
+
     /// A reference to the layer called `name` of the scene it is added to.
     #[staticmethod]
     fn of(name: &str) -> Self {
