@@ -8,15 +8,15 @@ use std::path::PathBuf;
 
 use numpy::{Element, PyArray1, PyArray3, PyArrayMethods, PyReadonlyArrayDyn, PyUntypedArrayMethods};
 use pyo3::prelude::*;
-use pyo3::types::PyTuple;
+use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString, PyTuple};
 
-use bullterrier_scene::{Blend, Deg, Fit, Map, Mask, Place, Raster, Text, Use};
+use bullterrier_scene::{Blend, Deg, Fit, Map, Mask, Parameter, Place, Raster, Text, Use, Value, Values};
 
 /// bullterrier-scene's Rust core.
 #[pymodule]
 mod _core {
     #[pymodule_export]
-    use super::{Layer, Scene};
+    use super::{Held, Layer, Scene};
 
     /// The most layers a scene holds.
     #[pymodule_export]
@@ -140,6 +140,138 @@ fn unsupported(array: &Bound<'_, PyAny>, what: &str, shaped: &str) -> PyErr {
     ))
 }
 
+/// A picture or a map a scene holds, as a parameter's value: it shares the pixels (no copy), `numpy.asarray(held)` makes the
+/// array, and `with_values` takes it back.
+#[pyclass(frozen, eq, name = "Held", module = "bullterrier_scene._native._core")]
+#[derive(PartialEq)]
+struct Held(Value);
+
+#[pymethods]
+impl Held {
+    /// (height, width, 4) for a picture, (height, width) for a map.
+    #[getter]
+    fn shape<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
+        match &self.0 {
+            Value::Picture(raster) => PyTuple::new(py, [raster.height(), raster.width(), 4]),
+            Value::Map(map) => PyTuple::new(py, [map.height(), map.width()]),
+            _ => Err(pyo3::exceptions::PyRuntimeError::new_err(
+                "a held value is a picture or a map",
+            )),
+        }
+    }
+
+    /// The pixels as a new float32 array, red, green, blue and alpha (straight, 0 to 1) for a picture.
+    #[pyo3(signature = (dtype=None, copy=None))]
+    fn __array__<'py>(
+        &self,
+        py: Python<'py>,
+        dtype: Option<&Bound<'py, PyAny>>,
+        copy: Option<bool>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let _ = copy;
+        let array = match &self.0 {
+            Value::Picture(raster) => PyArray1::from_slice(py, raster.pixels())
+                .reshape([raster.height(), raster.width(), 4])?
+                .into_any(),
+            Value::Map(map) => PyArray1::from_slice(py, map.values())
+                .reshape([map.height(), map.width()])?
+                .into_any(),
+            _ => {
+                return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                    "a held value is a picture or a map",
+                ));
+            }
+        };
+        match dtype {
+            Some(dtype) if !dtype.is_none() => array.call_method1("astype", (dtype,)),
+            _ => Ok(array),
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        match &self.0 {
+            Value::Picture(raster) => format!("Held(picture {} x {})", raster.width(), raster.height()),
+            Value::Map(map) => format!("Held(map {} x {})", map.width(), map.height()),
+            _ => "Held()".to_owned(),
+        }
+    }
+}
+
+/// The Python object a parameter's value is: a number, bool or text as itself, a path as a `pathlib.Path`, nothing as `None`,
+/// a held picture or map as a `Held`.
+fn to_python(py: Python<'_>, value: &Value) -> PyResult<Py<PyAny>> {
+    Ok(match value {
+        Value::Number(number) => PyFloat::new(py, *number).into_any().unbind(),
+        Value::Bool(on) => PyBool::new(py, *on).to_owned().into_any().unbind(),
+        Value::Text(text) => PyString::new(py, text).into_any().unbind(),
+        Value::Picture(_) | Value::Map(_) => Py::new(py, Held(value.clone()))?.into_any(),
+        Value::File(path) => py.import("pathlib")?.getattr("Path")?.call1((path,))?.unbind(),
+        Value::Hole => py.None(),
+        _ => {
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                "a value of a kind this binding does not know",
+            ));
+        }
+    })
+}
+
+/// A parameter as the dict the facade makes a `Parameter` of.
+fn described<'py>(py: Python<'py>, parameter: &Parameter) -> PyResult<Bound<'py, PyDict>> {
+    let described = PyDict::new(py);
+    described.set_item("address", &parameter.address)?;
+    described.set_item("kind", parameter.kind.name())?;
+    described.set_item("meaning", &parameter.meaning)?;
+    described.set_item("default", to_python(py, &parameter.default)?)?;
+    described.set_item("unit", parameter.unit.as_deref())?;
+    described.set_item("min", parameter.min)?;
+    described.set_item("max", parameter.max)?;
+    described.set_item("cyclic", parameter.cyclic)?;
+    described.set_item("choices", &parameter.choices)?;
+    described.set_item("nullable", parameter.nullable)?;
+    described.set_item("min_length", parameter.min_length)?;
+    described.set_item("value", to_python(py, &parameter.value)?)?;
+    Ok(described)
+}
+
+/// The value a Python object is to the core: `None` is a hole, a `bool` a switch, a `str` text, a `Held` its picture or map, a
+/// path a file, a 2-dimensional array a map and another array a picture, a `float` or `int` a number.
+fn value_of(py: Python<'_>, address: &str, value: &Bound<'_, PyAny>) -> PyResult<Value> {
+    if value.is_none() {
+        return Ok(Value::Hole);
+    }
+    if value.is_instance_of::<PyBool>() {
+        return Ok(Value::Bool(value.extract()?));
+    }
+    if value.is_instance_of::<PyString>() {
+        return Ok(Value::Text(value.extract()?));
+    }
+    if let Ok(held) = value.extract::<PyRef<'_, Held>>() {
+        return Ok(held.0.clone());
+    }
+    if value.is_instance(&py.import("pathlib")?.getattr("PurePath")?)? {
+        return Ok(Value::File(value.extract::<PathBuf>()?));
+    }
+    if let Some(dimensions) = value.getattr("ndim").ok().and_then(|ndim| ndim.extract::<usize>().ok()) {
+        return Ok(if dimensions == 2 {
+            Value::Map(map_of(py, value)?.into())
+        } else {
+            Value::Picture(raster_of(py, value)?.into())
+        });
+    }
+    if value.is_instance_of::<PyFloat>() || value.is_instance_of::<PyInt>() {
+        return value.extract::<f64>().map(Value::Number).map_err(|_| {
+            error::invalid(
+                py,
+                format!("{address}: a number beyond the range of a float is no value"),
+            )
+        });
+    }
+    Err(pyo3::exceptions::PyTypeError::new_err(format!(
+        "{address}: a value is a number, a bool, a text, a Path, an array, a held picture or None, got {}",
+        value.get_type().name()?
+    )))
+}
+
 /// One layer of a scene: a source, and how it joins the layers below it. It never changes; a call returns a new one.
 #[pyclass(frozen, name = "Layer", module = "bullterrier_scene._native._core")]
 struct Layer(bullterrier_scene::Layer);
@@ -227,6 +359,12 @@ impl Layer {
     #[staticmethod]
     fn of(name: &str) -> Self {
         Self(bullterrier_scene::Layer::of(name))
+    }
+
+    /// A picture to be given later: a hole, which `with_values` fills.
+    #[staticmethod]
+    fn picture_hole() -> Self {
+        Self(bullterrier_scene::Layer::picture_hole())
     }
 
     /// This picture layer with the array `values` (height, width; levels 0 to 1) as its map `name`.
@@ -371,6 +509,29 @@ impl Scene {
     #[getter]
     fn height(&self) -> u32 {
         self.0.height()
+    }
+
+    /// Every parameter of the scene, in order, each as a dict of the fields of the parameter format.
+    fn parameters<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+        PyList::new(
+            py,
+            self.0
+                .parameters()
+                .iter()
+                .map(|parameter| described(py, parameter))
+                .collect::<PyResult<Vec<_>>>()?,
+        )
+    }
+
+    /// This scene with the values of the dict (address to value) set; nothing is set unless every one is accepted.
+    fn with_values(&self, py: Python<'_>, values: &Bound<'_, PyDict>) -> PyResult<Self> {
+        let mut given = Values::new();
+        for (address, value) in values {
+            let address: String = address.extract()?;
+            let value = value_of(py, &address, &value)?;
+            given = given.set(address, value);
+        }
+        wrap(py, self.0.with_values(&given)).map(Self)
     }
 
     /// The picture as a new float32 array (height, width, 4): straight alpha, 0 to 1, rows from the top.

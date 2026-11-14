@@ -105,20 +105,27 @@ class Layer:
 
     @classmethod
     def picture(
-        cls, source: npt.NDArray[Any] | Path, *, maps: Mapping[str, npt.NDArray[Any] | Path | None] | None = None
+        cls,
+        source: npt.NDArray[Any] | Path | None = None,
+        *,
+        maps: Mapping[str, npt.NDArray[Any] | Path | None] | None = None,
     ) -> Self:
-        """A picture: an array or a `pathlib.Path` read when the scene renders (upright, sRGB, alpha kept).
+        """A picture: an array or a `pathlib.Path` read when the scene renders (upright, sRGB, alpha kept), or `None`.
+
+        `None` is a hole the caller fills with `Scene.with_values({"<layer>.picture": ...})` before `render`; a render
+        that meets a hole is an `InvalidError` naming `<layer>.picture`.
 
         The array is (height, width, 3 or 4) of `uint8`, `uint16` or floats 0 to 1; four channels are straight alpha.
         Its box is its pixels, one design pixel each, at the canvas origin; what lies outside the canvas is cut. A `str`
         is a `TypeError`: pass `Path(...)`. An array of another shape, or a value outside 0 to 1, is an `InvalidError`.
 
-        `maps` are the picture's named maps, each a value 0 to 1 for each pixel of the picture: an array (height, width)
-        of `uint8`, `uint16` or floats, a `Path` to a grey picture read when the scene renders, or `None`, a hole that
-        a render refuses until parameters fill holes. A map is cut and fitted with the picture; a look sees the maps
-        its recipe uses (`subject`, `depth`, a `given` region) and `mask("name")` multiplies by one. A map of another
-        size than its picture, or a hole, is an `InvalidError` at render naming the layer and the map; a name that
-        is not letters, digits and `_` starting with a letter, an `InvalidError` at the call.
+        `maps` are the picture's named maps, each a value 0 to 1 for each pixel of the picture: an array (height,
+        width) of `uint8`, `uint16` or floats, a `Path` to a grey picture read when the scene renders, or `None`, a
+        hole that a render refuses until `Scene.with_values` fills it (`<layer>.map.<name>`). A map is cut and fitted
+        with the picture; a look sees the maps its recipe uses (`subject`, `depth`, a `given` region) and
+        `mask("name")` multiplies by one. A map of another size than its picture, or a hole, is an `InvalidError` at
+        render naming the layer and the map; a name that is not letters, digits and `_` starting with a letter, an
+        `InvalidError` at the call.
         """
         if isinstance(source, str):
             raise TypeError(f"a picture is an array or a Path, got the text {source!r}: pass Path({source!r})")
@@ -127,7 +134,10 @@ class Layer:
                 "maps: a mapping from names to arrays, Paths or None is wanted, "
                 f"got {type(maps).__name__} {_shown(maps)}"
             )
-        made = cls(_core.Layer.picture_file(source) if isinstance(source, Path) else _core.Layer.picture(source))
+        if source is None:
+            made = cls(_core.Layer.picture_hole())
+        else:
+            made = cls(_core.Layer.picture_file(source) if isinstance(source, Path) else _core.Layer.picture(source))
         for name, given in (maps or {}).items():
             if not isinstance(name, str):
                 raise TypeError(f"maps: a name is text, got {type(name).__name__} {_shown(name)}")

@@ -9,6 +9,7 @@ from importlib import metadata
 from ._native._core import MAX_DEPTH, MAX_LAYERS
 from .errors import BullterrierSceneError, FormatError, InvalidError, ReadError
 from .layer import Layer
+from .parameter import Parameter
 from .scene import Scene
 
 __version__ = metadata.version("bullterrier-scene")
@@ -20,6 +21,7 @@ __all__ = [
     "FormatError",
     "InvalidError",
     "Layer",
+    "Parameter",
     "ReadError",
     "Scene",
     "__version__",

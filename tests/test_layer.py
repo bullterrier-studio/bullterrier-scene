@@ -143,7 +143,7 @@ def test_a_picture_array_of_another_shape_or_with_a_value_outside_0_to_1_is_refu
         Layer.picture(array)
 
 
-@pytest.mark.parametrize("source", ["photo.png", [[[0, 0, 0]]], np.zeros((1, 1, 3), np.int64), None, 3])
+@pytest.mark.parametrize("source", ["photo.png", [[[0, 0, 0]]], np.zeros((1, 1, 3), np.int64), 3])
 def test_a_picture_of_another_type_is_a_type_error_and_a_text_names_the_fix(source):
     with pytest.raises(TypeError, match=r"the text.*Path" if isinstance(source, str) else None):
         Layer.picture(source)

@@ -2,12 +2,12 @@
 
 One value set per frame; the loop and the easing are the caller's, the scene has no time. Proves: `with_values` as
 the only way to move something. Only the headline changes between frames (`cache_probe.py` shows the layers that
-did not change are not drawn again).
+did not change are not drawn again: C7).
 """
 
 from pathlib import Path
 
-from bullterrier_image import imageio
+import numpy as np
 
 import bullterrier_scene as bts
 
@@ -30,10 +30,21 @@ def ease_out(t: float) -> float:
     return 1 - (1 - t) ** 3
 
 
+def frame_values(i: int) -> dict[str, float]:
+    """The headline's addresses at frame `i` of `FRAMES`."""
+    e = ease_out(i / (FRAMES - 1))
+    return {"headline.dx": 100 - 700 * (1 - e), "headline.opacity": e}
+
+
+def frame(scene: bts.Scene, i: int, size: int = W) -> np.ndarray:
+    """Frame `i`, drawn at `size`."""
+    return scene.with_values(frame_values(i)).render(size)
+
+
 if __name__ == "__main__":
+    from bullterrier_image import imageio
+
     scene = build()
     Path("frames").mkdir(exist_ok=True)
     for i in range(FRAMES):
-        e = ease_out(i / (FRAMES - 1))
-        frame = scene.with_values({"headline.dx": 100 - 700 * (1 - e), "headline.opacity": e})
-        imageio.save(frame.render(W), f"frames/{i:02d}.png")
+        imageio.save(frame(scene, i), f"frames/{i:02d}.png")
