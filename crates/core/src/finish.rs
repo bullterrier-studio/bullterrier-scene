@@ -53,6 +53,14 @@ impl Finish {
         Ok(())
     }
 
+    /// This finish with no look: the masks by a map only.
+    pub(crate) fn without_looks(&self) -> Self {
+        Self {
+            looks: Vec::new(),
+            masks: self.masks.clone(),
+        }
+    }
+
     /// This finish with `look` run after the looks it has.
     pub(crate) fn add_look(&mut self, look: Look) {
         self.looks.push(look);

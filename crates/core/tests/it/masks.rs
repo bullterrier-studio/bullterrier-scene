@@ -187,6 +187,30 @@ fn a_mask_layers_look_changes_the_luminance_it_is_read_at() -> Outcome {
     Ok(())
 }
 
+/// Looks never change alpha, so a mask read as alpha does not run its layer's looks: one that image would refuse (it needs a
+/// map the picture lacks) does not fail it, and the plane is the one the layer has with no look. Read as luminance, the
+/// look is run, and refused.
+#[test]
+fn a_mask_read_as_alpha_does_not_run_its_layers_looks_and_one_read_as_luminance_does() -> Outcome {
+    let needs_a_map = r#"{"steps": [{"effect": "grade", "params": {"exposure": 1.0}, "mask": "subject"}]}"#;
+    let half = || -> Result<Layer, Error> {
+        Layer::picture(solid(1, 1, [0.25, 0.25, 0.25, 0.5])?).fit([0.0, 0.0, 2.0, 2.0], Fit::Stretch, [0.5, 0.5])
+    };
+    let plain = masked_white(half()?, (2, 2), 2)?;
+    let by_alpha = masked_white(half()?.look(needs_a_map)?, (2, 2), 2)?;
+    assert_eq!(plain.len(), by_alpha.len());
+    assert!(
+        plain.iter().zip(&by_alpha).all(|(l, r)| (l - r).abs() <= 1e-6),
+        "{plain:?} against {by_alpha:?}"
+    );
+    let by_luminance = masked_white(Mask::new(half()?.look(needs_a_map)?).using(Use::Luminance), (2, 2), 2);
+    assert!(
+        matches!(&by_luminance, Err(Error::Invalid { message, .. }) if message.contains("subject")),
+        "{by_luminance:?}"
+    );
+    Ok(())
+}
+
 /// Masks work on every kind of layer: a picture, a drawing and a fill each lose what the half-plane mask hides.
 #[test]
 fn every_kind_of_layer_takes_a_mask() -> Outcome {

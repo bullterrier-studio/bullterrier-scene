@@ -367,7 +367,7 @@ another mask in.
 A mask layer is owned by the layer it masks and is outside the scene's names: it is addressed `<layer>.mask.<field>`, the
 second `mask#2` (the only thing that depends on the order of the calls; an error of a mask layer that cannot be drawn is
 addressed under it: `photo.mask.map.subject`). A mask layer's alpha includes its own masks, and its looks apply to its
-colour, which `use="luminance"` reads; its opacity multiplies the mask, before `invert` (opacity 0.25 inverted is 0.75 where the layer is drawn and 1 where it is not). A mask layer with a name, a
+colour, which `use="luminance"` reads (a mask read as alpha does not run them: a look never changes alpha); its opacity multiplies the mask, before `invert` (opacity 0.25 inverted is 0.75 where the layer is drawn and 1 where it is not). A mask layer with a name, a
 blend other than normal or `as_light(true)` is `InvalidError` at the call. A `Layer.of` mask has the fields of a reference only.
 Errors: `InvalidError` for a name that is no map of the layer (at the call for a picture layer; at `add` for a reference),
 a map that is a hole when the layer renders (naming the layer and the map), a `str` mask on a layer that has no picture,

@@ -91,6 +91,14 @@ impl Body {
         self.finish.is_looked() || !self.finish.masks().is_empty() || self.source.is_costly()
     }
 
+    /// This body with its own-map masks and no look.
+    pub(crate) fn without_looks(&self) -> Self {
+        Self {
+            finish: self.finish.without_looks(),
+            ..self.clone()
+        }
+    }
+
     /// Writes into `key` everything this body draws: its source, its looks and masks, and where it goes.
     ///
     /// # Errors

@@ -242,7 +242,16 @@ impl CanvasMask {
         // would on a larger canvas
         let wide = target.grown(reach);
         let factor = product(&self.layer.join, &wide)?;
-        let landed = land(self.layer.drawable()?, &wide, false)?;
+        // a look never changes alpha, so a mask that reads only the alpha does not run them
+        let body = self.layer.drawable()?;
+        let unlooked;
+        let body = if self.uses == Use::Alpha && body.finish.is_looked() {
+            unlooked = body.without_looks();
+            &unlooked
+        } else {
+            body
+        };
+        let landed = land(body, &wide, false)?;
         let opacity = self.layer.join.opacity;
         let mut values = vec![0.0_f32; wide.size().0 * wide.size().1];
         landed.each(&mut |at, pixel| {
