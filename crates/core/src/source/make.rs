@@ -14,36 +14,43 @@ use crate::{Error, LayerKind};
 /// A kind as the source of a layer. Its box is the canvas, as a fill's is.
 pub(crate) struct Make {
     kind: Arc<dyn LayerKind>,
+    /// Whether the kind came from a registry, so that a saved scene can name it and read it back.
+    registered: bool,
 }
 
 impl Make {
-    pub(crate) fn new(kind: Arc<dyn LayerKind>) -> Self {
-        Self { kind }
+    pub(crate) fn new(kind: Arc<dyn LayerKind>, registered: bool) -> Self {
+        Self { kind, registered }
     }
 }
 
 impl fmt::Debug for Make {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.debug_struct("Make").field("kind", &self.kind.name()).finish()
+        formatter
+            .debug_struct("Make")
+            .field("kind", &self.kind.name())
+            .field("registered", &self.registered)
+            .finish()
     }
 }
 
 impl Source for Make {
-    /// A kind has no JSON form yet: it is refused when saved, and written by name and options when compared.
+    /// A kind is written by name and options. A saved scene holds only one made through a registry (it can be read back
+    /// by name); one given to `Layer::make` is refused when saved.
     fn document(&self, form: Form) -> Result<Vec<(&'static str, Value)>, Error> {
-        match form {
-            Form::Save => Err(Error::invalid(
+        if form == Form::Save && !self.registered {
+            return Err(Error::invalid(
                 "make",
                 format!(
-                    "a layer of kind {:?} has no JSON form: kinds are not registered yet, so it cannot be named in a saved scene",
+                    "a layer of kind {:?} was not made through a registry (`LayerKinds::make`), so a saved scene cannot name it",
                     self.kind.name()
                 ),
-            )),
-            Form::Compare => Ok(vec![(
-                "make",
-                json!({"kind": self.kind.name(), "options": self.kind.options()}),
-            )]),
+            ));
         }
+        Ok(vec![(
+            "make",
+            json!({"kind": self.kind.name(), "options": self.kind.options()}),
+        )])
     }
 
     /// What a kind draws depends on its name and options (and the request): the promise of [`LayerKind`].

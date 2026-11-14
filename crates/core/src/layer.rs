@@ -290,10 +290,16 @@ impl Layer {
     /// A layer that `kind` draws (a plugin: [`LayerKind`]): its box is the canvas, like a fill's, and the scene asks it for the
     /// rectangle of the canvas that shows, at the scale it is drawn at. `fit`, `place`, looks, masks, `blend` and `opacity`
     /// act on what it answers as they act on any layer; what it drew is kept and asked for again only for a rectangle or a
-    /// scale it has not drawn. A scene with such a layer has no JSON form yet (`to_json` refuses it, as it does an array).
+    /// scale it has not drawn. A scene with such a layer has no JSON form (`to_json` refuses it, as it does an array): make
+    /// it through [`LayerKinds::make`](crate::LayerKinds::make) for one that a saved scene can name.
     #[must_use]
     pub fn make(kind: Arc<dyn LayerKind>) -> Self {
-        Self::from_source(Make::new(kind))
+        Self::from_source(Make::new(kind, false))
+    }
+
+    /// A layer of a kind a registry made: as [`Layer::make`], and a saved scene names it.
+    pub(crate) fn made_by_name(kind: Arc<dyn LayerKind>) -> Self {
+        Self::from_source(Make::new(kind, true))
     }
 
     /// A flat colour over the whole canvas: `#rrggbb` or `#rrggbbaa`, in sRGB values; the alpha is straight.

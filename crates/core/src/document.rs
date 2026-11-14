@@ -19,13 +19,13 @@ use crate::mask::{Mask, MaskBy, Use};
 use crate::placement::{Deg, Fit, Place, Placed, Placement};
 use crate::suggest::nearest;
 use crate::text::Text;
-use crate::{Error, Layer, Scene};
+use crate::{Error, Layer, LayerKinds, Scene};
 
 /// The version of the document this release writes and reads.
 const VERSION: i64 = 1;
 
 /// The keys of a layer, in the order they are written.
-const LAYER_KEYS: [&str; 20] = [
+const LAYER_KEYS: [&str; 21] = [
     "name",
     "picture",
     "maps",
@@ -38,6 +38,7 @@ const LAYER_KEYS: [&str; 20] = [
     "fill",
     "scene",
     "of",
+    "make",
     "fit",
     "place",
     "perspective",
@@ -48,7 +49,7 @@ const LAYER_KEYS: [&str; 20] = [
     "looks",
 ];
 /// The keys that say what a layer draws: one of them.
-const SOURCES: [&str; 6] = ["picture", "drawing", "text", "fill", "scene", "of"];
+pub(crate) const SOURCES: [&str; 7] = ["picture", "drawing", "text", "fill", "scene", "of", "make"];
 /// The keys a source of one kind owns: they are refused beside any other.
 const OWNED: [(&str, &str); 5] = [
     ("maps", "picture"),
@@ -320,7 +321,17 @@ impl Scene {
     /// too deep), a look or a drawing its crate does not read, a version skew included. [`Error::Read`] for a font, a look
     /// file or a drawing file that cannot be read.
     pub fn from_json(text: &str, base: &Path) -> Result<Self, Error> {
-        read_scene(&parse(text)?, "", base, 0)
+        Self::from_json_with(text, base, &LayerKinds::new())
+    }
+
+    /// As [`Scene::from_json`], reading a layer of a registered kind (`{"make": {"kind": ..., "options": ...}}`) through
+    /// `kinds`.
+    ///
+    /// # Errors
+    /// As [`Scene::from_json`]; and [`Error::Format`] at `/layers/N/make/kind` for a kind `kinds` does not hold (the
+    /// message lists the kinds it holds), and at `/layers/N/make/options` for options the kind refuses.
+    pub fn from_json_with(text: &str, base: &Path, kinds: &LayerKinds) -> Result<Self, Error> {
+        read_scene(&parse(text)?, "", base, kinds, 0)
     }
 }
 
@@ -580,7 +591,7 @@ fn too_deep(at: &str, depth: usize) -> Result<(), Error> {
 }
 
 /// `depth` is how many scenes and mask layers the value is inside.
-fn read_scene(value: &Value, at: &str, base: &Path, depth: usize) -> Result<Scene, Error> {
+fn read_scene(value: &Value, at: &str, base: &Path, kinds: &LayerKinds, depth: usize) -> Result<Scene, Error> {
     too_deep(at, depth)?;
     let map = object(value, at, "a scene is an object")?;
     known_keys(map, at, "a scene", &["version", "canvas", "layers"])?;
@@ -629,7 +640,7 @@ fn read_scene(value: &Value, at: &str, base: &Path, depth: usize) -> Result<Scen
     let layers = items
         .iter()
         .enumerate()
-        .map(|(index, item)| read_layer(item, &escaped(&layers_at, &index.to_string()), base, depth))
+        .map(|(index, item)| read_layer(item, &escaped(&layers_at, &index.to_string()), base, kinds, depth))
         .collect::<Result<Vec<_>, _>>()?;
     scene
         .add(layers)
@@ -667,7 +678,7 @@ fn refused_by_the_scene(layers_at: &str, items: &[Value], error: Error) -> Error
     }
 }
 
-fn read_layer(value: &Value, at: &str, base: &Path, depth: usize) -> Result<Layer, Error> {
+fn read_layer(value: &Value, at: &str, base: &Path, kinds: &LayerKinds, depth: usize) -> Result<Layer, Error> {
     too_deep(at, depth)?;
     let map = object(value, at, "a layer is an object")?;
     known_keys(map, at, "a layer", &LAYER_KEYS)?;
@@ -697,7 +708,7 @@ fn read_layer(value: &Value, at: &str, base: &Path, depth: usize) -> Result<Laye
         });
     }
     let member = |key: &str| escaped(at, key);
-    let mut layer = read_source(map, source, at, base, depth)?;
+    let mut layer = read_source(map, source, at, base, kinds, depth)?;
     if let Some(fit) = map.get("fit") {
         layer = read_fit(layer, fit, &member("fit"))?;
     }
@@ -721,7 +732,7 @@ fn read_layer(value: &Value, at: &str, base: &Path, depth: usize) -> Result<Laye
         let at = member("masks");
         let items = masks.as_array().ok_or_else(|| wrong(&at, "a list of masks", masks))?;
         for (index, item) in items.iter().enumerate() {
-            layer = read_mask(layer, item, &escaped(&at, &index.to_string()), base, depth)?;
+            layer = read_mask(layer, item, &escaped(&at, &index.to_string()), base, kinds, depth)?;
         }
     }
     if let Some(looks) = map.get("looks") {
@@ -759,7 +770,14 @@ fn read_layer(value: &Value, at: &str, base: &Path, depth: usize) -> Result<Laye
 }
 
 /// The layer that draws what `source` (a key of `map`) says.
-fn read_source(map: &Map<String, Value>, source: &str, at: &str, base: &Path, depth: usize) -> Result<Layer, Error> {
+fn read_source(
+    map: &Map<String, Value>,
+    source: &str,
+    at: &str,
+    base: &Path,
+    kinds: &LayerKinds,
+    depth: usize,
+) -> Result<Layer, Error> {
     let at_source = escaped(at, source);
     let value = &map[source];
     let layer = match source {
@@ -804,10 +822,28 @@ fn read_source(map: &Map<String, Value>, source: &str, at: &str, base: &Path, de
         "fill" => {
             Layer::fill(text(value, &at_source, "a colour (text)")?).map_err(|error| refused(at, Some(map), error))?
         }
-        "scene" => Layer::scene(read_scene(value, &at_source, base, depth + 1)?),
+        "scene" => Layer::scene(read_scene(value, &at_source, base, kinds, depth + 1)?),
+        "make" => read_make(value, &at_source, kinds)?,
         _ => Layer::of(text(value, &at_source, "the name of a layer (text)")?),
     };
     Ok(layer)
+}
+
+/// The layer `{"kind": ..., "options": ...}` names, made through `kinds`.
+fn read_make(value: &Value, at: &str, kinds: &LayerKinds) -> Result<Layer, Error> {
+    let map = object(value, at, "a made layer is {\"kind\": ..., \"options\": ...}")?;
+    known_keys(map, at, "a made layer", &["kind", "options"])?;
+    let kind_at = escaped(at, "kind");
+    let kind = map.get("kind").ok_or_else(|| Error::Format {
+        pointer: at.to_owned(),
+        message: "`kind` is missing: the name of a registered kind".to_owned(),
+    })?;
+    kinds
+        .make(
+            text(kind, &kind_at, "the name of a kind (text)")?,
+            map.get("options").unwrap_or(&Value::Null),
+        )
+        .map_err(|error| refused(at, Some(map), error))
 }
 
 fn read_text(map: &Map<String, Value>, at: &str, base: &Path) -> Result<Layer, Error> {
@@ -912,11 +948,18 @@ fn read_place(layer: Layer, place: &Value, at: &str) -> Result<Layer, Error> {
     layer.place(set).map_err(|error| refused(at, Some(map), error))
 }
 
-fn read_mask(layer: Layer, value: &Value, at: &str, base: &Path, depth: usize) -> Result<Layer, Error> {
+fn read_mask(
+    layer: Layer,
+    value: &Value,
+    at: &str,
+    base: &Path,
+    kinds: &LayerKinds,
+    depth: usize,
+) -> Result<Layer, Error> {
     let map = object(value, at, "a mask is {\"layer\": ...} or {\"map\": \"name\"}")?;
     known_keys(map, at, "a mask", &["layer", "map", "use", "feather", "invert"])?;
     let by: MaskBy = match (map.get("layer"), map.get("map")) {
-        (Some(inner), None) => read_layer(inner, &escaped(at, "layer"), base, depth + 1)?.into(),
+        (Some(inner), None) => read_layer(inner, &escaped(at, "layer"), base, kinds, depth + 1)?.into(),
         (None, Some(name)) => MaskBy::from(text(name, &escaped(at, "map"), "the name of a map (text)")?),
         _ => {
             return Err(Error::Format {
