@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use serde_json::Value;
 
+use crate::document::number;
 use crate::files::Located;
 
 /// The font of a text: a bundled one by name, or a font file.
@@ -64,7 +65,19 @@ impl Text {
     /// `inside` are refused (scene places the text: its origin is the anchor, and `place` moves it), and so are expressions.
     pub fn option(mut self, name: &str, value: impl Into<Value>) -> Self {
         self.options.retain(|(known, _)| known != name);
-        self.options.push((name.to_owned(), value.into()));
+        self.options.push((name.to_owned(), whole(value.into())));
         self
+    }
+}
+
+/// `value` with each whole number written whole (`84.0` as `84`), as the document writes it: a number is one number, however
+/// the caller spelt it, so that equal text is equal in `==` and in the saved scene.
+fn whole(value: Value) -> Value {
+    match value {
+        Value::Number(found) if found.is_f64() => found.as_f64().map_or(Value::Number(found), number),
+        Value::Object(entries) => {
+            Value::Object(entries.into_iter().map(|(name, value)| (name, whole(value))).collect())
+        }
+        other => other,
     }
 }

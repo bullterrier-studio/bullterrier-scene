@@ -5,6 +5,7 @@
 
 use bullterrier_scene::{Error, Fit, Layer, Mask, Place, Raster, Text};
 use bullterrier_vector::{Color, Drawing, Font, Size, Values};
+use serde_json::Value;
 
 use crate::common::{Outcome, pixels, scene, solid};
 
@@ -372,5 +373,28 @@ fn a_text_stretched_into_a_box_spans_the_box() -> Outcome {
         left <= 1 && right >= 398 && top <= 1 && bottom >= 58,
         "{left} {right} {top} {bottom}"
     );
+    Ok(())
+}
+
+/// A number is a number: `84` and `84.0` (and a whole axis value) are one text option, so the layers, and the saved scenes, are equal.
+#[test]
+fn a_whole_number_is_the_same_text_option_as_an_integer() -> Outcome {
+    let set = |size: Value, wght: Value| -> Result<Layer, Error> {
+        type_of(
+            "Hi",
+            &Text::new(FONT)
+                .option("size", size)
+                .option("axes", serde_json::json!({ "wght": wght })),
+        )
+    };
+    let (float, integer) = (
+        set(Value::from(84.0), Value::from(600.0))?,
+        set(Value::from(84), Value::from(600))?,
+    );
+    assert_eq!(float, integer);
+    let json = |layer: Layer| scene(100, 50, [layer]).and_then(|scene| scene.to_json());
+    assert_eq!(json(float)?, json(integer)?);
+    let other = set(Value::from(84.5), Value::from(600))?;
+    assert_ne!(other, set(Value::from(84), Value::from(600))?);
     Ok(())
 }
