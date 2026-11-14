@@ -176,6 +176,7 @@ MORE_SCENES: dict[str, Callable[[], Scene]] = {
     "evening": lambda: _built("c4b_references"),
     "groups": lambda: _built("c4c_groups"),
     "looks_on_everything": lambda: _built("c5a_looks_on_everything"),
+    "room": lambda: _built("c5c_room"),
     "six_covers": lambda: _built("c6a_covers"),
     "badge": lambda: _built("badge_scene_in_scene"),
     "chrome_style": chrome_style,
