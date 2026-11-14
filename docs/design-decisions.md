@@ -430,7 +430,7 @@ counts its `draw` calls (`Layer.make`, arrives with C7).
   can be relaxed later and a cycle accepted cannot be refused; looks on every layer (C5) and groups (C4c) may make a mask part of what a
   reference draws. *Cost:* a layer cannot be cut by a copy of itself through `Layer.of`; use a second layer.
 - **Depth is mask layers plus reference links, count is layers drawn.** One `Budget` (`budget.rs`: depth and layers, `beside`, `needing`,
-  `through`, `checked`) stands for the rule, kept in the scene per add: C4c adds a group's inner budget to it. The count changed from C3: it
+  `through`, `checked`) stands for the rule, kept in the scene per add: C4c adds a group's inner budget to it (`Source::budget`). The count changed from C3: it
   counted the stack and one layer's mask layers apart (1,000 each), now a scene draws at most 1,000 in all, a mask layer used by 500 layers
   counted 500 times. The plan's example (600 layers and a mask layer used by 600 references) is refused by the stack alone and kills no
   mutant; the rows are 500 and 501 layers sharing one mask layer.
@@ -443,6 +443,41 @@ counts its `draw` calls (`Layer.make`, arrives with C7).
   well to be a copy, which `place(rotate=90)` is and the product of two turns is not: the general kernel gives the same pixels to 1e-4.
 - **Shadow of the examples:** the shadow is a skewed, flattened reference under the figure, because the same flattened shape right under a
   figure is hidden behind it.
+
+## C4c: scenes as layers (2026-11-14)
+
+- **A group is a source, and one entry draws a stack.** `Layer::scene(inner)` is a layer whose `Source` holds the scene (`Arc`, so a use is a pointer);
+  its `open` says the box is the inner canvas and its draw closure calls `render::draw(layers, target)`, the function `Scene::render` calls with
+  the canvas as the target. One render path: nothing in the renderer knows a group exists, the layer that holds it is warped, masked and joined
+  as any layer. *Alternative weighed:* a `Group` variant of `Base` that `lay` special-cases (a second path to keep equal to the first, and a place
+  for B1's bands to miss). The cost is that the group's picture is made straight and premultiplied again (a group alone is its scene's render bit for bit
+  where opaque, 2e-6 where translucent).
+- **The target has an origin and a count.** `Target` gained `offset` (the fraction of a pixel the canvas starts at in the grid, which moves
+  every inner layer's pixel phase and the shift of its map) and `held` (the pixels of the groups outside). Both are 0 for the whole canvas, and a
+  mask plane inherits them through `grown`, so a layer mask inside a group is drawn on the group's grid for free. `Layout::phase` adds the
+  offset to the position it takes the fraction of; `Request` carries `held` to the source. *Alternative weighed:* a group raster that
+  starts on the box and is resampled by the outer warp (softens a group at a fractional place, which C3 removed for drawings).
+- **Layers that end at the box are cut once; overflow shows less than a pixel.** At a fractional box origin the group's raster is a pixel wider than the
+  box. Cutting the box again in the outer warp counts the edge pixel's coverage twice for a layer that ends at the box (picture or fill: 0.36
+  where 0.6 is right, found by the first placed test), so the outer warp does not cut when the whole box is shown (`ends_at_window`, as a drawing's)
+  and a layer that overflows the box leaks into the pixel its edge falls in. *Alternative weighed:* a coverage clip as the last step of the inner
+  render, cut once for overflowing layers and twice for the others; no cut exists that is right for both without knowing which layers end at the box.
+- **Cost belongs to the source.** `Source::budget()` (default one layer; a group: one layer plus its scene's count, one deeper than its
+  scene), read by `Layer` at creation and by `reference::resolved`, which used to start every layer from one layer and would have dropped a group's
+  cost at `add`. A reference to a group inherits it, so `MAX_LAYERS` counts the group again. The scene keeps its count and depth, so a check is a sum.
+- **Depth is a stack bound and is measured for the mix.** Each scene is one level (render, lay, land, a boxed closure, render), and a group used
+  as a mask layer is two. Mixes to 16 (6 references, 4 scenes, 3 scenes as masks) are drawn, printed, cloned and dropped in 256 KB in the test
+  profile, unoptimised (overflows between 64 and 128 KB) and release (runs at 64 KB). `Group` prints its canvas, count and depth, as `Mask` does, because a
+  derived `Debug` would print the nest.
+- **The 2^27 bound is on the sum of the groups' pictures**, checked in the group before it allocates, and the output picture and each layer's own raster
+  keep theirs. The peak measured is 16 bytes a pixel of the groups touched at once (192 MB a level for 12 megapixels), which is the sum bound's
+  2 GiB at the limit; a group's buffer is not touched until its first layer is drawn, so a nest of single-layer scenes does not grow the peak at all.
+- **A look's `px` inside an inner scene are the inner canvas's design pixels.** The inner layers are drawn on a target whose scale is the group's drawn
+  density, so a look run by C5 at the design scale sees the badge's own pixels: it looks the same at every use and every size.
+- **Cycles cannot go through scenes.** A scene is an immutable value held by value, so no scene can contain itself; names never cross a group (the
+  walks and the cycle check run per scene).
+- **What C4c leaves hard** ("Needs from others"): C6 must rebuild a scene's `Arc` when a value under it changes, and address layers of an inner scene; C5
+  must give a group a look on its finished raster; C7's cache key of a group is the scene's value, the density per axis and the phase.
 
 ## Smaller choices of the API (2026-11-13)
 
