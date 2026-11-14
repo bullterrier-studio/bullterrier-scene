@@ -192,15 +192,27 @@ fn hard_light(cb: f32, cs: f32) -> f32 {
 
 /// The brightness of a colour, `Lum(C)` of the specification (section 10.2): 0.3 R + 0.59 G + 0.11 B. These are the
 /// specification's weights, not the Rec. 709 ones a luminance mask reads.
+///
+/// It is a number from 0 to 1 and the level of a grey, by construction: the sum is made in 64 bits and rounded to 32 once, and
+/// the 64-bit sum is within 3e-16 of the true one, which is from 0 to 1 for channels from 0 to 1 and is the level for a grey
+/// (the weights add to 1); no 32-bit float lies between a level or 1 and a value that near. (Summed in 32 bits the weights add to
+/// 1 + 1e-7, a grey's brightness came out an ulp from its level, and `SetLum` moved a colour below 0 by an ulp.)
 #[inline]
 fn lum([red, green, blue]: [f32; 3]) -> f32 {
-    0.3 * red + 0.59 * green + 0.11 * blue
+    #[expect(clippy::cast_possible_truncation, reason = "rounded once, on purpose: see above")]
+    {
+        (0.3 * f64::from(red) + 0.59 * f64::from(green) + 0.11 * f64::from(blue)) as f32
+    }
 }
 
-/// `ClipColor(C)`: pulls a colour with a channel outside 0 to 1 back in along the line to its brightness.
+/// `ClipColor(C)` for a colour whose brightness is `brightness`: pulls a channel outside 0 to 1 back in along the line to the
+/// brightness. The specification measures the brightness of `C` here; `set_lum` is the only caller and has just made `C`'s
+/// brightness `brightness` (in real numbers: in floats it is that to an ulp), so it is given, not measured again. Then the
+/// denominators are strictly positive by construction: a colour with a channel `least` below 0 has `brightness - least > 0`
+/// as `brightness` is from 0 up, and one with a channel `most` above 1 has `most - brightness > 0` as `brightness` is at most
+/// 1 (`lum`). Measured again, a grey an ulp below 0 has its brightness equal to its channel and the quotient is 0 over 0.
 #[inline]
-fn clip_color(color: [f32; 3]) -> [f32; 3] {
-    let brightness = lum(color);
+fn clip_color(color: [f32; 3], brightness: f32) -> [f32; 3] {
     let least = color[0].min(color[1]).min(color[2]);
     let most = color[0].max(color[1]).max(color[2]);
     let mut color = color;
@@ -217,7 +229,7 @@ fn clip_color(color: [f32; 3]) -> [f32; 3] {
 #[inline]
 fn set_lum(color: [f32; 3], brightness: f32) -> [f32; 3] {
     let shift = brightness - lum(color);
-    clip_color(color.map(|channel| channel + shift))
+    clip_color(color.map(|channel| channel + shift), brightness)
 }
 
 /// `Sat(C)`: the spread of a colour, its largest channel less its smallest.

@@ -501,6 +501,120 @@ proptest! {
     }
 }
 
+// --- numbers that are always numbers ---
+
+/// A picture of 256 by 256 pixels whose pixel (x, y) is the grey `grey(x, y)` over 255, at `alpha`.
+fn grey_plane(alpha: f32, grey: impl Fn(usize, usize) -> usize) -> Result<Layer, Error> {
+    let mut values = Vec::with_capacity(256 * 256 * 4);
+    for y in 0..256 {
+        for x in 0..256 {
+            #[expect(clippy::cast_precision_loss, reason = "a level from 0 to 255")]
+            let level = grey(x, y) as f32 / 255.0;
+            values.extend([level, level, level, alpha]);
+        }
+    }
+    Ok(Layer::picture(Raster::rgba(256, 256, values)?))
+}
+
+/// Every grey over every grey, in every mode, at several alphas: the backdrop's grey runs along x and the source's along y, so
+/// one render holds the whole state space of the two colours. A colour is a number from 0 to 1, no premultiplied colour passes
+/// its alpha, and where there is no alpha there is no colour. (`color` and `luminosity` of a grey gave NaN: a grey's brightness
+/// came out an ulp off its grey, the colour moved to it fell an ulp below 0, and the clip divided 0 by 0.)
+#[test]
+fn every_grey_over_every_grey_gives_numbers_in_every_mode() -> Outcome {
+    for word in ALL {
+        for backdrop_alpha in [0.0_f32, 0.5, 1.0] {
+            for source_alpha in [0.5_f32, 1.0] {
+                let layers = [
+                    grey_plane(backdrop_alpha, |x, _| x)?,
+                    grey_plane(source_alpha, |_, y| y)?.blend(mode(word)?),
+                ];
+                let picture = scene(256, 256, layers)?.render(256)?;
+                for (index, got) in crate::common::pixels(&picture).enumerate() {
+                    let (backdrop, source) = (index % 256, index / 256);
+                    let numbers = got.iter().all(|value| (0.0..=1.0).contains(value));
+                    assert!(
+                        numbers,
+                        "{word}: backdrop {backdrop} at {backdrop_alpha}, source {source} at {source_alpha}: {got:?}"
+                    );
+                    assert!(
+                        got[3] > 0.0 || got[..3] == [0.0; 3],
+                        "{word}: {backdrop} {source}: colour with no alpha {got:?}"
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The four modes that mix channels, on greys: no hue and no saturation to take, so over an opaque grey backdrop `hue`,
+/// `saturation` and `color` give the backdrop (`SetSat` of a grey is black, and `SetLum` to the backdrop's brightness, a
+/// grey's own level, gives the backdrop back), and `luminosity` gives the source (`SetLum(Cb, Lum(Cs))` with `Lum` of a grey
+/// its level). Specification, section 10.2.
+#[test]
+fn the_modes_that_mix_channels_on_greys_give_the_backdrop_or_the_source_by_the_specifications_identities() -> Outcome {
+    for word in ["hue", "saturation", "color", "luminosity"] {
+        let layers = [
+            grey_plane(1.0, |x, _| x)?,
+            grey_plane(1.0, |_, y| y)?.blend(mode(word)?),
+        ];
+        let picture = scene(256, 256, layers)?.render(256)?;
+        for (index, got) in crate::common::pixels(&picture).enumerate() {
+            let (backdrop, source) = (index % 256, index / 256);
+            let wanted = if word == "luminosity" { source } else { backdrop };
+            #[expect(clippy::cast_precision_loss, reason = "a level from 0 to 255")]
+            let level = wanted as f32 / 255.0;
+            assert!(
+                close(got, [level, level, level, 1.0], 2e-6),
+                "{word}: backdrop {backdrop}, source {source}: wanted {level}, got {got:?}"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// A colour that crosses the places the arithmetic is thin: greys (channels equal, where `Sat` is 0 and a brightness is the
+/// level), near-greys (channels an ulp apart), the corners of the cube, and any colour.
+fn nasty() -> impl Strategy<Value = [f32; 3]> {
+    let level = prop_oneof![
+        Just(0.0_f32),
+        Just(1.0_f32),
+        (0_u8..=255).prop_map(|byte| f32::from(byte) / 255.0),
+        0.0_f32..=1.0
+    ];
+    let near = |level: f32, step: i8| match step {
+        1 => level.next_up().min(1.0),
+        -1 => level.next_down().max(0.0),
+        _ => level,
+    };
+    prop_oneof![
+        level.clone().prop_map(|level| [level; 3]),
+        (level.clone(), [-1_i8..=1, -1_i8..=1, -1_i8..=1])
+            .prop_map(move |(level, steps)| steps.map(|step| near(level, step))),
+        [any::<bool>(), any::<bool>(), any::<bool>()].prop_map(|corner| corner.map(|on| if on { 1.0 } else { 0.0 })),
+        [level.clone(), level.clone(), level],
+    ]
+}
+
+fn alpha() -> impl Strategy<Value = f32> {
+    prop_oneof![Just(0.0_f32), Just(1.0_f32), Just(0.5_f32), 0.0_f32..=1.0]
+}
+
+proptest! {
+    /// Greys, near-greys, corners and any colour, at any alphas, in every mode: numbers from 0 to 1, no colour without alpha.
+    #[test]
+    fn every_mode_gives_numbers_from_0_to_1_on_greys_near_greys_and_corners(
+        cb in nasty(), ab in alpha(), cs in nasty(), a_s in alpha(),
+    ) {
+        for word in ALL {
+            let got = one([cell([cb[0], cb[1], cb[2], ab])?, cell([cs[0], cs[1], cs[2], a_s])?.blend(mode(word)?)])?;
+            prop_assert!(got.iter().all(|value| (0.0..=1.0).contains(value)), "{word}: {got:?}");
+            prop_assert!(got[3] > 0.0 || got[..3] == [0.0; 3], "{word}: colour with no alpha {got:?}");
+        }
+    }
+}
+
 // --- the value ---
 
 #[test]
