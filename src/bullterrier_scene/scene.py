@@ -1,6 +1,6 @@
 """`Scene`: a canvas and a stack of layers, drawn into one picture at any size."""
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Self
 
@@ -164,3 +164,16 @@ class Scene:
         drawing its sibling crate refuses at this size (naming the layer); `ReadError` for a file that cannot be read.
         """
         return self._core.render(size)
+
+    def render_bands(self, size: int, band_rows: int, sink: Callable[[int, npt.NDArray[np.float32]], object]) -> None:
+        """The picture of `render`, drawn a band of rows at a time, so that the whole picture is never held.
+
+        `sink(first_row, band)` is called with each band in order, top to bottom: the row it starts at and its float32
+        array (rows, width, 4), `band_rows` rows (the last has what is left). The bands put together are
+        `render(size)` bit for bit, whatever `band_rows`. A layer with no look is drawn for the rows of a band alone
+        where its source can be; a layer with a look is drawn whole once and cut per band. An exception of `sink` ends
+        the render and is raised as it is. The 2^27 pixel limit of `render` is on a band here, so a picture past it can
+        be drawn this way. `InvalidError` naming `band_rows` for 0, more than the picture's rows or a band of more than
+        2^27 pixels, and as `render` for the rest.
+        """
+        self._core.render_bands(size, band_rows, sink)

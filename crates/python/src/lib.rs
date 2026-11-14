@@ -581,4 +581,33 @@ impl Scene {
         let (height, width) = (raster.height(), raster.width());
         PyArray1::from_vec(py, raster.into_pixels()).reshape([height, width, 4])
     }
+
+    /// The picture a band of rows at a time: `sink(first_row, band)` is called with each band's first row and its float32 array
+    /// (rows, width, 4), top to bottom. An exception of `sink` ends the render and is raised as it is.
+    fn render_bands(&self, py: Python<'_>, size: i128, band_rows: usize, sink: &Bound<'_, PyAny>) -> PyResult<()> {
+        let sink = sink.clone().unbind();
+        let raised = std::sync::Mutex::new(None);
+        let outcome = py.detach(|| {
+            self.0.render_bands(size, band_rows, |rows, band| {
+                // the GIL is taken for this call only: the render around it runs without it
+                Python::attach(|py| {
+                    let array = PyArray1::from_slice(py, band.pixels()).reshape([band.height(), band.width(), 4]);
+                    array
+                        .and_then(|array| sink.bind(py).call1((rows.start, array)))
+                        .map(drop)
+                        .map_err(|failure| {
+                            *raised.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(failure);
+                            bullterrier_scene::Error::Write {
+                                path: "sink".to_owned(),
+                                message: "the sink raised".to_owned(),
+                            }
+                        })
+                })
+            })
+        });
+        match raised.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner) {
+            Some(failure) => Err(failure),
+            None => wrap(py, outcome),
+        }
+    }
 }

@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use bullterrier_scene::{Error, Kind, PdfOptions, Values};
+use bullterrier_scene::{BAND_PIXELS, Error, Kind, PdfOptions, Values};
 use clap::Parser;
 
 use crate::{open, say};
@@ -116,10 +116,19 @@ pub(crate) fn command(args: &Args, out: &mut dyn std::io::Write) -> Result<(), E
     let size = args
         .size
         .unwrap_or_else(|| i64::from(scene.width().max(scene.height())));
-    let picture = scene.render(size)?;
-    match &pdf {
-        Some(options) => picture.write_pdf(&args.out, options)?,
-        None => picture.write(&args.out)?,
+    let (columns, rows) = scene.picture_size(size)?;
+    if columns * rows > BAND_PIXELS {
+        // more than a band: drawn and written band by band, never held whole
+        match &pdf {
+            Some(options) => scene.render_to_pdf(size, &args.out, options)?,
+            None => scene.render_to_png(size, &args.out)?,
+        }
+    } else {
+        let picture = scene.render(size)?;
+        match &pdf {
+            Some(options) => picture.write_pdf(&args.out, options)?,
+            None => picture.write(&args.out)?,
+        }
     }
     say(out, &args.out.display().to_string())
 }
