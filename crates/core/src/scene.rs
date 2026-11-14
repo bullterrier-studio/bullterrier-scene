@@ -60,10 +60,12 @@ impl Scene {
     /// A scene of the same canvas with no layer, sharing this scene's cache: the start of a scene made from this one.
     pub(crate) fn emptied(&self) -> Self {
         Self {
+            width: self.width,
+            height: self.height,
             layers: Vec::new(),
             drawn: Vec::new(),
             budget: Budget::NONE,
-            ..self.clone()
+            cache: Arc::clone(&self.cache),
         }
     }
 
