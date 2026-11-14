@@ -2,7 +2,8 @@
 
 A plugin layer kind that counts its `draw` calls is the test seam of the cache: the count is public. Proves: a
 value that only moves the headline never redraws the static layer; a changed option of the static layer does.
-Arrives with C7.
+The Rust seam is built (`crates/core/tests/it/cache.rs` counts the same way); Python's `Layer.make` and
+`bts.register_layer` are later, so this program does not run yet.
 """
 
 import math

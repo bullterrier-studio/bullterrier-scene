@@ -9,7 +9,7 @@ parameter as an address, a crop without an outside tool.
 image) and the logo (a vector `Drawing`, or anything with `to_json()`), so a test builds it from arrays and a
 document. Where the numbers of a frame come from (a clock, a slider, a file of numbers) is the caller's business;
 `frame_values` takes plain numbers. **Not built yet:** the look's room (C5b: the glow's halo is cut at its layer's
-box) and the cache (C7: a frame draws every layer again).
+box). The layers a frame does not change come from the scene's cache (C7).
 """
 
 from pathlib import Path

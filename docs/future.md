@@ -7,12 +7,15 @@ Set 2026-11-14. The ecosystem view (three directions, order, library changes in 
 
 | Direction | What scene must provide | Status |
 |---|---|---|
-| Animated posters | `scene.with_values({...}).render(size)` per frame (built with C6a); the per-layer cache C7; a fast path for layers that only move; bands B1 for large frames. Video owns the clock, the signal mapping and the encode | cache, fast path and bands not built |
+| Animated posters | `scene.with_values({...}).render(size)` per frame (built with C6a); the per-layer cache C7; a fast path for layers that only move; bands B1 for large frames. Video owns the clock, the signal mapping and the encode | cache and fast path built (C7); bands not built |
 | Websites | A web export target that reads the scene JSON (C6b, built): each layer an image or a vector, placed with CSS transforms, masks as CSS masks, blends as CSS `mix-blend-mode` (the W3C set by CSS names, on purpose), links as hit areas. Effects are baked into the layer images. Also a render worker (design README, "As a paid web app") | JSON built (C6b); export not planned |
 | Drag-and-drop editor | `scene.parameters()` for controls (unit, range, meaning per address); a hit-test call ("which layer is under this point"); an edit API for the layer tree (add, remove, reorder, regroup); a draft at a smaller size (built: `render(size)`); undo as immutable values (built) | parameters in progress; hit-test and tree edit not planned |
 
-**The move-only fast path.** `dx`, `dy`, `rotate`, `skew` and `flip` only re-warp a cached raster of the layer. `scale` redraws
-the source and its look (a look's pixels follow the density). Part of C7: the raster's cache key leaves out the move fields.
+**The move-only fast path (built, C7).** `dx`, `dy`, `rotate`, `skew`, `flip`, `aspect`, `opacity` and `blend` only re-warp a kept raster of the layer; `scale` draws the source and runs its look again (a look's pixels follow the density). A drawing, a text and a group drawn at a fraction of a pixel also draw again when that fraction changes (the pixel phase is in their key); measured cheap in the mill (a logo shaking by a fraction of a pixel each frame: 0.410 s against 0.413 s with it still).
+
+**Measured with the cache** (release build, 2026-11-14; "Limits, measured" in `api.md` has the conditions): the wow poster's loop 0.506 s a frame before, 0.191 s after; a mill frame with every value changing 0.524 s before, 0.413 s after; a mill frame that changes one value 0.025 to 0.24 s; a 15-layer A3 poster at 300 dpi 5.2 s the first time and 0.39 s with one headline changed, peak 3.15 GB against 2.16 GB.
+
+**The next speed steps, by what they would save:** (1) *a look chain kept stage by stage.* A mill frame changes the swell of two references, each running the night grade first and then its swell: 0.41 s, of which the grade is about half. Keeping the raster after each look (with the maps it needs) takes the frame to the swells alone; changing a look in the middle of a chain runs only the looks after it. (2) *A scan-resistant bound.* A render that scans more than the 2 GiB keeps and reuses nothing; keeping the layers that were the costliest to draw, or the most recent ones of a scan, would make a poster slightly over the bound still fast. (3) *A look that follows the phase less.* A looked drawing that shakes by a fraction of a pixel runs its look again each frame; a look drawn at phase 0 and shifted by the warp would not, and softens by one resample, so it changes renders and is the owner's decision with the piece that needs it. (4) *B1,* bands, for the frames that do not fit.
 
 **Speed evidence.** A composed-world frame takes about 3 to 7 s. A blended full-canvas layer costs about 8 to 11 ns per pixel
 per layer (normal blend 0.7 ns). A bloom on a magnified perspective layer took 71 s per render before a workaround (the glow
@@ -21,7 +24,7 @@ drawn in the drawing: 3 s). Sources: the 71 s in `bullterrier-demos/feedback/sce
 ## Batches still to do, in order
 
 1. **Polish** the list below.
-2. **C7** the per-layer cache, with the move-only fast path.
+2. **C7** the per-layer cache, with the move-only fast path: done.
 3. **M3** the mill piece rebuilt as one scene.
 4. ~~**O1** PNG output.~~ Done: `Raster::write`.
 5. ~~**P1** the Rust command line, `bt-scene render`.~~ Done: `docs/cli.md`.

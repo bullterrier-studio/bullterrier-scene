@@ -1,8 +1,8 @@
 """C7: a headline sliding in over 24 frames from one scene.
 
 One value set per frame; the loop and the easing are the caller's, the scene has no time. Proves: `with_values` as
-the only way to move something. Only the headline changes between frames (`cache_probe.py` shows the layers that
-did not change are not drawn again: C7).
+the only way to move something. Only the headline changes between frames: the layers that did not change come from
+the scene's cache (C7: `cache_probe.py`).
 """
 
 from pathlib import Path
