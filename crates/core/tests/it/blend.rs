@@ -228,7 +228,7 @@ fn a_translucent_source_blends_as_vector_blends_it_in_every_separable_mode() -> 
 /// luminosity = SetLum(Cb, Lum(Cs))), in a separate script in 64-bit floats, rounded to 7 places. The pairs cross
 /// the two branches of `ClipColor` (the 3rd and 4th) and the zero saturation of `SetSat` (the 5th backdrop, the 6th source).
 type Row = (&'static str, [f32; 3], [f32; 3], [f32; 3]);
-const NON_SEPARABLE: [Row; 24] = [
+const NON_SEPARABLE: [Row; 28] = [
     ("hue", [0.8, 0.4, 0.2], [0.1, 0.5, 0.9], [0.255, 0.555, 0.855]),
     ("hue", [0.2, 0.6, 0.4], [0.9, 0.3, 0.3], [0.738, 0.338, 0.338]),
     ("hue", [0.9, 0.9, 0.1], [0.2, 0.2, 0.8], [0.788_764, 0.788_764, 1.0]),
@@ -278,6 +278,33 @@ const NON_SEPARABLE: [Row; 24] = [
     ),
     ("luminosity", [0.5, 0.5, 0.5], [0.3, 0.7, 0.1], [0.514, 0.514, 0.514]),
     ("luminosity", [0.6, 0.3, 0.9], [0.4, 0.4, 0.4], [0.544, 0.244, 0.844]),
+    // `ClipColor` with a channel only just outside 0 to 1 (so a threshold moved off 0 or 1 shows): the brightness 0.2379 moves
+    // (0.5, 0.3, 0.1) by -0.1001, to (0.3999, 0.1999, -0.0001), which the clip scales to (0.3998319, 0.199916, 0); 0.7791 moves
+    // (0.9, 0.6, 0.5) by +0.1001, to (1.0001, 0.7001, 0.6001), which the clip scales to (1, 0.7001358, 0.600181)
+    (
+        "luminosity",
+        [0.5, 0.3, 0.1],
+        [0.2379, 0.2379, 0.2379],
+        [0.399_831_9, 0.199_916, 0.0],
+    ),
+    (
+        "luminosity",
+        [0.9, 0.6, 0.5],
+        [0.7791, 0.7791, 0.7791],
+        [1.0, 0.700_135_8, 0.600_181],
+    ),
+    (
+        "color",
+        [0.2379, 0.2379, 0.2379],
+        [0.5, 0.3, 0.1],
+        [0.399_831_9, 0.199_916, 0.0],
+    ),
+    (
+        "color",
+        [0.7791, 0.7791, 0.7791],
+        [0.9, 0.6, 0.5],
+        [1.0, 0.700_135_8, 0.600_181],
+    ),
 ];
 
 #[test]
