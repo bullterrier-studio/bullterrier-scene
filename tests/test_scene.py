@@ -167,3 +167,59 @@ def test_a_layer_drawn_larger_than_2_pow_27_pixels_is_refused_naming_the_layer_a
     scene = Scene(6, 6).add(Layer.picture(np.full((60, 60, 3), 0.5, np.float32)).named("photo"))
     with pytest.raises(InvalidError, match=r"photo.*12000 x 12000.*134217728"):
         scene.render(1200)
+
+
+# --- references -------------------------------------------------------------------------------------------------------
+
+
+def swatch(color: str) -> Layer:
+    return Layer.fill(color).fit((1, 1, 2, 2), "stretch")
+
+
+def test_a_reference_draws_the_layer_it_names_again_with_a_join_of_its_own():
+    reference = Layer.of("a").place(dx=2).opacity(0.5)
+    scene = Scene(4, 4).add(swatch("#ff0000").named("a"), reference)
+    copy = Scene(4, 4).add(swatch("#ff0000").named("a"), swatch("#ff0000").place(dx=2).opacity(0.5))
+    assert np.array_equal(scene.render(4), copy.render(4))
+
+
+def test_a_reference_is_stacked_where_it_is_written_whichever_order_the_call_resolves_it_in():
+    reference = Layer.of("a").place(dx=1).blend("difference")
+    below = Scene(4, 4).add(reference, swatch("#ff0000").named("a")).render(4)
+    above = Scene(4, 4).add(swatch("#ff0000").named("a"), reference).render(4)
+    # at column 2 both cover: below, the layer it names is drawn over it; above, the difference of red with red is black
+    assert below[2, 2].tolist() == [1, 0, 0, 1]
+    assert above[2, 2].tolist() == [0, 0, 0, 1]
+
+
+def test_a_reference_is_an_invalid_error_where_it_names_nothing_or_leads_back_to_itself():
+    with pytest.raises(InvalidError, match=r"glow\.of.*nobody"):
+        Scene(4, 4).add(Layer.of("nobody").named("glow"))
+    with pytest.raises(InvalidError, match="a -> b -> a"):
+        Scene(4, 4).add(Layer.of("b").named("a"), Layer.of("a").named("b"))
+    with pytest.raises(InvalidError, match="a -> b -> a"):
+        Scene(4, 4).add(
+            Layer.fill("#000000").named("a").mask(Layer.of("b")), Layer.fill("#000000").named("b").mask(Layer.of("a"))
+        )
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param(lambda layer: layer.fit((0, 0, 2, 2)), id="fit"),
+        pytest.param(lambda layer: layer.perspective([(0, 0), (4, 0), (4, 4), (0, 4)]), id="perspective"),
+    ],
+)
+def test_a_reference_has_no_fit_and_no_perspective(call):
+    with pytest.raises(InvalidError, match=r"has no (fit|perspective) of its own"):
+        call(Layer.of("a"))
+
+
+def test_a_reference_names_a_layer_with_text():
+    with pytest.raises(TypeError, match="name"):
+        Layer.of(3)  # type: ignore[arg-type]  # the test is of the wrong type
+
+
+def test_a_reference_in_a_scene_keeps_what_was_written_in_layers():
+    scene = Scene(4, 4).add(swatch("#ff0000").named("a"), Layer.of("a"))
+    assert len(scene.layers) == 2

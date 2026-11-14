@@ -165,7 +165,7 @@ impl fmt::Debug for CanvasMask {
         write!(
             formatter,
             "CanvasMask {{ number: {}, uses: {:?}, feather: {}, invert: {}, depth: {} }}",
-            self.number, self.uses, self.feather, self.invert, self.layer.join.depth
+            self.number, self.uses, self.feather, self.invert, self.layer.join.budget.depth
         )
     }
 }
@@ -182,6 +182,27 @@ impl CanvasMask {
         }
     }
 
+    /// This mask with its layer made by `make` from the one it has: the same settings.
+    pub(crate) fn remade(&self, make: impl FnOnce(&Layer) -> Result<Layer, Error>) -> Result<Self, Error> {
+        Ok(Self {
+            layer: make(&self.layer)?,
+            uses: self.uses,
+            feather: self.feather,
+            invert: self.invert,
+            number: self.number,
+        })
+    }
+
+    /// The layer that makes the mask.
+    pub(crate) fn layer(&self) -> &Layer {
+        &self.layer
+    }
+
+    /// The place among the layer's `mask` calls, from 1.
+    pub(crate) fn number(&self) -> usize {
+        self.number
+    }
+
     /// The values of this mask over `target`: the layer drawn on it, read, blurred, inverted.
     fn plane(&self, target: &Target) -> Result<Plane, Error> {
         let sigma = (
@@ -194,7 +215,7 @@ impl CanvasMask {
         // would on a larger canvas
         let wide = target.grown(reach);
         let factor = product(&self.layer.join, &wide)?;
-        let landed = land(&self.layer.body, &wide)?;
+        let landed = land(self.layer.drawable()?, &wide)?;
         let opacity = self.layer.join.opacity;
         let mut values = vec![0.0_f32; wide.size().0 * wide.size().1];
         landed.each(&mut |at, pixel| {

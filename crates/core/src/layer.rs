@@ -4,29 +4,33 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::blend::Blend;
+use crate::budget::{Budget, MAX_DEPTH};
 use crate::mask::{By, CanvasMask, Mask, Use};
 use crate::perspective::Quad;
 use crate::placement::{Fit, Fitting, Place, Placed, Placement};
-use crate::scene::MAX_LAYERS;
+use crate::reference::Reference;
 use crate::source::drawing::Drawing;
 use crate::source::fill::Fill;
-use crate::source::picture::{Picture, recipe_file};
+use crate::source::picture::{Picture, check_look, recipe_file};
 use crate::source::{Given, MapMask, Source};
 use crate::text::Text;
 use crate::{Error, Map, Raster};
-
-/// The deepest masks nest: a layer's mask layer, that layer's own mask layers, and so on. A layer with no masks has depth 0
-/// and a mask layer's depth counts from the layer it masks; a `mask` call that would make a nest deeper is refused. Scenes
-/// used as layers (batch C4) count in the same depth.
-pub const MAX_DEPTH: usize = 16;
 
 /// One layer of a scene: a source, and how it joins the layers below it. A layer is an immutable value: every call
 /// returns a new one, and a layer can be used in several scenes, or twice in one.
 #[derive(Debug, Clone)]
 pub struct Layer {
     pub(crate) name: Option<String>,
-    pub(crate) body: Body,
+    pub(crate) base: Base,
     pub(crate) join: Join,
+}
+
+/// What a layer draws: a body of its own, or a reference to the body of another layer of the scene, which `Scene::add`
+/// resolves into a body of its own for drawing.
+#[derive(Debug, Clone)]
+pub(crate) enum Base {
+    Body(Body),
+    Of(Reference),
 }
 
 /// What a layer draws before it meets the scene: its source (with its looks and its own-map masks) and where that goes,
@@ -39,6 +43,8 @@ pub(crate) struct Body {
     /// The extra places of the references that lead to this body, in order, each after the one before: empty for a layer
     /// that is not a reference.
     pub(crate) extras: Vec<Placed>,
+    /// How many references this body came through: 0 for a layer that is not a reference.
+    pub(crate) chain: usize,
 }
 
 /// How a layer joins the scene, stages 6 to 9: its masks by layers drawn on the canvas, light, opacity and blend. A
@@ -53,9 +59,9 @@ pub(crate) struct Join {
     pub(crate) masks: Vec<CanvasMask>,
     /// How many `mask` calls this layer has had: the number of the next is one more.
     mask_calls: usize,
-    /// How deep its masks nest, and how many mask layers there are in all in its tree (a shared layer counted each time).
-    pub(crate) depth: usize,
-    mask_layers: usize,
+    /// What drawing the layer costs with its mask layers (a shared layer counted each time): masks only, until `Scene::add`
+    /// resolves its references.
+    pub(crate) budget: Budget,
 }
 
 /// `name` if it is letters, digits and `_`, starting with a letter: the one rule of a layer's name and a map's.
@@ -74,24 +80,64 @@ fn check_name(field: &str, name: &str) -> Result<(), Error> {
 
 impl Layer {
     fn from_source(source: impl Source + 'static) -> Self {
+        Self::fresh(Base::Body(Body {
+            source: Arc::new(source),
+            fit: None,
+            placement: Placement::default(),
+            extras: Vec::new(),
+            chain: 0,
+        }))
+    }
+
+    /// A layer that draws `base` and joins as a plain, opaque, normal layer.
+    fn fresh(base: Base) -> Self {
         Self {
             name: None,
-            body: Body {
-                source: Arc::new(source),
-                fit: None,
-                placement: Placement::default(),
-                extras: Vec::new(),
-            },
+            base,
             join: Join {
                 opacity: 1.0,
                 blend: Blend::Normal,
                 light: false,
                 masks: Vec::new(),
                 mask_calls: 0,
-                depth: 0,
-                mask_layers: 0,
+                budget: Budget::LAYER,
             },
         }
+    }
+
+    /// What drawing this layer costs: itself, its mask layers (and, once `Scene::add` has resolved a reference, the
+    /// references it leads through).
+    pub(crate) fn budget(&self) -> Budget {
+        self.join.budget
+    }
+
+    /// The body this layer is drawn from.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] for a reference no scene has resolved: a layer is drawn only from a scene, which resolves it.
+    pub(crate) fn drawable(&self) -> Result<&Body, Error> {
+        match &self.base {
+            Base::Body(body) => Ok(body),
+            Base::Of(reference) => Err(Error::invalid(
+                "of",
+                format!("the reference to {:?} was not resolved by a scene", reference.name),
+            )),
+        }
+    }
+
+    /// A reference to the layer called `name` of the scene this layer is added to: it draws that layer again. It inherits
+    /// the layer's source, `fit`, looks, own-map masks and `place` (stages 1 to 5 of "How a layer is drawn") with that
+    /// layer's own values, so it follows it; it does not inherit its layer masks, `as_light`, opacity or blend, which
+    /// belong to the scene's composition: the reference has its own, as any layer has. It adds its own looks after the named
+    /// layer's, its own-map masks, and an extra `place` applied after the named layer's, about its own `anchor` as
+    /// fractions of the bounding rectangle of the box as the named layer places it. It has no source, no `fit` and no
+    /// `perspective`: each of those calls is refused.
+    ///
+    /// `name` is looked up when the layer is added to a scene (`Scene::add`): the layer must be in the scene already or in
+    /// the same call, and a chain of references that leads back to itself, also through masks, is refused there.
+    #[must_use]
+    pub fn of(name: &str) -> Self {
+        Self::fresh(Base::Of(Reference::new(name)))
     }
 
     /// A picture: its box is its pixels, one design pixel each, at the canvas origin; what lies outside the canvas is cut.
@@ -150,22 +196,47 @@ impl Layer {
     /// # Errors
     /// [`Error::Format`] if `json` is not a JSON object or carries a recipe `format` the linked image crate does not read;
     /// [`Error::Invalid`] naming `look` for anything image refuses, in its words, and for a layer that is no picture.
-    pub fn look(mut self, json: &str) -> Result<Self, Error> {
+    pub fn look(self, json: &str) -> Result<Self, Error> {
         let recipe = serde_json::from_str(json).map_err(|error| Error::Format {
             pointer: "/look".to_owned(),
             message: format!("not JSON: {error}"),
         })?;
-        self.body.source = self.body.source.looked(&recipe)?;
-        Ok(self)
+        self.looked(recipe)
     }
 
     /// This layer with the look of the recipe file `path` (TOML, as the image package writes it), read now.
     ///
     /// # Errors
     /// [`Error::Read`] if the file cannot be read; otherwise as [`Layer::look`].
-    pub fn look_file(mut self, path: impl AsRef<Path>) -> Result<Self, Error> {
-        self.body.source = self.body.source.looked(&recipe_file(path.as_ref())?)?;
+    pub fn look_file(self, path: impl AsRef<Path>) -> Result<Self, Error> {
+        self.looked(recipe_file(path.as_ref())?)
+    }
+
+    /// This layer with the look `recipe`: run on its source, or, for a reference, kept to be run on the source of the layer it
+    /// names after that layer's looks (`Scene::add` finds out whether that layer takes one).
+    fn looked(mut self, recipe: serde_json::Value) -> Result<Self, Error> {
+        match &mut self.base {
+            Base::Body(body) => body.source = body.source.looked(&recipe)?,
+            Base::Of(reference) => {
+                check_look(&recipe)?;
+                reference.looks.push(recipe);
+            }
+        }
         Ok(self)
+    }
+
+    /// The body of this layer, for a call that a reference refuses: it has none of its own.
+    fn own_body(&mut self, call: &str) -> Result<&mut Body, Error> {
+        match &mut self.base {
+            Base::Body(body) => Ok(body),
+            Base::Of(reference) => Err(Error::invalid(
+                call,
+                format!(
+                    "a reference has no {call} of its own: it inherits that of {:?}; place it with `place`",
+                    reference.name
+                ),
+            )),
+        }
     }
 
     /// This layer called `name`: letters, digits and `_`, starting with a letter; unique in its scene. A layer without a
@@ -213,7 +284,8 @@ impl Layer {
 
     fn given(mut self, name: &str, given: Given) -> Result<Self, Error> {
         check_name("map", name)?;
-        self.body.source = self.body.source.with_map(name, given)?;
+        let body = self.own_body("map")?;
+        body.source = body.source.with_map(name, given)?;
         Ok(self)
     }
 
@@ -228,7 +300,7 @@ impl Layer {
     /// [`Error::Invalid`] naming `box` for a size not above 0 or a number that is not finite, and `align` for a fraction
     /// outside 0 to 1.
     pub fn fit(mut self, area: [f64; 4], how: Fit, align: [f64; 2]) -> Result<Self, Error> {
-        self.body.fit = Some(Fitting::new(area, how, align)?);
+        self.own_body("fit")?.fit = Some(Fitting::new(area, how, align)?);
         Ok(self)
     }
 
@@ -240,7 +312,10 @@ impl Layer {
     /// [`Error::Invalid`] naming the field for a `scale` or `aspect` outside 0.001 to 1000, a skew outside -89 to 89, a `dx`
     /// or `dy` outside -1e6 to 1e6, an `anchor` outside 0 to 1, or a number that is not finite.
     pub fn place(mut self, place: Place) -> Result<Self, Error> {
-        self.body.placement = self.body.placement.placed(place)?;
+        match &mut self.base {
+            Base::Body(body) => body.placement = body.placement.placed(place)?,
+            Base::Of(reference) => reference.place = reference.place.with(place)?,
+        }
         Ok(self)
     }
 
@@ -256,7 +331,7 @@ impl Layer {
     /// [`Error::Invalid`] naming `corners` for a number that is not finite or is beyond -1e6 to 1e6, and for corners that
     /// are not a strictly convex quadrilateral (a dart, a bowtie, three on a line, a corner twice).
     pub fn perspective(mut self, corners: [[f64; 2]; 4]) -> Result<Self, Error> {
-        self.body.placement = Placement::Perspective(Quad::new(corners)?);
+        self.own_body("perspective")?.placement = Placement::Perspective(Quad::new(corners)?);
         Ok(self)
     }
 
@@ -268,8 +343,8 @@ impl Layer {
     /// # Errors
     /// [`Error::Invalid`] naming `feather` for a number outside 0 to 1,000,000; `use` for a map read as luminance; `mask`
     /// for a name that is no map of this layer (it has no picture, or no map of that name yet), for a mask layer that
-    /// has a name, a blend other than normal or is light, for masks nested more than [`MAX_DEPTH`] deep, and for more than
-    /// 1,000 mask layers in all.
+    /// has a name, a blend other than normal or is light, for masks nested more than [`MAX_DEPTH`] deep, and for a layer
+    /// that with its mask layers would draw more than [`MAX_LAYERS`](crate::MAX_LAYERS) layers.
     pub fn mask(mut self, mask: impl Into<Mask>) -> Result<Self, Error> {
         let mask = mask.into();
         mask.checked()?;
@@ -282,12 +357,17 @@ impl Layer {
                         "a map is its own values: read it as \"alpha\", not \"luminance\"",
                     ));
                 }
-                self.body.source = self.body.source.masked(&MapMask {
+                let map_mask = MapMask {
                     name: name.clone(),
                     number,
                     feather: mask.feather,
                     invert: mask.invert,
-                })?;
+                };
+                match &mut self.base {
+                    Base::Body(body) => body.source = body.source.masked(&map_mask)?,
+                    // a reference reads the maps of the layer it names, which `Scene::add` finds
+                    Base::Of(reference) => reference.masks.push(map_mask),
+                }
             }
             By::Layer(by) => {
                 if let Some(name) = &by.name {
@@ -311,26 +391,17 @@ impl Layer {
                         "a mask layer is not a light (its alpha is its own), got as_light(true)",
                     ));
                 }
-                if by.join.depth + 1 > MAX_DEPTH {
+                let budget = self.join.budget.needing(by.budget());
+                if budget.depth > MAX_DEPTH {
                     return Err(Error::invalid(
                         "mask",
                         format!(
                             "masks nest at most {MAX_DEPTH} deep, and this mask layer has masks {} deep",
-                            by.join.depth
+                            by.join.budget.depth
                         ),
                     ));
                 }
-                let layers = self.join.mask_layers + 1 + by.join.mask_layers;
-                if layers > MAX_LAYERS {
-                    return Err(Error::invalid(
-                        "mask",
-                        format!(
-                            "a layer holds at most {MAX_LAYERS} mask layers in all, nested ones counted each time, got {layers}"
-                        ),
-                    ));
-                }
-                self.join.depth = self.join.depth.max(by.join.depth + 1);
-                self.join.mask_layers = layers;
+                self.join.budget = budget.checked("mask")?;
                 self.join.masks.push(CanvasMask::new((**by).clone(), &mask, number));
             }
         }

@@ -2,10 +2,8 @@
 
 use std::collections::HashMap;
 
-use crate::{Error, Layer, Raster, render};
-
-/// The most layers a scene holds.
-pub const MAX_LAYERS: usize = 1_000;
+use crate::budget::Budget;
+use crate::{Error, Layer, Raster, reference, render};
 
 /// The longest a canvas side is, in design pixels.
 const MAX_CANVAS: u32 = 100_000;
@@ -16,7 +14,12 @@ const MAX_CANVAS: u32 = 100_000;
 pub struct Scene {
     width: u32,
     height: u32,
+    /// The layers as they were added.
     layers: Vec<Layer>,
+    /// The same layers as they are drawn: each reference replaced by the body it draws.
+    drawn: Vec<Layer>,
+    /// What drawing the scene costs, kept as layers are added so that a check is a sum, not a walk.
+    budget: Budget,
 }
 
 impl Scene {
@@ -38,23 +41,31 @@ impl Scene {
             width,
             height,
             layers: Vec::new(),
+            drawn: Vec::new(),
+            budget: Budget::NONE,
         })
     }
 
     /// This scene with `layers` on top of its stack, the first lowest.
     ///
+    /// A reference ([`Layer::of`]) names a layer of the scene that is there already or is in `layers`, whichever comes
+    /// first in the stack: it is drawn where it is in the stack.
+    ///
     /// # Errors
-    /// [`Error::Invalid`] naming `layers` for more than [`MAX_LAYERS`] layers in all, and naming `name` for a name used
-    /// twice (the message names both layers) or a `layer<n>` name at any place but the `n`th.
+    /// [`Error::Invalid`] naming `layers` for more layers drawn than [`MAX_LAYERS`](crate::MAX_LAYERS) (the layers, the mask
+    /// layers they are masked by and the references, a layer used twice counted twice) or leaning on other layers deeper
+    /// than [`MAX_DEPTH`](crate::MAX_DEPTH); `name` for a name used twice (the message names both layers) or a `layer<n>`
+    /// name at any place but the `n`th; `<layer>.of` for a reference that names no layer of the scene or whose chain leads
+    /// back to itself, also through a mask layer; `<layer>.look` and `<layer>.mask` for a look or a mask by a map that the
+    /// layer a reference names cannot take.
     pub fn add(&self, layers: impl IntoIterator<Item = Layer>) -> Result<Self, Error> {
         let mut stack = self.layers.clone();
         stack.extend(layers);
-        if stack.len() > MAX_LAYERS {
-            return Err(Error::invalid(
-                "layers",
-                format!("a scene holds at most {MAX_LAYERS} layers, got {}", stack.len()),
-            ));
-        }
+        // what the layers cost as they were written: enough to stop a stack far past the limit before it is walked
+        stack
+            .iter()
+            .fold(Budget::NONE, |budget, layer| budget.beside(layer.budget()))
+            .checked("layers")?;
         let mut places: HashMap<String, usize> = HashMap::new();
         for (index, layer) in stack.iter().enumerate() {
             let place = index + 1;
@@ -73,17 +84,29 @@ impl Scene {
                     ),
                 ));
             }
-            if let Some(first) = places.insert(name.clone(), place) {
+            if let Some(first) = places.insert(name.clone(), index) {
                 return Err(Error::invalid(
                     "name",
-                    format!("{name} is the name of layer {first} and of layer {place}: a name is used once in a scene"),
+                    format!(
+                        "{name} is the name of layer {} and of layer {place}: a name is used once in a scene",
+                        first + 1
+                    ),
                 ));
             }
         }
+        let mut drawn = self.drawn.clone();
+        let resolved = reference::resolve(&stack, &self.drawn, &places)?;
+        let budget = resolved
+            .iter()
+            .fold(self.budget, |budget, layer| budget.beside(layer.budget()))
+            .checked("layers")?;
+        drawn.extend(resolved);
         Ok(Self {
             width: self.width,
             height: self.height,
             layers: stack,
+            drawn,
+            budget,
         })
     }
 
@@ -115,6 +138,6 @@ impl Scene {
     /// layer cannot draw, naming the layer: [`Error::Read`] for a file, [`Error::Invalid`] for a look or a drawing the
     /// sibling crate refuses at this size.
     pub fn render(&self, size: impl Into<i128>) -> Result<Raster, Error> {
-        render::render(self.width, self.height, &self.layers, size.into())
+        render::render(self.width, self.height, &self.drawn, size.into())
     }
 }

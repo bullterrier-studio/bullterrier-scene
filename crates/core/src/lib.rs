@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 
 mod blend;
+mod budget;
 mod error;
 mod feather;
 mod geometry;
@@ -19,6 +20,7 @@ mod perspective;
 mod placement;
 mod ranges;
 mod raster;
+mod reference;
 mod render;
 mod scene;
 mod source;
@@ -26,11 +28,12 @@ mod text;
 mod warp;
 
 pub use blend::Blend;
+pub use budget::{MAX_DEPTH, MAX_LAYERS};
 pub use error::Error;
-pub use layer::{Layer, MAX_DEPTH};
+pub use layer::Layer;
 pub use map::Map;
 pub use mask::{Mask, MaskBy, Use};
 pub use placement::{Deg, Fit, Place};
 pub use raster::Raster;
-pub use scene::{MAX_LAYERS, Scene};
+pub use scene::Scene;
 pub use text::Text;

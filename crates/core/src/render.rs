@@ -59,7 +59,7 @@ pub(crate) fn render(width: u32, height: u32, layers: &[Layer], size: i128) -> R
 /// is blended at its mask's value too.
 fn lay(layer: &Layer, target: &Target, joined: &mut [f32]) -> Result<(), Error> {
     let factor = product(&layer.join, target)?;
-    let landed = land(&layer.body, target)?;
+    let landed = land(layer.drawable()?, target)?;
     let Join {
         opacity, blend, light, ..
     } = layer.join;

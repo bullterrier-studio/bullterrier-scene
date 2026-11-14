@@ -217,6 +217,12 @@ impl Layer {
         wrap(py, bullterrier_scene::Layer::fill(color)).map(Self)
     }
 
+    /// A reference to the layer called `name` of the scene it is added to.
+    #[staticmethod]
+    fn of(name: &str) -> Self {
+        Self(bullterrier_scene::Layer::of(name))
+    }
+
     /// This picture layer with the array `values` (height, width; levels 0 to 1) as its map `name`.
     fn map(&self, py: Python<'_>, name: &str, values: &Bound<'_, PyAny>) -> PyResult<Self> {
         wrap(py, self.0.clone().map(name, map_of(py, values)?)).map(Self)

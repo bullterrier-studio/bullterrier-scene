@@ -81,7 +81,8 @@ class Layer:
     """One layer of a scene: a source, and how it joins the layers below it.
 
     A layer never changes: every call returns a new one, and a layer can be used in several scenes. Make one with
-    `Layer.picture`, `Layer.drawing`, `Layer.text` or `Layer.fill`.
+    `Layer.picture`, `Layer.drawing`, `Layer.text` or `Layer.fill`, or refer to another layer of the scene with
+    `Layer.of`.
     """
 
     __slots__ = ("_core",)
@@ -184,6 +185,25 @@ class Layer:
     def fill(cls, color: str) -> Self:
         """A flat colour over the whole canvas: `"#rrggbb"` or `"#rrggbbaa"`, sRGB values, straight alpha."""
         return cls(_core.Layer.fill(color))
+
+    @classmethod
+    def of(cls, name: str) -> Self:
+        """A reference: the layer called `name` of the scene this layer is added to, drawn again.
+
+        It inherits that layer's source, `fit`, looks, own-map masks and `place` (with that layer's own values, so it
+        follows it), and not its layer masks, `as_light`, opacity or blend: the reference has its own, as any layer
+        has. Its own `look` calls run after the named layer's, `mask("map")` reads the maps of the picture it names,
+        and `place` is applied after the named layer's, about its own `anchor`, as fractions of the bounding rectangle
+        of the box as the named layer places it. `fit`, `perspective` and `maps` are an `InvalidError`: it inherits
+        them. It is also a mask: `layer.mask(Layer.of("subject"))`. `Scene.add` finds `name`: a layer added before, or
+        in the same call, either order; a name that is none, and a chain of references that leads back to itself
+        (also through masks), is an `InvalidError` there, as are a look the named layer cannot take and a map it lacks.
+        """
+        if not isinstance(name, str):
+            raise TypeError(
+                f"name: the name of a layer of the scene is wanted, got {type(name).__name__} {_shown(name)}"
+            )
+        return cls(_core.Layer.of(name))
 
     def named(self, name: str) -> Self:
         """This layer called `name`: letters, digits and `_`, starting with a letter, unique in its scene.

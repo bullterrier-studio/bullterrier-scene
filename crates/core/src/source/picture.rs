@@ -275,6 +275,14 @@ fn resized(map: &Map, window: Rect, size: (usize, usize)) -> Vec<f32> {
         .collect()
 }
 
+/// Whether `recipe` is a look this scene takes (a reference keeps its looks until it knows the layer they run on).
+///
+/// # Errors
+/// As [`Source::looked`] of a picture: what image refuses in the recipe, a `format` it does not read.
+pub(crate) fn check_look(recipe: &Value) -> Result<(), Error> {
+    Look::new(recipe).map(|_| ())
+}
+
 /// The recipe in the recipe file `path`, as the JSON document `Layer::look` takes, read now.
 ///
 /// # Errors

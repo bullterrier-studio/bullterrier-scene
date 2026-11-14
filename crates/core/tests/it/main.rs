@@ -16,5 +16,6 @@ mod masks;
 mod perspective;
 mod picture;
 mod placement;
+mod references;
 mod structure;
 mod text;
