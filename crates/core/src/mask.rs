@@ -4,9 +4,10 @@
 use std::fmt;
 use std::str::FromStr;
 
+use crate::error::label;
 use crate::feather;
+use crate::landing::{Target, land};
 use crate::ranges::FEATHER;
-use crate::render::{Target, land};
 use crate::{Error, Layer};
 
 /// What a mask reads of the layer that makes it.
@@ -143,15 +144,6 @@ impl From<Layer> for Mask {
 impl From<&str> for Mask {
     fn from(name: &str) -> Self {
         Self::new(name)
-    }
-}
-
-/// The name of the `number`th mask call of a layer, from 1: `mask`, `mask#2`...
-pub(crate) fn label(number: usize) -> String {
-    if number == 1 {
-        "mask".to_owned()
-    } else {
-        format!("mask#{number}")
     }
 }
 

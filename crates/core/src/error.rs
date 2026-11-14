@@ -33,6 +33,16 @@ pub enum Error {
     },
 }
 
+/// The name of the `number`th mask call of a layer, from 1 (`mask`, `mask#2`...): the address an error of a mask carries, written
+/// once for the masks of a source and the masks of a layer.
+pub(crate) fn label(number: usize) -> String {
+    if number == 1 {
+        "mask".to_owned()
+    } else {
+        format!("mask#{number}")
+    }
+}
+
 impl Error {
     pub(crate) fn invalid(address: &str, message: impl Into<String>) -> Self {
         Self::Invalid {

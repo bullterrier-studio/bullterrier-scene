@@ -9,9 +9,9 @@ use bullterrier_image::{Options, Photo, Presets, Recipe};
 use serde_json::Value;
 
 use super::{Drawn, Given, MapMask, Opened, Source};
+use crate::error::label;
 use crate::feather;
 use crate::geometry::Rect;
-use crate::mask::label;
 use crate::warp::resize;
 use crate::{Error, Map, Raster};
 
