@@ -89,6 +89,7 @@ impl Source for Fill {
                 room: [0; 4],
                 maps: BTreeMap::new(),
             })
-        }))
+        })
+        .own_pixels())
     }
 }

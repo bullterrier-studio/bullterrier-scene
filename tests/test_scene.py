@@ -162,9 +162,12 @@ def test_a_scene_holds_at_most_max_layers_layers():
         Scene(2, 2).add(*layers, Layer.fill("#00000001"))
 
 
-def test_a_layer_drawn_larger_than_2_pow_27_pixels_is_refused_naming_the_layer_and_its_size():
+def test_a_layer_drawn_larger_than_2_pow_27_pixels_is_refused_naming_the_layer_and_its_size_when_a_look_runs_on_it():
     # 60 design pixels at 200 output pixels each: 12,000 by 12,000, on a canvas that itself renders at 1,200 by 1,200
-    scene = Scene(6, 6).add(Layer.picture(np.full((60, 60, 3), 0.5, np.float32)).named("photo"))
+    photo = Layer.picture(np.full((60, 60, 3), 0.5, np.float32)).named("photo")
+    # a picture with no look hands its own pixels to the warp: nothing is drawn at that size
+    assert Scene(6, 6).add(photo).render(1200).shape == (1200, 1200, 4)
+    scene = Scene(6, 6).add(photo.look({"steps": [{"effect": "grade", "params": {"exposure": 0.5}}]}))
     with pytest.raises(InvalidError, match=r"photo.*12000 x 12000.*134217728"):
         scene.render(1200)
 

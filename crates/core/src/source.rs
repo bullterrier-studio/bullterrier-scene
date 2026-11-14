@@ -11,7 +11,7 @@ use crate::cache::{Cache, Keyed};
 use crate::document::Form;
 use crate::files::Located;
 use crate::finish::{Chain, Finish};
-use crate::geometry::{Rect, Scale, whole_up};
+use crate::geometry::{MAX_PIXELS, Rect, Scale, whole_up};
 use crate::parameters::{Parameter, Value};
 use crate::{Error, Map, Raster};
 
@@ -51,6 +51,65 @@ pub(crate) struct Request {
     /// The pixels the scenes this one is drawn in (as a group, one inside another) hold in their own rasters, which stay alive
     /// while this is drawn: the renderer sets it, `Layout::request` leaves it 0.
     pub(crate) held: usize,
+    /// The rows `first..end` of what the source would draw of its whole box (see [`Request::whole`]) that are wanted, for a source
+    /// that can draw them alone (`Opened::by_window`); `None` for all of it. The renderer sets it when it knows which rows the
+    /// output reads.
+    pub(crate) rows: Option<(usize, usize)>,
+}
+
+/// What a source that draws its whole box answers with, before it draws: where the raster lies on the box and how big it is.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Shape {
+    /// The part of the box the raster shows.
+    pub(crate) covers: Rect,
+    /// The raster's columns and rows, all of them (a part drawn by window is some rows of it).
+    pub(crate) size: (usize, usize),
+    /// Whether the raster ends where the window it was asked for ends (see [`Drawn::ends_at_window`]).
+    pub(crate) ends_at_window: bool,
+    /// The room past the window (see [`Drawn::room`]).
+    pub(crate) room: [usize; 4],
+}
+
+impl Request {
+    /// The shape of the whole box of `own` at this request, whatever its size.
+    pub(crate) fn drawn_shape(&self, own: Rect) -> Shape {
+        let covers = self.whole(own);
+        Shape {
+            covers,
+            size: self.scale.sides(covers),
+            ends_at_window: self.window == own,
+            room: [0; 4],
+        }
+    }
+
+    /// The shape of the whole box of `own` at this request, and the rows of it to draw: the rows asked for, or all. The limit of
+    /// 2^27 pixels is on what is drawn, so a part of a large box is drawn where the whole of it is refused.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `size` for a part (or the whole) of more than 2^27 pixels.
+    pub(crate) fn drawn_rows(&self, own: Rect) -> Result<(Shape, (usize, usize)), Error> {
+        let shape = self.drawn_shape(own);
+        let rows = match self.rows {
+            None => {
+                self.scale.size(shape.covers)?;
+                (0, shape.size.1)
+            }
+            Some((first, end)) => {
+                if shape.size.0.saturating_mul(end - first) > MAX_PIXELS {
+                    return Err(Error::invalid(
+                        "size",
+                        format!(
+                            "the layer is drawn {} x {} pixels at a time; at most {MAX_PIXELS} pixels (2^27) are drawn: lower `size` or make the layer smaller",
+                            shape.size.0,
+                            end - first
+                        ),
+                    ));
+                }
+                (first, end)
+            }
+        };
+        Ok((shape, rows))
+    }
 }
 
 impl Request {
@@ -93,6 +152,18 @@ pub(crate) struct Drawn {
     pub(crate) maps: BTreeMap<String, Vec<f32>>,
 }
 
+impl Drawn {
+    /// The shape of this answer.
+    pub(crate) fn shape(&self) -> Shape {
+        Shape {
+            covers: self.covers,
+            size: (self.raster.width(), self.raster.height()),
+            ends_at_window: self.ends_at_window,
+            room: self.room,
+        }
+    }
+}
+
 /// How a source answers: told the request and what the layer's finish needs.
 type Draw<'a> = dyn FnOnce(Request, &Finish, &Cache) -> Result<Drawn, Error> + 'a;
 
@@ -104,6 +175,11 @@ pub(crate) struct Opened<'a> {
     /// Whether it draws the whole box whatever part is asked for (a vector drawing), so that what it allocates is the box at
     /// the scale, not the part.
     pub(crate) whole: bool,
+    /// Whether it can draw some rows of its whole box alone (`Request::rows`), a pixel the same as in the whole.
+    pub(crate) by_window: bool,
+    /// Whether, with no look to run on it, it draws no more than its own pixels (a picture's, a fill's one), whatever the scale
+    /// it is asked for: the warp resamples them, so nothing of the drawn size is allocated.
+    pub(crate) own_pixels: bool,
     draw: Box<Draw<'a>>,
 }
 
@@ -123,6 +199,8 @@ impl<'a> Opened<'a> {
         Self {
             own,
             whole: false,
+            by_window: false,
+            own_pixels: false,
             draw: Box::new(draw),
         }
     }
@@ -130,6 +208,18 @@ impl<'a> Opened<'a> {
     /// This source, saying that it draws the whole of its box.
     pub(crate) fn drawing_whole(mut self) -> Self {
         self.whole = true;
+        self
+    }
+
+    /// This source, saying that with no look on it draws no more than its own pixels.
+    pub(crate) fn own_pixels(mut self) -> Self {
+        self.own_pixels = true;
+        self
+    }
+
+    /// This source, saying that it can draw some rows of its whole box alone, and each pixel of them is what it is in the whole.
+    pub(crate) fn by_window(mut self) -> Self {
+        self.by_window = true;
         self
     }
 

@@ -10,8 +10,8 @@ use crate::finish::Chain;
 use crate::geometry::{MAX_LOOKED_PIXELS, MAX_PIXELS, Rect, Scale};
 use crate::layer::Body;
 use crate::placement::{Layout, Placement};
-use crate::source::{Drawn, Request};
-use crate::warp::{Map, Output, is_identity, warp_into};
+use crate::source::{Drawn, Opened, Request, Shape};
+use crate::warp::{Map, Output, View, is_identity, rows_read, warp_into};
 use crate::{Error, Raster};
 
 /// Where a layer is drawn: the output grid of the canvas, with `margin` more pixels on each side (along x and y) for a mask
@@ -46,6 +46,11 @@ impl Target<'_> {
     /// The pixels that are drawn: the plane's columns, and the rows of the window.
     pub(crate) fn drawn_size(&self) -> (usize, usize) {
         (self.size().0, self.window.1)
+    }
+
+    /// Whether only some rows of the plane are drawn.
+    fn is_band(&self) -> bool {
+        self.window != (0, self.size().1)
     }
 
     /// The plane and the rows of it that are drawn, as a warp is told them.
@@ -146,12 +151,21 @@ pub(crate) struct Landed {
     pub(crate) map: Map,
     pub(crate) clip: Rect,
     pub(crate) output: Output,
+    /// The first row of the picture the raster holds and the rows the picture has: a layer drawn by window holds some of them.
+    first: usize,
+    total: usize,
 }
 
 impl Landed {
     /// Whether the raster is the target as it is (an unmoved layer the size of the output).
     pub(crate) fn is_unmoved(&self) -> bool {
-        matches!(self.map, Map::Affine(affine) if is_identity(&self.drawn.raster, affine, self.clip, self.output.columns, self.output.rows))
+        self.view().is_whole()
+            && matches!(self.map, Map::Affine(affine) if is_identity(&self.drawn.raster, affine, self.clip, self.output.columns, self.output.rows))
+    }
+
+    /// The raster as the rows of the picture it holds.
+    pub(crate) fn view(&self) -> View<'_> {
+        View::part(&self.drawn.raster, self.first, self.total)
     }
 
     /// The pixels of the raster that are the output's wanted rows, where the layer is unmoved.
@@ -170,13 +184,37 @@ impl Landed {
                 put(at, *pixel);
             }
         } else {
-            warp_into(&self.drawn.raster, self.map, self.clip, self.output, put);
+            warp_into(self.view(), self.map, self.clip, self.output, put);
         }
     }
 }
 
+/// What a layer drawn by window is drawn for, where it is: on a band, a source that draws its whole box and can draw some rows of it
+/// alone, with no look on it, and a warp that reads only some of those rows. The map and clip of the whole raster, the rows to draw
+/// (`first..end`) and the rows the raster has in all; `None` for any other layer, which is drawn whole.
+fn rows_to_draw(
+    opened: &Opened,
+    request: &Request,
+    target: &Target,
+    looked: bool,
+    placed: impl Fn(Shape) -> (Map, Rect),
+) -> Option<(Map, Rect, (usize, usize), usize)> {
+    if !(target.is_band() && opened.by_window && !looked) {
+        return None;
+    }
+    let shape = request.drawn_shape(opened.own);
+    let (map, clip) = placed(shape);
+    let rows = rows_read(map, target.output(), shape.size)?;
+    (rows != (0, shape.size.1)).then_some((map, clip, rows, shape.size.1))
+}
+
 /// `body` drawn at the scale it will have, and put on `target`: the source asked for the part of its box that shows, then the
 /// map of the one warp worked out.
+///
+/// On a band of the plane, a source that draws its whole box and can draw some rows of it alone (a drawing, a group), with no
+/// look to run on it, is asked only for the rows the band reads (`warp::rows_read`): the layer is never held whole, and the
+/// limit of 2^27 pixels is on those rows. Every other layer is drawn whole (and kept, where it is worth keeping), and the band
+/// is cut from it by the warp.
 pub(crate) fn land(body: &Body, target: &Target, light: bool) -> Result<Landed, Error> {
     // a source with no box of its own (a fill) takes the part of the canvas the target holds, margin included, so that a mask
     // that fills the canvas goes on into the margin; but only where nothing acts on the box, for `fit` and `place` work on
@@ -199,8 +237,46 @@ pub(crate) fn land(body: &Body, target: &Target, light: bool) -> Result<Landed, 
             },
         )
     };
-    // the one place the drawn-size limit is checked, before any source draws
-    request.scale.size(request.window)?;
+    // the output starts `margin` pixels, and the offset, up and left of the canvas
+    #[expect(clippy::cast_precision_loss, reason = "a margin of at most 2^27 pixels")]
+    let (across, down) = (
+        target.margin.0 as f64 + target.offset.0,
+        target.margin.1 as f64 + target.offset.1,
+    );
+    let placed = |shape: Shape| {
+        let (map, clip) = layout.warp(shape);
+        (
+            if (across, down) == (0.0, 0.0) {
+                map
+            } else {
+                map.shifted(across, down)
+            },
+            clip,
+        )
+    };
+    if let Some((map, clip, rows, total)) = rows_to_draw(&opened, &request, target, body.finish.is_looked(), placed) {
+        let rows_wanted = Request {
+            rows: Some(rows),
+            ..request
+        };
+        // a layer drawn by window has no look: there is no chain of looks to keep
+        let drawn = opened.draw(rows_wanted, &body.finish, light, target.cache, None)?;
+        return Ok(Landed {
+            drawn,
+            map,
+            clip,
+            output: target.output(),
+            first: rows.0,
+            total,
+        });
+    }
+    // the one place the drawn-size limit is checked, before any source draws: a source that draws its own pixels allocates
+    // nothing of the size it is drawn at, so a large scale on it is no refusal
+    if opened.own_pixels && !body.finish.is_looked() {
+        request.scale.sides_within_limit(request.window)?;
+    } else {
+        request.scale.size(request.window)?;
+    }
     let drawn = if body.keeps_drawn() {
         // the phase and the pixels held round the scene are inputs only of a source that draws on the grid: a picture that
         // moves, or sits in a group drawn at another phase, keeps its raster
@@ -230,22 +306,14 @@ pub(crate) fn land(body: &Body, target: &Target, light: bool) -> Result<Landed, 
     } else {
         opened.draw(request, &body.finish, light, target.cache, None)?
     };
-    let (map, clip) = layout.warp(&drawn);
-    // the output starts `margin` pixels, and the offset, up and left of the canvas
-    #[expect(clippy::cast_precision_loss, reason = "a margin of at most 2^27 pixels")]
-    let (across, down) = (
-        target.margin.0 as f64 + target.offset.0,
-        target.margin.1 as f64 + target.offset.1,
-    );
-    let map = if (across, down) == (0.0, 0.0) {
-        map
-    } else {
-        map.shifted(across, down)
-    };
+    let (map, clip) = placed(drawn.shape());
+    let total = drawn.raster.height();
     Ok(Landed {
         drawn,
         map,
         clip,
         output: target.output(),
+        first: 0,
+        total,
     })
 }

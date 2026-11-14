@@ -345,3 +345,44 @@ fn a_render_that_fails_leaves_no_file_and_the_old_file_as_it_was() -> Outcome {
     assert!(matches!(scene_.render_to_png(40, &missing), Err(Error::Write { .. })));
     Ok(())
 }
+
+/// A group zoomed a thousand times is 100,000 by 100,000 pixels where it is drawn: `render` refuses it by the limit of 2^27
+/// pixels on a layer, and drawn by bands only the rows a band reads are drawn, so the zoom shows what lies at the centre. The
+/// group is a plate of two colours that meet at its middle row, which the zoom keeps at the middle of the picture.
+#[test]
+fn a_group_zoomed_past_the_limit_of_a_layer_is_drawn_by_the_rows_a_band_reads() -> Outcome {
+    let plate = scene(
+        100,
+        100,
+        [
+            Layer::fill("#c04020")?.named("top")?,
+            Layer::fill("#2040c0")?
+                .named("bottom")?
+                .fit([0.0, 50.0, 100.0, 50.0], Fit::Stretch, [0.5, 0.5])?,
+        ],
+    )?;
+    let zoomed = scene(100, 100, [Layer::scene(plate).place(Place::new().scale(1000.0))?])?;
+    assert!(
+        matches!(zoomed.render(100), Err(Error::Invalid { ref address, .. }) if address.ends_with("size")),
+        "a whole render is refused by the limit of a layer"
+    );
+    let mut rows = Vec::new();
+    zoomed.render_bands(100, 10, |range, band| {
+        let level = |row: usize| band.pixels()[row * band.width() * 4..][..4].to_vec();
+        rows.push((range.start, level(0), level(band.height() - 1)));
+        Ok(())
+    })?;
+    let colour = |hex: u32| [16, 8, 0].map(|shift| f32::from(u8::try_from((hex >> shift) & 255).unwrap_or(0)) / 255.0);
+    let (red, blue) = (colour(0xc0_40_20), colour(0x20_40_c0));
+    for (first, top, bottom) in rows {
+        let want = if first < 50 { red } else { blue };
+        for found in [top, bottom] {
+            assert!(
+                found[..3].iter().zip(want).all(|(got, want)| (got - want).abs() < 1e-6)
+                    && (found[3] - 1.0).abs() < 1e-6,
+                "band at row {first}: {found:?}, wanted {want:?}"
+            );
+        }
+    }
+    Ok(())
+}

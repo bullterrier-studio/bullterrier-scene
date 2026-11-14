@@ -19,8 +19,9 @@
 //! cases are measured in the decision entry, where a pyramid of 2 by 2 averages with taps along the major axis only is
 //! weighed against it.
 
-use super::{Affine, Output, Projective, Rect, accumulate, finish, is_positive, lossless, reach, sample, share, taps};
-use crate::Raster;
+use super::{
+    Affine, Output, Projective, Rect, View, accumulate, finish, is_positive, lossless, reach, sample, share, taps,
+};
 use crate::geometry::{ROUNDING, whole_up};
 
 /// Where an output pixel falls in the raster, and how the raster changes around it.
@@ -150,7 +151,7 @@ impl Back for ProjectiveBack {
 
 /// [`warp_through`](super::warp_through) for an affine map that is not of the exact class: each output pixel by its
 /// footprint.
-pub(super) fn through(source: &Raster, map: Affine, clip: Rect, output: Output, put: &mut impl FnMut(usize, [f32; 4])) {
+pub(super) fn through(source: View, map: Affine, clip: Rect, output: Output, put: &mut impl FnMut(usize, [f32; 4])) {
     let back = AffineBack {
         map,
         inverse: map.inverse(),
@@ -160,7 +161,7 @@ pub(super) fn through(source: &Raster, map: Affine, clip: Rect, output: Output, 
 
 /// The warp of a perspective: each output pixel by its footprint, which differs from pixel to pixel.
 pub(super) fn through_projective(
-    source: &Raster,
+    source: View,
     map: Projective,
     clip: Rect,
     output: Output,
@@ -169,7 +170,7 @@ pub(super) fn through_projective(
     through_back(source, &ProjectiveBack::new(map, clip), clip, output, put);
 }
 
-fn through_back(source: &Raster, back: &impl Back, clip: Rect, output: Output, put: &mut impl FnMut(usize, [f32; 4])) {
+fn through_back(source: View, back: &impl Back, clip: Rect, output: Output, put: &mut impl FnMut(usize, [f32; 4])) {
     let columns = output.columns;
     let (width, height) = (source.width(), source.height());
     let diagonal = lossless(width).hypot(lossless(height));
@@ -201,12 +202,7 @@ fn through_back(source: &Raster, back: &impl Back, clip: Rect, output: Output, p
             let cover = cover as f32;
             let footprint = fixed.unwrap_or_else(|| Footprint::of(jacobian, diagonal));
             let pixel = if footprint.plain {
-                sample(
-                    source.pixels(),
-                    width,
-                    [taps(x - 0.5, width), taps(y - 0.5, height)],
-                    cover,
-                )
+                sample(source, [taps(x - 0.5, width), taps(y - 0.5, height)], cover)
             } else {
                 footprint.sample(source, (x, y), cover)
             };
@@ -261,7 +257,7 @@ impl Footprint {
     }
 
     /// The pixel at `position` (in raster pixels) filtered over the footprint, its alpha scaled by `cover`.
-    fn sample(&self, source: &Raster, (x, y): (f64, f64), cover: f32) -> [f32; 4] {
+    fn sample(&self, source: View, (x, y): (f64, f64), cover: f32) -> [f32; 4] {
         let mut mixed = [0.0_f32; 4];
         let mut total = 0.0_f32;
         let (width, height) = (source.width(), source.height());
@@ -277,8 +273,7 @@ impl Footprint {
                 let at_x = x + along * self.along.0 + aside * across.0;
                 let at_y = y + along * self.along.1 + aside * across.1;
                 accumulate(
-                    source.pixels(),
-                    width,
+                    source,
                     [taps(at_x - 0.5, width), taps(at_y - 0.5, height)],
                     share,
                     &mut mixed,

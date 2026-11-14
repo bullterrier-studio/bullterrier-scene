@@ -7,7 +7,9 @@
 use bullterrier_scene::{Deg, Error, Fit, Layer, Place, Raster};
 use proptest::prelude::*;
 
-use crate::common::{Outcome, close, exactly, made, numbered, pixel, pixels, rectangle, render, scene, solid, varied};
+use crate::common::{
+    Outcome, all_exactly, close, exactly, made, numbered, pixel, pixels, rectangle, render, scene, solid, varied,
+};
 
 const CLEAR: [f32; 4] = [0.0; 4];
 
@@ -1372,8 +1374,8 @@ fn a_place_number_is_refused_outside_its_range_naming_the_field() -> Outcome {
 #[test]
 fn a_layer_of_absurd_size_is_refused_as_more_than_the_limit_not_as_a_saturated_count() -> Outcome {
     for (area, wanted) in [
-        ([0.0, 0.0, 1e300, 1.0], "more than 134217728 x 1 pixels"),
-        ([0.0, 0.0, 1.0, 1e300], "x more than 134217728 pixels"),
+        ([0.0, 0.0, 1e300, 1.0], "more than 2147483648 x 1 pixels"),
+        ([0.0, 0.0, 1.0, 1e300], "x more than 2147483648 pixels"),
     ] {
         let layer = Layer::fill("#ffffff")?
             .named("band")?
@@ -1448,12 +1450,15 @@ fn a_refusal_names_the_range_of_the_number() -> Outcome {
     Ok(())
 }
 
-/// A scale that makes the drawn layer larger than 2^27 pixels is refused at render naming the layer, a fill included.
+/// A scale that makes the drawn layer larger than 2^27 pixels is refused at render naming the layer when a look runs on it; a
+/// flat colour with none is one pixel, whatever the scale, and is drawn.
 #[test]
 fn a_scale_that_draws_more_than_2_pow_27_pixels_is_refused_naming_the_layer() -> Outcome {
     let layer = Layer::fill("#ffffff")?
         .named("band")?
         .place(Place::new().scale(1000.0))?;
+    assert!(all_exactly(&scene(100, 100, [layer.clone()])?.render(100)?, [1.0; 4]));
+    let layer = layer.look(r#"{"steps": [{"effect": "grade", "params": {"exposure": 0.5}}]}"#)?;
     let refused = scene(100, 100, [layer])?.render(100);
     assert!(
         matches!(&refused, Err(Error::Invalid { address, message }) if address.starts_with("band") && message.contains("134217728")),

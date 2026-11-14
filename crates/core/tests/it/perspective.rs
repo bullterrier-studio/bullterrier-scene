@@ -559,8 +559,11 @@ fn a_perspective_that_asks_for_more_than_2_pow_27_pixels_is_drawn_smaller_not_re
     let drawn = render(layer, (16, 16), 16)?;
     // the canvas is the middle of the quadrilateral, which the frame's rectangle covers
     assert!(pixels(&drawn).all(|got| close(got, [1.0, 0.0, 0.0, 1.0], 1e-6)));
-    // while a place that asks for as much is refused
-    let refused = scene(100, 100, [Layer::fill("#ffffff")?.place(Place::new().scale(1000.0))?])?.render(100);
+    // while a place that asks for as much, with a look run on it, is refused
+    let looked = Layer::fill("#ffffff")?
+        .place(Place::new().scale(1000.0))?
+        .look(r#"{"steps": [{"effect": "grade", "params": {"exposure": 0.5}}]}"#)?;
+    let refused = scene(100, 100, [looked])?.render(100);
     assert!(refused.is_err());
     Ok(())
 }

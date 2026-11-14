@@ -22,7 +22,6 @@
 
 mod footprint;
 
-use std::borrow::Cow;
 use std::sync::Arc;
 
 use crate::Raster;
@@ -115,6 +114,49 @@ impl Map {
     }
 }
 
+/// A raster seen as some rows of a picture of `total` rows: the ones from `first`, as many as it holds. A raster drawn whole is
+/// all of its picture; a part is what a band of the output reads of a layer that was drawn by window.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct View<'a> {
+    raster: &'a Raster,
+    first: usize,
+    total: usize,
+}
+
+impl<'a> View<'a> {
+    /// `raster`, the whole picture.
+    pub(crate) fn whole(raster: &'a Raster) -> Self {
+        Self {
+            raster,
+            first: 0,
+            total: raster.height(),
+        }
+    }
+
+    /// `raster` as the rows from `first` of a picture of `total` rows.
+    pub(crate) fn part(raster: &'a Raster, first: usize, total: usize) -> Self {
+        Self { raster, first, total }
+    }
+
+    fn width(self) -> usize {
+        self.raster.width()
+    }
+
+    /// The rows of the whole picture.
+    fn height(self) -> usize {
+        self.total
+    }
+
+    fn pixels(self) -> &'a [f32] {
+        self.raster.pixels()
+    }
+
+    /// Whether this is the whole picture.
+    pub(crate) fn is_whole(self) -> bool {
+        self.first == 0 && self.raster.height() == self.total
+    }
+}
+
 /// The output a warp fills: a plane of `columns` by `rows` pixels of which only the rows `first..first + count` are made and
 /// handed over (a band of the picture), each as `put(index, pixel)` with `index` counted from the first of them. A pixel is the
 /// same whichever rows are wanted: a row's pixels depend on the row's place in the plane alone.
@@ -186,7 +228,7 @@ fn keeps_axes(map: Affine) -> bool {
 fn warp_by(source: &Raster, map: Affine, clip: Rect, columns: usize, rows: usize, aligned: bool) -> Raster {
     let mut output = vec![0.0_f32; columns * rows * 4];
     warp_through(
-        source,
+        View::whole(source),
         map,
         clip,
         Output::whole(columns, rows),
@@ -203,7 +245,7 @@ fn warp_by(source: &Raster, map: Affine, clip: Rect, columns: usize, rows: usize
 /// pixels, bit for bit; the one for an axis-aligned map finds each column's and row's taps and coverage once instead of for
 /// every pixel, and handing the pixels over lets a caller blend them where they land instead of making a raster of the
 /// output first.
-pub(crate) fn warp_into(source: &Raster, map: Map, clip: Rect, output: Output, put: &mut impl FnMut(usize, [f32; 4])) {
+pub(crate) fn warp_into(source: View, map: Map, clip: Rect, output: Output, put: &mut impl FnMut(usize, [f32; 4])) {
     match map {
         Map::Affine(map) => warp_through(source, map, clip, output, keeps_axes(map), put),
         Map::Projective(map) => footprint::through_projective(source, map, clip, output, put),
@@ -217,7 +259,7 @@ fn is_exact_class(map: Affine) -> bool {
 }
 
 fn warp_through(
-    source: &Raster,
+    source: View,
     map: Affine,
     clip: Rect,
     output: Output,
@@ -234,7 +276,7 @@ fn warp_through(
 /// [`warp_through`] for a map whose footprint is a rectangle along the raster's axes: area average by the column norms, then
 /// bilinear.
 fn exact_through(
-    source: &Raster,
+    source: View,
     map: Affine,
     clip: Rect,
     output: Output,
@@ -242,7 +284,8 @@ fn exact_through(
     put: &mut impl FnMut(usize, [f32; 4]),
 ) {
     let columns = output.columns;
-    let (source, map, clip) = prefiltered(source, map, clip);
+    let (reduced, map, clip) = prefiltered(source, map, clip);
+    let source = reduced.as_ref().map_or(source, View::whole);
     let (width, height) = (source.width(), source.height());
     let pixels = source.pixels();
     let inverse = map.inverse();
@@ -299,7 +342,7 @@ fn exact_through(
                 }
                 let pixel = match flat {
                     Some([red, green, blue, alpha]) => [red, green, blue, alpha * single(cover)],
-                    None => sample(pixels, width, [*x_taps, y_taps], single(cover)),
+                    None => sample(source, [*x_taps, y_taps], single(cover)),
                 };
                 put((row - output.first) * columns + column, pixel);
             }
@@ -315,12 +358,7 @@ fn exact_through(
                 if !is_positive(cover) {
                     continue;
                 }
-                let pixel = sample(
-                    pixels,
-                    width,
-                    [taps(x - 0.5, width), taps(y - 0.5, height)],
-                    single(cover),
-                );
+                let pixel = sample(source, [taps(x - 0.5, width), taps(y - 0.5, height)], single(cover));
                 put((row - output.first) * columns + column, pixel);
             }
         }
@@ -379,10 +417,10 @@ fn taps(at: f64, count: usize) -> (usize, usize, f32) {
 
 /// The pixel the taps `[(first, second, toward_second) per axis]` and the `cover` make: a pixel at a single tap is copied,
 /// the alpha scaled by `cover`; otherwise the four are mixed premultiplied.
-fn sample(pixels: &[f32], width: usize, [x, y]: [(usize, usize, f32); 2], cover: f32) -> [f32; 4] {
+fn sample(source: View, [x, y]: [(usize, usize, f32); 2], cover: f32) -> [f32; 4] {
     let at = |row: usize, column: usize| -> [f32; 4] {
         let mut pixel = [0.0; 4];
-        pixel.copy_from_slice(&pixels[(row * width + column) * 4..][..4]);
+        pixel.copy_from_slice(&source.pixels()[((row - source.first) * source.width() + column) * 4..][..4]);
         pixel
     };
     // a weight of exactly 0 is the exact case: the output pixel's centre is the middle of a raster pixel
@@ -393,7 +431,7 @@ fn sample(pixels: &[f32], width: usize, [x, y]: [(usize, usize, f32); 2], cover:
     }
     let mut mixed = [0.0_f32; 4];
     let mut total = 0.0_f32;
-    accumulate(pixels, width, [x, y], 1.0, &mut mixed, &mut total);
+    accumulate(source, [x, y], 1.0, &mut mixed, &mut total);
     finish(mixed, total, cover)
 }
 
@@ -401,18 +439,12 @@ fn sample(pixels: &[f32], width: usize, [x, y]: [(usize, usize, f32); 2], cover:
 /// `pixels`, bilinear, each at `tap_weight` times its bilinear weight. Colour and alpha are summed in the same order with a
 /// colour never above its alpha, and rounding is monotone, so the mixed colour is never above the mixed alpha and the
 /// quotient is at most 1.
-fn accumulate(
-    pixels: &[f32],
-    width: usize,
-    [x, y]: [(usize, usize, f32); 2],
-    tap_weight: f32,
-    mixed: &mut [f32; 4],
-    total: &mut f32,
-) {
+fn accumulate(source: View, [x, y]: [(usize, usize, f32); 2], tap_weight: f32, mixed: &mut [f32; 4], total: &mut f32) {
     for (row, weight_row) in [(y.0, 1.0 - y.2), (y.1, y.2)] {
         for (column, weight_column) in [(x.0, 1.0 - x.2), (x.1, x.2)] {
             let weight = tap_weight * (weight_row * weight_column);
-            let at = (row * width + column) * 4;
+            let at = ((row - source.first) * source.width() + column) * 4;
+            let pixels = source.pixels();
             let [red, green, blue, alpha] = [pixels[at], pixels[at + 1], pixels[at + 2], pixels[at + 3]];
             mixed[0] += weight * (red * alpha);
             mixed[1] += weight * (green * alpha);
@@ -481,10 +513,9 @@ fn reach(forward: impl Fn(f64, f64) -> (f64, f64), clip: Rect, output: Output) -
     (first_row, last_row.max(first_row), first_column, last_column)
 }
 
-/// `source`, `map` and `clip` with each raster axis the map shrinks (the norm of its column of the map below 1) averaged by
-/// area down to the pixels it covers; unchanged where the map does not shrink it.
-fn prefiltered(source: &Raster, map: Affine, clip: Rect) -> (Cow<'_, Raster>, Affine, Rect) {
-    let (width, height) = (source.width(), source.height());
+/// The size `map` averages a raster of `width` by `height` pixels down to before it is resampled: each axis the map shrinks (the
+/// norm of its column of the map below 1) to the pixels it covers, the other unchanged.
+fn reduced_size((width, height): (usize, usize), map: Affine) -> (usize, usize) {
     let kept = |count: usize, scale: f64| -> usize {
         if scale < 1.0 {
             whole_up(lossless(count) * scale).clamp(1, count)
@@ -492,10 +523,58 @@ fn prefiltered(source: &Raster, map: Affine, clip: Rect) -> (Cow<'_, Raster>, Af
             count
         }
     };
-    let (columns, rows) = (kept(width, map.a.hypot(map.d)), kept(height, map.b.hypot(map.e)));
-    if (columns, rows) == (width, height) {
-        return (Cow::Borrowed(source), map, clip);
+    (kept(width, map.a.hypot(map.d)), kept(height, map.b.hypot(map.e)))
+}
+
+/// The rows `first..end` of a raster of `width` by `total` rows that an output of `output`'s rows reads under `map`, with the
+/// room the kernels read around a point; `None` where the raster must be held whole: a perspective, a map that averages the
+/// raster down first, or a map that cannot be inverted. A raster drawn by window is cut at these rows, so a pixel is the
+/// same as when it was drawn whole.
+pub(crate) fn rows_read(map: Map, output: Output, (width, total): (usize, usize)) -> Option<(usize, usize)> {
+    let Map::Affine(map) = map else {
+        return None;
+    };
+    if reduced_size((width, total), map) != (width, total) {
+        return None;
     }
+    let inverse = map.inverse();
+    let (top, bottom) = (lossless(output.first), lossless(output.first + output.count));
+    let right = lossless(output.columns);
+    let rows = [(0.0, top), (right, top), (0.0, bottom), (right, bottom)].map(|(x, y)| inverse.at(x, y).1);
+    let (low, high) = rows
+        .iter()
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(low, high), &row| {
+            (low.min(row), high.max(row))
+        });
+    // a tap is a pixel either side of a point, and a footprint reaches half its longest axis (at most the norm of the map
+    // back) either side of it
+    let room = inverse.a.hypot(inverse.b).hypot(inverse.d.hypot(inverse.e)).ceil() + 2.0;
+    if !(low - room).is_finite() || !(high + room).is_finite() {
+        return None;
+    }
+    let last = lossless(total);
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "clamped into 0 to the count of rows first"
+    )]
+    let (first, end) = (
+        (low - room).floor().clamp(0.0, last - 1.0) as usize,
+        (high + room).ceil().clamp(1.0, last) as usize,
+    );
+    Some((first, end.max(first + 1)))
+}
+
+/// `source`, `map` and `clip` with each raster axis the map shrinks (the norm of its column of the map below 1) averaged by
+/// area down to the pixels it covers; unchanged where the map does not shrink it.
+fn prefiltered(source: View, map: Affine, clip: Rect) -> (Option<Raster>, Affine, Rect) {
+    let (width, height) = (source.width(), source.height());
+    let (columns, rows) = reduced_size((width, height), map);
+    if (columns, rows) == (width, height) {
+        return (None, map, clip);
+    }
+    // a part of a picture is never reduced: whoever draws a part checks `rows_read` first
+    debug_assert!(source.first == 0 && source.raster.height() == height);
     // a pixel of the averaged raster is this many pixels of the source across
     let (step_x, step_y) = (lossless(width) / lossless(columns), lossless(height) / lossless(rows));
     let map = Affine {
@@ -512,7 +591,7 @@ fn prefiltered(source: &Raster, map: Affine, clip: Rect) -> (Cow<'_, Raster>, Af
         width: clip.width / step_x,
         height: clip.height / step_y,
     };
-    (Cow::Owned(reduce(source, columns, rows)), map, clip)
+    (Some(reduce(source.raster, columns, rows)), map, clip)
 }
 
 /// The source pixels, and their weights, that make output pixel `j` of `count` on a line of `from` pixels: each source pixel

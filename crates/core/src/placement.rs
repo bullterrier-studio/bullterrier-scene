@@ -9,7 +9,7 @@ use crate::geometry::{Axis, Rect, Scale};
 use crate::parameters::{Parameter, Value};
 use crate::perspective::Quad;
 use crate::ranges::{FRACTION, RATIO, SKEW, TRAVEL};
-use crate::source::{Drawn, Request};
+use crate::source::{Request, Shape};
 use crate::warp::{Affine, Map, Projective};
 
 /// How `fit` puts a layer's box into the box it is given.
@@ -682,6 +682,7 @@ impl Layout {
                     phase: (0.0, 0.0),
                     canvas: (0.0, 0.0),
                     held: 0,
+                    rows: None,
                 };
             }
         };
@@ -694,6 +695,7 @@ impl Layout {
             phase: self.phase(own, placed),
             canvas: (0.0, 0.0),
             held: 0,
+            rows: None,
         }
     }
 
@@ -761,12 +763,12 @@ impl Layout {
     /// output scale. Each entry of the map is formed as one quotient of whole numbers where it can be (the count of pixels
     /// of the raster is the divisor), so that a map that is the identity, a move or a quarter turn has exact entries. A
     /// perspective puts the fitted box on its quadrilateral instead, in the same way when that is a parallelogram.
-    pub(crate) fn warp(&self, drawn: &Drawn) -> (Map, Rect) {
-        let covers = drawn.covers;
+    pub(crate) fn warp(&self, shape: Shape) -> (Map, Rect) {
+        let covers = shape.covers;
         // the raster's size, as floats
         #[expect(clippy::cast_precision_loss, reason = "a side of at most 2^27 pixels")]
-        let counts = [drawn.raster.width() as f64, drawn.raster.height() as f64];
-        let clip = if self.window == covers || drawn.ends_at_window {
+        let counts = [shape.size.0 as f64, shape.size.1 as f64];
+        let clip = if self.window == covers || shape.ends_at_window {
             Rect {
                 x: 0.0,
                 y: 0.0,
@@ -777,7 +779,7 @@ impl Layout {
             let (across, down) = (counts[0] / covers.width, counts[1] / covers.height);
             // a light layer's room is shown with the window; its pixels are the raster's own
             #[expect(clippy::cast_precision_loss, reason = "a room of at most 2^26 pixels")]
-            let [top, right, bottom, left] = drawn.room.map(|side| side as f64);
+            let [top, right, bottom, left] = shape.room.map(|side| side as f64);
             Rect {
                 x: (self.window.x - covers.x) * across - left,
                 y: (self.window.y - covers.y) * down - top,
@@ -883,14 +885,12 @@ fn capped(part: Rect, (across, down): (f64, f64), limit: usize) -> f64 {
 // Inline, because no public route reaches these: a render shows the scale a source is asked for only through its pixels.
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
 
     use super::{Fit, Fitting, Layout, Place, Placed, Placement, capped};
-    use crate::Raster;
     use crate::geometry::{MAX_PIXELS, Rect, Scale};
     use crate::perspective::Quad;
     use crate::placement::Deg;
-    use crate::source::Drawn;
+    use crate::source::Shape;
     use crate::warp::{Affine, Map};
 
     fn rect(width: f64, height: f64) -> Rect {
@@ -1036,14 +1036,13 @@ mod tests {
 
     /// The warp of the whole 20 by 10 raster: its map.
     fn map_of(layout: &Layout) -> Map {
-        let drawn = Drawn {
-            raster: Arc::new(Raster::made(20, 10, vec![0.0; 20 * 10 * 4])),
+        let shape = Shape {
             covers: rect(20.0, 10.0),
+            size: (20, 10),
             ends_at_window: false,
             room: [0; 4],
-            maps: std::collections::BTreeMap::new(),
         };
-        layout.warp(&drawn).0
+        layout.warp(shape).0
     }
 
     fn affine(layout: &Layout) -> Affine {

@@ -54,6 +54,11 @@ impl Axis {
     }
 }
 
+/// The longest side, in pixels, a layer that is not drawn at its size may have: 2^31. Such a layer (a picture's own pixels, a
+/// flat colour) is resampled by the warp and allocates nothing of the size it is placed at, so its limit is where the warp's
+/// positions stay exact in a float, not the memory of a picture.
+pub(crate) const MAX_SIDE: usize = 1 << 31;
+
 /// The relative error a length may have and still count as the whole number it should be: 1e-12, about 4,500 times the
 /// rounding of a product of two numbers. A fit factor times a zoom (0.1 x 3 is 0.30000000000000004) is a few units in the
 /// last place off the whole number it is in exact arithmetic, and must not draw a pixel more. The same allowance says a singular value is 1, and a sum of corners is 0.
@@ -116,6 +121,43 @@ impl Scale {
             x: self.x.times(x),
             y: self.y.times(y),
         }
+    }
+
+    /// The sides in pixels, as `(columns, rows)`, of `rect` drawn at this scale, whatever the number of pixels (a count past what
+    /// a machine word holds saturates): for a layer drawn by window, whose limit is on the window.
+    pub(crate) fn sides(self, rect: Rect) -> (usize, usize) {
+        (
+            whole_up(self.x.pixels(rect.width)),
+            whole_up(self.y.pixels(rect.height)),
+        )
+    }
+
+    /// Whether `rect` placed at this scale has no side past [`MAX_SIDE`]: the check of a layer that is not drawn at its size.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `size` for a side past the limit.
+    pub(crate) fn sides_within_limit(self, rect: Rect) -> Result<(), Error> {
+        #[expect(clippy::cast_precision_loss, reason = "the limit is a power of two: exact")]
+        let limit = MAX_SIDE as f64;
+        let (columns, rows) = (self.x.count(rect.width), self.y.count(rect.height));
+        if columns <= limit && rows <= limit {
+            return Ok(());
+        }
+        let shown = |count: f64| {
+            if count > limit {
+                format!("more than {MAX_SIDE}")
+            } else {
+                format!("{count}")
+            }
+        };
+        Err(Error::invalid(
+            "size",
+            format!(
+                "the layer is placed {} x {} pixels; a side of a layer that is not drawn at its size is at most {MAX_SIDE} pixels (2^31): lower `size` or make the layer smaller",
+                shown(columns),
+                shown(rows)
+            ),
+        ))
     }
 
     /// The size in pixels, as `(columns, rows)`, of `rect` drawn at this scale: `ceil(width x scale)` by `ceil(height x

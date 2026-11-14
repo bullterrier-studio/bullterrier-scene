@@ -102,16 +102,17 @@ impl Source for Group {
             height: f64::from(self.scene.height()),
         };
         let opened = Opened::new(own, move |request, cache| {
-            let covers = request.whole(own);
-            let (columns, rows) = request.scale.size(covers)?;
+            let (shape, (first, end)) = request.drawn_rows(own)?;
+            let (columns, rows) = shape.size;
             // the pictures of the groups drawn inside one another are alive together: their sum is the bound, checked before
             // this one is allocated
-            let held = request.held + columns * rows;
+            let held = request.held + columns * (end - first);
             if held > MAX_PIXELS {
                 return Err(Error::invalid(
                     "size",
                     format!(
-                        "the scenes drawn inside one another hold {held} pixels at once ({columns} x {rows} here, {} outside); at most {MAX_PIXELS} pixels (2^27): lower `size` or make the scenes smaller",
+                        "the scenes drawn inside one another hold {held} pixels at once ({columns} x {} here, {} outside); at most {MAX_PIXELS} pixels (2^27): lower `size` or make the scenes smaller",
+                        end - first,
                         request.held
                     ),
                 ));
@@ -122,20 +123,20 @@ impl Source for Group {
                 columns,
                 rows,
                 margin: (0, 0),
-                window: (0, rows),
+                window: (first, end - first),
                 offset: request.phase,
                 held,
                 cache,
             };
             let joined = draw(&self.scene.drawn, &target).map_err(|error| error.in_layer("scene"))?;
             Ok(Drawn {
-                raster: Arc::new(Raster::made(columns, rows, straight(joined))),
-                covers,
-                ends_at_window: request.window == own,
+                raster: Arc::new(Raster::made(columns, end - first, straight(joined))),
+                covers: shape.covers,
+                ends_at_window: shape.ends_at_window,
                 room: [0; 4],
                 maps: BTreeMap::new(),
             })
         });
-        Ok(opened.drawing_whole())
+        Ok(opened.drawing_whole().by_window())
     }
 }

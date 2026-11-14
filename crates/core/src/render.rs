@@ -152,7 +152,7 @@ fn lay(layer: &Layer, target: &Target, joined: &mut [f32]) -> Result<(), Error> 
         over(joined, landed.unmoved_pixels(), opacity);
     } else {
         warp_into(
-            &landed.drawn.raster,
+            landed.view(),
             landed.map,
             landed.clip,
             landed.output,

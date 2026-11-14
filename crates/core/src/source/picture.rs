@@ -543,7 +543,8 @@ impl Source for Picture {
                     .map(|(name, map)| ((*name).to_owned(), resized(map, window, (columns, rows))))
                     .collect(),
             })
-        }))
+        })
+        .own_pixels())
     }
 
     fn map_names(&self) -> Option<Vec<&str>> {
