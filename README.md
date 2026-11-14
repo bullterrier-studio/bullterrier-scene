@@ -116,8 +116,8 @@ a video frame is a scene drawn at one moment. The reasoning is in [docs/design.m
 ## Status
 
 **Pre-alpha, and private.** A scene of pictures (with an image look), vector drawings and flat fills, each fitted into a box
-and turned, skewed, mirrored, scaled, moved or put on a quadrilateral in perspective, can be rendered whole at any size, with opacity: [docs/gallery](docs/gallery)
-shows what it draws, and `uv run poe look` draws it. Masks, blend modes, groups, parameters and caching come in the next batches ([docs/roadmap.md](docs/roadmap.md)). The repository
+and turned, skewed, mirrored, scaled, moved or put on a quadrilateral in perspective, can be rendered whole at any size, with masks, opacity and a blend mode: [docs/gallery](docs/gallery)
+shows what it draws, and `uv run poe look` draws it. Groups, effects on every layer, parameters and caching come in the next batches ([docs/roadmap.md](docs/roadmap.md)). The repository
 is private because it is built on two sibling packages that are themselves not released; it opens up when they do.
 
 ## Works with

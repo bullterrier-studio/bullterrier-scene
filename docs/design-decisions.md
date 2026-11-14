@@ -367,6 +367,37 @@ on it (C7); the cache cannot belong to a scene value, which is immutable, nor to
 path, size and modification time and its digest is computed at `to_json`; the cache is tested through a plugin layer that
 counts its `draw` calls (`Layer.make`, arrives with C7).
 
+## Blend modes and light: what C4a settled (2026-11-14)
+
+- **A blend is applied at the landing pixel, by one function.** `blend::join` takes the pixel the warp lands (straight colour,
+  alpha times masks and opacity) and the premultiplied backdrop and applies the equation of section 9 of the W3C Compositing and
+  Blending Level 1: `Cs' = (1 - ab) Cs + ab B(Cb, Cs)`, `co = as Cs' + (1 - as) ab Cb`, `ao = as + ab (1 - as)`. *Reason:* the
+  renderer hides blending, and a layer needs no canvas-sized raster of its own for it (C2a's rule). *Alternative weighed:* blend
+  whole rasters after the warp (simpler to read, one canvas-sized copy a layer, 2^27 pixels at 2 GB each).
+- **Normal keeps its code.** A layer that is normal and not light takes the three paths it took before C4a (masked, unmoved copy,
+  warp); only the others go through `join`. *Reason:* the 1,000-fill benchmark is the measure of that path and L21 of the shared
+  lessons says a new module can cost it. Measured: unchanged ("What is built", limits). *Cost:* a blended layer is three to six
+  times a normal one, which copies its pixels (a 12 megapixel picture: 0.03 s normal, 0.09 to 0.18 s blended).
+- **The result is held between 0 and its alpha, in `join`.** A property test found `luminosity` giving a channel of -7e-9: the
+  clip of the non-separable modes lands on 0 or 1 exactly in real numbers and an `f32` misses by ulps. The straight backdrop of the
+  next layer is that colour over its alpha, so the invariant "a premultiplied colour never passes its alpha" is made where the
+  colour is made, once, not defended in the readers.
+- **Light is linear, so its order among the masks and the opacity is not observable.** `lit` turns the landed pixel into its colour
+  over black, with alpha the largest of the three, and the masks and the opacity scale that alpha; a mask before or after the
+  light gives the same pixel, and the code does it in the order of the stages. *Consequence:* a look that makes room past the box
+  (C5) is what makes light spill; until then a light layer only counts the colour it has by its brightness.
+- **The nearest name is by edit distance, after lower case and `_` read as `-`.** One rule covers `"Multiply"`, `"soft_light"`,
+  `"softlight"` and a typo, so no list of known slips. *Alternative:* a refusal that lists the names only.
+- **Vector is the differential oracle of the separable modes, and its tolerance is its own.** Vector holds a translucent source
+  premultiplied in 8 bits, which `color-burn` and `color-dodge` turn into up to 2.1 levels at alpha 0.5 where the W3C formula
+  and scene agree; the bound is 1.5 levels for an opaque source and 3 for a translucent one, and the translucent equation is
+  also checked by hand cases whose numbers are exact.
+- **Mask-layer refusals are at the `mask` call**, as the name already was: a non-normal blend and `as_light(true)` are
+  `InvalidError` naming `mask`; the calls that say nothing (`blend("normal")`, `as_light(False)`) are accepted.
+- **What C4b meets** ("Needs from others" in `api.md`): `lay` draws into the one joined buffer and knows no layer by name; a group
+  needs an isolated buffer; `Layer` does not separate the stages a reference inherits from those it owns; `Placement` cannot hold
+  two placements composed.
+
 ## Smaller choices of the API (2026-11-13)
 
 - **A group is a scene, a mask is a layer.** No group type and no mask type; one `Layer` does both.
