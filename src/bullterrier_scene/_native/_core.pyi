@@ -1,19 +1,39 @@
 # The stub of the Rust extension `bullterrier_scene._native._core` (crates/python). The documentation is the
 # extension's own (`help(Scene)`).
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from os import PathLike
 from typing import Any, final
 
 import numpy as np
 import numpy.typing as npt
 
-__all__ = ["MAX_DEPTH", "MAX_LAYERS", "Held", "Layer", "Scene", "main"]
+__all__ = [
+    "MAX_DEPTH",
+    "MAX_LAYERS",
+    "Held",
+    "Layer",
+    "Scene",
+    "Snapshot",
+    "layer_kinds",
+    "main",
+    "register_layer",
+    "registry_restore",
+    "registry_snapshot",
+]
 
 MAX_LAYERS: int
 MAX_DEPTH: int
 
 def main(argv: list[str], version: str) -> int: ...
+
+@final
+class Snapshot: ...
+
+def register_layer(function: Callable[..., Any], name: str, identity: str) -> None: ...
+def layer_kinds() -> list[str]: ...
+def registry_snapshot() -> Snapshot: ...
+def registry_restore(snapshot: Snapshot | None) -> None: ...
 
 @final
 class Held:
@@ -35,6 +55,8 @@ class Layer:
     def text(content: str, font: str, color: str, options: str) -> Layer: ...
     @staticmethod
     def text_file(content: str, path: str | PathLike[str], color: str, options: str) -> Layer: ...
+    @staticmethod
+    def make(kind: str, options: str) -> Layer: ...
     @staticmethod
     def fill(color: str) -> Layer: ...
     @staticmethod

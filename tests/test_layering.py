@@ -4,6 +4,7 @@ import only the layers below it:
     app        __main__ > cli
     facade     scene > layer > parameter: what a call takes of the objects the sibling packages write, and gives the
                core; what a scene says of a value a caller may set
+    plugin     the decorator and the loader of entry-point layer kinds (the extension calls its `_load` at run time)
     _native    the home of the Rust extension (`_native._core`); it imports only `errors` (the extension imports its
                `InvalidError` when it first raises one)
     errors     the exceptions; they import nothing from bullterrier_scene, so every layer may raise them
@@ -28,7 +29,7 @@ PACKAGE = Path(bullterrier_scene.__file__).parent
 ROOT = PACKAGE.parent.parent  # the repository: pyproject.toml holds the contracts
 LINT_IMPORTS = Path(sys.executable).with_name("lint-imports")  # `uv run lint-imports` from the repository root
 
-LAYERS = "Layers: __main__ > cli > scene > layer > parameter > _native > errors"
+LAYERS = "Layers: __main__ > cli > scene > layer > parameter > plugin > _native > errors"
 
 
 def lint(cwd: Path, pythonpath: Path | None = None) -> subprocess.CompletedProcess:

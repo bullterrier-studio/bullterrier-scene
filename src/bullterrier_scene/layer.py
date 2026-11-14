@@ -210,6 +210,14 @@ class Layer:
         raise TypeError(f"font: a bundled font's name or a Path to a font file is wanted, got {type(font).__name__}")
 
     @classmethod
+    def make(cls, kind: str, /, **options: Any) -> Self:
+        """A layer drawn by the registered layer kind `kind` (`register_layer`, an entry point of the group
+        `bullterrier_scene.layers`) with `options`, which are plain JSON data: the keyword arguments of its function.
+        Its box is the canvas. A saved scene names the kind and the options, so `Scene.from_json` makes it again.
+        `InvalidError` for a kind that is not registered (the message lists the kinds) and for options it refuses."""
+        return cls(_core.Layer.make(kind, _document("options", options)))
+
+    @classmethod
     def fill(cls, color: str) -> Self:
         """A flat colour over the whole canvas: `"#rrggbb"` or `"#rrggbbaa"`, sRGB values, straight alpha."""
         return cls(_core.Layer.fill(color))

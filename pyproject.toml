@@ -334,7 +334,7 @@ DEP004 = ["packaging"]
 root_package = "bullterrier_scene"
 
 [[tool.importlinter.contracts]]
-name = "Layers: __main__ > cli > scene > layer > parameter > _native > errors"
+name = "Layers: __main__ > cli > scene > layer > parameter > plugin > _native > errors"
 type = "layers"
 containers = ["bullterrier_scene"]
 exhaustive = true  # a new top-level module must be placed in a layer here
@@ -344,6 +344,9 @@ layers = [
     "scene",  # the scene: a canvas and its stack of layers
     "layer",  # the layer: what it takes of the objects the sibling packages write (looks, drawings) and gives the core
     "parameter",  # what a scene says of one value a caller may set: a plain record, it imports nothing
+    # the author-facing module: the decorator and the loader of entry-point plugins. The extension calls its `_load` when
+    # the registry is first asked (a call at run time, not an import: the extension still imports nothing of the package)
+    "plugin",
     # the home of the Rust extension (`_native._core`): it imports only `errors` (the bindings raise its errors), so
     # every layer above may use it
     "_native",

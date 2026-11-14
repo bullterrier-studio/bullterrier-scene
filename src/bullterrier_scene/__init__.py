@@ -10,6 +10,7 @@ from ._native._core import MAX_DEPTH, MAX_LAYERS
 from .errors import BullterrierSceneError, FormatError, InvalidError, ReadError
 from .layer import Layer
 from .parameter import Parameter
+from .plugin import layer_kind, layer_kinds, register_layer
 from .scene import Scene
 
 
@@ -31,4 +32,7 @@ __all__ = [
     "Parameter",
     "ReadError",
     "Scene",
+    "layer_kind",
+    "layer_kinds",
+    "register_layer",
 ]

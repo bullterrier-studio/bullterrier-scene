@@ -3,6 +3,7 @@
 //! `bullterrier_scene.errors`, imported when the first one is raised: importing the extension imports nothing of the package.
 
 mod error;
+mod kinds;
 
 use std::path::PathBuf;
 
@@ -15,6 +16,8 @@ use bullterrier_scene::{Blend, Deg, Fit, Map, Mask, Parameter, Place, Raster, Te
 /// bullterrier-scene's Rust core.
 #[pymodule]
 mod _core {
+    #[pymodule_export]
+    use super::kinds::{Snapshot, layer_kinds, register_layer, registry_restore, registry_snapshot};
     #[pymodule_export]
     use super::{Held, Layer, Scene, main};
 
@@ -357,6 +360,14 @@ impl Layer {
         typeset(py, content, Text::from_file(path), color, options)
     }
 
+    /// A layer of the registered kind `kind`, with `options` (JSON text of an object).
+    #[staticmethod]
+    fn make(py: Python<'_>, kind: &str, options: &str) -> PyResult<Self> {
+        let options = serde_json::from_str(options)
+            .map_err(|failure| error::invalid(py, format!("options: not JSON ({failure})")))?;
+        wrap(py, kinds::current(py)?.make(kind, &options)).map(Self)
+    }
+
     /// A flat colour over the whole canvas: `#rrggbb` or `#rrggbbaa`.
     #[staticmethod]
     fn fill(py: Python<'_>, color: &str) -> PyResult<Self> {
@@ -557,7 +568,11 @@ impl Scene {
     #[staticmethod]
     #[expect(clippy::needless_pass_by_value, reason = "pyo3 hands the extracted path over")]
     fn from_json(py: Python<'_>, text: &str, base: PathBuf) -> PyResult<Self> {
-        wrap(py, bullterrier_scene::Scene::from_json(text, &base)).map(Self)
+        wrap(
+            py,
+            bullterrier_scene::Scene::from_json_with(text, &base, &kinds::current(py)?),
+        )
+        .map(Self)
     }
 
     /// The picture as a new float32 array (height, width, 4): straight alpha, 0 to 1, rows from the top.
