@@ -31,9 +31,11 @@ pub(crate) fn digest_bytes(bytes: &[u8]) -> Fingerprint {
 /// A SHA-256 digest.
 pub(crate) type Fingerprint = [u8; 32];
 
-/// The SHA-256 of the 32-bit floats `values`, as their little-endian bytes (a picture held in memory has no file: this is its
-/// identity when two scenes are compared, and when the cache keys what it drew).
-pub(crate) fn digest_floats(values: &[f32]) -> Fingerprint {
+/// The floats of one piece of a large buffer: 2^20 of them (4 MiB), the unit of [`digest_floats`].
+const PIECE: usize = 1 << 20;
+
+/// The SHA-256 of the 32-bit floats `values`, as their little-endian bytes.
+fn digest_piece(values: &[f32]) -> Fingerprint {
     let mut hash = Sha256::new();
     let mut bytes = [[0_u8; 4]; 2048];
     for chunk in values.chunks(2048) {
@@ -41,6 +43,31 @@ pub(crate) fn digest_floats(values: &[f32]) -> Fingerprint {
             *slot = value.to_le_bytes();
         }
         hash.update(bytes[..chunk.len()].as_flattened());
+    }
+    hash.finalize().into()
+}
+
+/// The identity of a picture or a map held in memory (it has no file): the SHA-256 of the digests of its pieces of 2^20 floats
+/// in order, so that the pieces of a large one are hashed on every core and the digest is the same whatever the machine. A
+/// picture of 12 megapixels is 192 MB: hashed once, when first asked for.
+pub(crate) fn digest_floats(values: &[f32]) -> Fingerprint {
+    let pieces: Vec<&[f32]> = values.chunks(PIECE).collect();
+    let mut digests = vec![[0_u8; 32]; pieces.len()];
+    let cores = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
+    let share = pieces.len().div_ceil(cores.min(pieces.len()).max(1)).max(1);
+    std::thread::scope(|scope| {
+        for (out, part) in digests.chunks_mut(share).zip(pieces.chunks(share)) {
+            scope.spawn(move || {
+                for (digest, piece) in out.iter_mut().zip(part) {
+                    *digest = digest_piece(piece);
+                }
+            });
+        }
+    });
+    let mut hash = Sha256::new();
+    hash.update(values.len().to_le_bytes());
+    for digest in &digests {
+        hash.update(digest);
     }
     hash.finalize().into()
 }
