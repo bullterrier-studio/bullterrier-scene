@@ -5,6 +5,7 @@
 
 use bullterrier_scene::{Blend, Deg, Error, Fit, Layer, MAX_DEPTH, MAX_LAYERS, Mask, Place, Raster, Scene, Use};
 
+use crate::common::counting::Counting;
 use crate::common::{Outcome, close, exactly, numbered, pixel, pixels, rectangle, scene};
 
 const WHITE: &str = "#ffffff";
@@ -737,5 +738,26 @@ fn the_layers_a_scene_draws_are_counted_at_each_use_of_a_mask_layer_and_a_refere
         )
         .is_ok()
     );
+    Ok(())
+}
+
+/// A layer at opacity 0 cannot change the canvas in any blend mode, so it is not drawn where it is joined, nor are its masks;
+/// the layers that refer to it draw its body.
+#[test]
+fn a_layer_at_opacity_zero_costs_nothing_where_it_is_joined_and_its_references_still_draw_it() -> Outcome {
+    let (kind, masking) = (Counting::new(0.3), Counting::new(0.6));
+    let base = || Layer::fill("#336699");
+    let hidden = Layer::make(kind.clone())
+        .named("source")?
+        .blend(Blend::Multiply)
+        .mask(Layer::make(masking.clone()))?
+        .opacity(0.0)?;
+    let alone = drawn([base()?, hidden.clone()], 24)?;
+    assert_eq!((kind.draws(), masking.draws()), (0, 0), "joined at opacity 0");
+    assert!(same(&alone, &drawn([base()?], 24)?));
+    let shown = drawn([base()?, hidden, Layer::of("source")], 24)?;
+    assert_eq!(kind.draws(), 1, "its reference draws it");
+    let visible = drawn([base()?, Layer::make(Counting::new(0.3))], 24)?;
+    assert!(same(&shown, &visible) && !same(&shown, &alone));
     Ok(())
 }
