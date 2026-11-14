@@ -221,7 +221,9 @@ impl Picture {
             .map(|mask| {
                 let sigma = (mask.feather * density.0, mask.feather * density.1);
                 let reach = (feather::reach(sigma.0), feather::reach(sigma.1));
-                feather::fits(&format!("{}.feather", label(mask.number)), size, reach)?;
+                let field = format!("{}.feather", label(mask.number));
+                feather::fits_line(&field, size.0, reach.0)?;
+                feather::fits_line(&field, size.1, reach.1)?;
                 let mut factor = values[mask.name.as_str()].to_vec();
                 feather::blur(&mut factor, size, sigma);
                 if mask.invert {

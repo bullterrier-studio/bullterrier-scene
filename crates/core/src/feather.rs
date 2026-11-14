@@ -76,6 +76,29 @@ pub(crate) fn fits(field: &str, (columns, rows): (usize, usize), reach: (usize, 
     }
 }
 
+/// The longest a line may be with the reach of the blur on each side: 2^24 pixels. A line is blurred in five buffers of `f64`
+/// (40 bytes a pixel of the line), so this is 640 MB, a third of the 2 GB of the largest picture a render draws: a blur of a
+/// map, which makes no plane, costs memory by the line and never more than the picture it serves.
+const LINE_LIMIT: usize = MAX_PIXELS / 8;
+
+/// A line of `length` pixels with the reach of the blur on each side must not pass [`LINE_LIMIT`]: refused naming `field`. A
+/// blur that reaches nowhere (a feather of 0) is never refused, whatever the length.
+///
+/// # Errors
+/// [`Error::Invalid`] naming `field` for a line, with `reach` pixels more on each side, of more than 2^24 pixels.
+pub(crate) fn fits_line(field: &str, length: usize, reach: usize) -> Result<(), Error> {
+    if reach == 0 || length.saturating_add(reach.saturating_mul(2)) <= LINE_LIMIT {
+        Ok(())
+    } else {
+        Err(Error::invalid(
+            field,
+            format!(
+                "a feather that reaches {reach} pixels past a line of {length} needs a line of more than {LINE_LIMIT} pixels (2^24): a smaller feather"
+            ),
+        ))
+    }
+}
+
 /// `values` (`columns` by `rows`, row after row) blurred by `sigma` = (along x, along y) output pixels; a sigma of 0 along an
 /// axis leaves that axis as it is. The edge is replicated.
 pub(crate) fn blur(values: &mut [f32], (columns, rows): (usize, usize), (sigma_x, sigma_y): (f64, f64)) {
@@ -194,7 +217,7 @@ impl Lines {
 // only through the blurred values the render tests compare with the Gaussian's distribution function).
 #[cfg(test)]
 mod tests {
-    use super::{Box1, blur, fits, reach};
+    use super::{Box1, blur, fits, fits_line, reach};
 
     /// The variance of the kernel of three passes, from the weights themselves.
     fn variance_of_three_passes(kernel: Box1) -> f64 {
@@ -238,6 +261,14 @@ mod tests {
         assert!(fits("feather", (16_380, 8_188), (2, 2)).is_ok());
         assert!(fits("feather", (16_380, 8_189), (2, 2)).is_err());
         assert!(fits("feather", (usize::MAX, 1), (1, 0)).is_err());
+    }
+
+    #[test]
+    fn a_line_may_have_2_pow_24_pixels_with_the_reach_and_not_one_more_and_no_reach_is_never_refused() {
+        assert!(fits_line("feather", 16_777_214, 1).is_ok());
+        assert!(fits_line("feather", 16_777_215, 1).is_err());
+        assert!(fits_line("feather", usize::MAX, 0).is_ok());
+        assert!(fits_line("feather", 10, usize::MAX).is_err());
     }
 
     #[test]

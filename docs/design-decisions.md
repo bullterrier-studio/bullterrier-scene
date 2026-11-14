@@ -287,6 +287,14 @@ beat). C2b replaces the rule for every map that is not of the **exact class**, a
   the drawing's own antialiased edge again by coverage (a pixel at an edge of a text was counted twice: 0.81 for 0.9). A text's
   box is now exactly its bounds. *Cost:* a stroke, shadow offset or halftone pitch follows the mean density, not each axis, and a
   gradient, clip or mask of the drawing stays in its own frame (vector's own rule: "set the paint after the transforms").
+- **A map's blur is bounded by its line, a canvas mask's by its plane (review of C3).** The plane check applied to a map, which makes
+  no plane and blurs line by line, so a large picture with a hard mask or a feather that reached past 2^27 pixels in area was
+  refused with a message about a feather. A mask with no feather is never refused for its size; a map's blur is refused only for
+  a line (the picture's side and the reach on both sides) of more than 2^24 pixels, whose five `f64` buffers are 640 MB. A canvas
+  mask keeps the plane check: it makes the plane.
+- **Where a fill is given the margin is written once, in `landing.rs`** (`land`): a source with no box of its own, unfitted and
+  unplaced, is asked for the canvas and its margin; anything else for the canvas. `landing.rs` is the module the renderer and
+  the masks both use, so they do not import each other.
 - **"Invert before feather" is not a mutant that can be killed:** the kernel is linear and its weights sum to 1, so blurring
   `1 - v` is `1 - blur(v)` to rounding, margin and replicated edge included.
 

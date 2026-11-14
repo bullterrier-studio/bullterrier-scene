@@ -3,7 +3,7 @@
 //! an opaque white fill changes nothing; a ramp multiplies; the weights of luminance; the Gaussian's distribution function
 //! for a blurred edge), never from the code's own arithmetic.
 
-use bullterrier_scene::{Error, Layer, MAX_DEPTH, Map, Mask, Place, Raster, Use};
+use bullterrier_scene::{Deg, Error, Layer, MAX_DEPTH, Map, Mask, Place, Raster, Use};
 use proptest::prelude::*;
 
 use crate::common::{Outcome, pixels, rectangle, scene, solid};
@@ -241,6 +241,13 @@ fn gauss(x: f64, sigma: f64) -> f64 {
 /// "The feather"), and a little for the rounding of 32-bit floats and of `erf`.
 const WITHIN: f64 = 0.0099 + 1e-5;
 
+/// What the Gaussian puts past the top and bottom edges of a tall shape for a row `distance` design pixels from each (the
+/// hand oracles of the half planes below blur along one axis; the shapes are made tall enough that the other is a tail this
+/// small), the two edges together.
+fn tails(distance: f64, sigma: f64) -> f64 {
+    2.0 * gauss(-distance, sigma)
+}
+
 /// A tall rectangle from the canvas's left edge to column 100 of a canvas 200 wide, so far above and below the four rows that
 /// the canvas shows that its top and bottom edges do not touch them.
 fn half_plane() -> Result<Layer, Error> {
@@ -251,7 +258,7 @@ fn half_plane() -> Result<Layer, Error> {
 /// `i` is the share of a Gaussian centred on it that falls in the shape, which runs from the canvas's left edge to column 100.
 #[test]
 fn a_feathered_edge_is_the_gaussians_distribution_function_at_the_pixel_centres() -> Outcome {
-    for sigma in [2.0_f64, 3.5, 10.0, 30.0] {
+    for sigma in [1.5_f64, 1.75, 2.0, 3.5, 10.0, 30.0] {
         let got = masked_white(Mask::new(half_plane()?).feather(sigma), (200, 4), 200)?;
         for x in 0..200_u16 {
             let centre = f64::from(x) + 0.5;
@@ -259,11 +266,31 @@ fn a_feathered_edge_is_the_gaussians_distribution_function_at_the_pixel_centres(
             let expected = gauss(100.0 - centre, sigma) - gauss(-centre, sigma);
             let value = f64::from(got[usize::from(x)]);
             assert!(
-                (value - expected).abs() <= WITHIN + 5e-4,
+                (value - expected).abs() <= WITHIN + tails(96.0, sigma),
                 "sigma {sigma}, column {x}: {value} is not {expected}"
             );
         }
     }
+    Ok(())
+}
+
+/// The claim of 0.0099 is from a sigma of 1.5 output pixels up (dense scan from 1.5 to 41: at most 0.00985): below it the kernel is
+/// a few pixels wide and the sampled Gaussian is a coarser thing, off by up to 0.012 at sigma 1, 0.049 at 0.5 and 0.013 at 0.2.
+/// Pinned so that the floor in `api.md` is the true one.
+#[test]
+fn the_kernel_is_off_the_gaussian_by_more_than_the_claim_below_a_sigma_of_1_5_pixels() -> Outcome {
+    let worst = |sigma: f64| -> Result<f64, Box<dyn std::error::Error>> {
+        let got = masked_white(Mask::new(half_plane()?).feather(sigma), (200, 4), 200)?;
+        Ok((90..110_u16)
+            .map(|x| {
+                let centre = f64::from(x) + 0.5;
+                (f64::from(got[usize::from(x)]) - (gauss(100.0 - centre, sigma) - gauss(-centre, sigma))).abs()
+            })
+            .fold(0.0, f64::max))
+    };
+    assert!(worst(1.5)? <= WITHIN, "{}", worst(1.5)?);
+    let coarse = worst(0.5)?;
+    assert!(coarse > 0.04 && coarse < 0.06, "{coarse}");
     Ok(())
 }
 
@@ -332,7 +359,7 @@ fn a_shape_that_ends_at_the_canvas_edge_is_soft_there() -> Outcome {
     let got = masked_white(Mask::new(half_plane()?).feather(sigma), (200, 4), 200)?;
     let edge = f64::from(got[0]);
     assert!(
-        (edge - gauss(0.5, sigma)).abs() <= WITHIN + 5e-4 && edge < 0.6,
+        (edge - gauss(0.5, sigma)).abs() <= WITHIN + tails(96.0, sigma) && edge < 0.6,
         "{edge}"
     );
     Ok(())
@@ -352,7 +379,7 @@ fn a_shape_that_crosses_the_canvas_edge_is_blurred_as_on_a_larger_canvas() -> Ou
         let expected = gauss(300.0 - centre, sigma) - gauss(150.0 - centre, sigma);
         let value = f64::from(got[usize::from(x)]);
         assert!(
-            (value - expected).abs() <= WITHIN + 5e-4,
+            (value - expected).abs() <= WITHIN + tails(96.0, sigma),
             "column {x}: {value} is not {expected}"
         );
     }
@@ -375,7 +402,7 @@ fn the_feather_is_in_design_pixels_so_the_same_at_every_size() -> Outcome {
             let expected = gauss(50.0 - centre, sigma) - gauss(-centre, sigma);
             let value = f64::from(got[usize::from(x)]);
             assert!(
-                (value - expected).abs() <= WITHIN + 1e-3,
+                (value - expected).abs() <= WITHIN + tails(46.0, sigma),
                 "size {size}, column {x}: {value} is not {expected}"
             );
         }
@@ -769,19 +796,6 @@ fn a_map_feather_is_in_design_pixels_of_the_fitted_layer_not_in_picture_pixels()
     Ok(())
 }
 
-#[test]
-fn a_map_feather_too_wide_to_draw_is_refused_at_render_naming_the_mask() -> Outcome {
-    let layer = with_map(2, 2, |_, _| 1.0)?
-        .mask(Mask::new("m").feather(1e5))?
-        .named("photo")?;
-    let refused = scene(2, 2, [layer])?.render(2);
-    assert!(
-        matches!(&refused, Err(Error::Invalid { address, message }) if address == "photo.mask.feather" && message.contains("134217728")),
-        "{refused:?}"
-    );
-    Ok(())
-}
-
 /// A feathered mask and its inverse add up to 1 everywhere, the canvas's edge included: the blur is of the mask, then the
 /// inverse is 1 minus it (an inverse taken before the blur would turn the margin's nothing into something).
 #[test]
@@ -810,7 +824,7 @@ fn a_feather_on_a_canvas_with_two_scales_has_a_margin_along_each_axis() -> Outco
         let centre = (f64::from(u8::try_from(x)?) + 0.5) / 0.1;
         let expected = gauss(50.0 - centre, sigma) - gauss(-50.0 - centre, sigma);
         assert!(
-            (f64::from(*value) - expected).abs() <= WITHIN + 1e-3,
+            (f64::from(*value) - expected).abs() <= WITHIN + tails(71.0, sigma),
             "column {x}: {value} is not {expected}"
         );
     }
@@ -1011,5 +1025,188 @@ fn a_feather_on_a_tall_thin_canvas_blurs_by_the_y_scale() -> Outcome {
             "row {row}: {value} is not {expected}"
         );
     }
+    Ok(())
+}
+
+/// How a layer of the stage 4 table is put: its fit, place or perspective.
+type Build = fn(Layer) -> Result<Layer, Error>;
+
+/// A row of the stage 4 table: what it is, the feather, the canvas, the size, how the layer is put, the bound.
+type Case = (&'static str, f64, (u32, u32), u32, Build, f32);
+
+/// How far the two paths of stage 4 are apart, case by case, in the largest difference of alpha: a picture 16 by 16 with a map of 0 and 1
+/// that changes every few pixels, masked by it (feathered where the row says), with no look and with a look that changes nothing. Where the picture is
+/// drawn as it is (nothing resampled before the one warp that cuts and fits it: a plain cover or contain at one output pixel to
+/// the design pixel, a move, a skew) the two agree to the bit. Where the picture is resampled and then warped again by a turn, a
+/// perspective or a reduction, the no-look path resamples picture and map once and the look path twice, and they differ by what
+/// two resamples of a map of 0 and 1 that changes every few pixels differ by. A blur is made at the picture's size on one path
+/// and at the drawn size on the other, so a feathered case differs by the two kernels as well. The bound of each row is its
+/// measurement rounded up.
+#[expect(clippy::too_many_lines, reason = "a table of cases, one row each")]
+#[test]
+fn the_two_paths_of_stage_4_agree_where_nothing_is_resampled_twice_and_by_these_amounts_elsewhere() -> Outcome {
+    let nothing = r#"{"steps": [{"effect": "grade"}]}"#;
+    let wavy = |x: usize, y: usize| f32::from(u8::from((x * 7 + y * 3) % 10 < 5));
+    // (what, feather, canvas, size, how the layer is put, the bound)
+    let cases: [Case; 11] = [
+        ("plain, 1:1", 0.0, (16, 16), 16, Ok, 0.0),
+        (
+            "cover, 1:1",
+            0.0,
+            (16, 8),
+            16,
+            |l| l.fit([0.0, 0.0, 16.0, 8.0], Fit::Cover, [0.5, 0.5]),
+            0.0,
+        ),
+        (
+            "contain, 1:1",
+            0.0,
+            (16, 16),
+            16,
+            |l| l.fit([0.0, 0.0, 8.0, 16.0], Fit::Contain, [0.5, 0.5]),
+            0.0,
+        ),
+        (
+            "skew, 1:1",
+            0.0,
+            (16, 16),
+            16,
+            |l| l.place(Place::new().skew_x(Deg(20.0))),
+            0.0,
+        ),
+        (
+            "turned 17 degrees and scaled 0.9",
+            0.0,
+            (16, 16),
+            16,
+            |l| l.place(Place::new().rotate(Deg(17.0)).scale(0.9)),
+            0.22,
+        ),
+        (
+            "in perspective",
+            0.0,
+            (16, 16),
+            16,
+            |l| l.perspective([[2.0, 1.0], [14.0, 3.0], [15.0, 14.0], [1.0, 12.0]]),
+            0.18,
+        ),
+        (
+            "turned 30 degrees at half size",
+            0.0,
+            (16, 16),
+            8,
+            |l| l.place(Place::new().rotate(Deg(30.0))),
+            0.23,
+        ),
+        (
+            "turned 30 degrees at half size, feather 2",
+            2.0,
+            (16, 16),
+            8,
+            |l| l.place(Place::new().rotate(Deg(30.0))),
+            0.014,
+        ),
+        (
+            "turned 30 degrees at half size, feather 2, an edge",
+            2.0,
+            (16, 16),
+            8,
+            |l| l.place(Place::new().rotate(Deg(30.0))),
+            0.019,
+        ),
+        (
+            "cover crop, feather 2",
+            2.0,
+            (8, 4),
+            8,
+            |l| l.fit([0.0, 0.0, 8.0, 4.0], Fit::Cover, [0.5, 0.5]),
+            0.12,
+        ),
+        (
+            "cover crop, feather 6",
+            6.0,
+            (8, 4),
+            8,
+            |l| l.fit([0.0, 0.0, 8.0, 4.0], Fit::Cover, [0.5, 0.5]),
+            0.10,
+        ),
+    ];
+    for (what, feather, canvas, size, put, bound) in cases {
+        let map: &dyn Fn(usize, usize) -> f32 = if what.ends_with("an edge") {
+            &|x, _| f32::from(u8::from(x < 8))
+        } else {
+            &wavy
+        };
+        let layer = || -> Result<Layer, Error> { put(with_map(16, 16, map)?.mask(Mask::new("m").feather(feather))?) };
+        let plain = alphas(layer()?, canvas, size)?;
+        let looked = alphas(layer()?.look(nothing)?, canvas, size)?;
+        let worst = plain
+            .iter()
+            .zip(&looked)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0, f32::max);
+        assert!(worst <= bound, "{what}: the paths differ by {worst}");
+    }
+    Ok(())
+}
+
+/// The trap: a mask layer that is a picture the size of the canvas ends at the canvas edge, so feathered it is a shape that
+/// ends there (0.5 at the edge), while a fill covers the margin and a map is repeated, and both stay 1. To keep a picture's
+/// border use a fill, a map (`mask("name")`), or a picture drawn larger than the canvas.
+#[test]
+fn a_canvas_sized_opaque_picture_as_a_feathered_mask_darkens_the_border_and_a_fill_does_not() -> Outcome {
+    let sigma = 6.0;
+    let picture = Layer::picture(solid(40, 40, [1.0; 4])?);
+    let dark = masked_white(Mask::new(picture).feather(sigma), (40, 40), 40)?;
+    let edge = f64::from(dark[20 * 40]);
+    assert!((edge - gauss(0.5, sigma)).abs() <= WITHIN && edge < 0.6, "{edge}");
+    assert!(f64::from(dark[20 * 40 + 20]) > 0.99, "the middle is untouched");
+    let kept = masked_white(Mask::new(Layer::fill(WHITE)?).feather(sigma), (40, 40), 40)?;
+    assert!(kept.iter().all(|alpha| alpha.to_bits() == 1.0_f32.to_bits()));
+    // a picture drawn larger than the canvas has the margin's worth of picture past the edge
+    let larger = Layer::picture(solid(40, 40, [1.0; 4])?).fit([-20.0, -20.0, 80.0, 80.0], Fit::Stretch, [0.5, 0.5])?;
+    let bigger = masked_white(Mask::new(larger).feather(sigma), (40, 40), 40)?;
+    assert!(bigger.iter().all(|&alpha| alpha > 0.999));
+    Ok(())
+}
+
+/// A mask layer's opacity multiplies the mask before `invert`: opacity 0.25 inverted is 0.75 where the layer is drawn and 1
+/// where it is not.
+#[test]
+fn a_mask_layers_opacity_applies_before_invert() -> Outcome {
+    let drawn = Layer::fill(WHITE)?.opacity(0.25)?;
+    let got = masked_white(Mask::new(drawn).invert(), (2, 2), 2)?;
+    assert!(got.iter().all(|alpha| alpha.to_bits() == 0.75_f32.to_bits()), "{got:?}");
+    let nothing = Layer::drawing(&rectangle((2, 2), (0.0, 0.0), (1.0, 2.0), WHITE))?.opacity(0.25)?;
+    let got = masked_white(Mask::new(nothing).invert(), (2, 2), 2)?;
+    assert_eq!(got, [0.75, 1.0, 0.75, 1.0]);
+    Ok(())
+}
+
+/// A map is blurred line by line and makes no plane, so a picture whose blur's reach would make a plane of more than 2^27 pixels
+/// is blurred all the same (2,000 by 2,000 with a feather of 1,600 would, past a reach of 4,800 pixels): only a line too long to
+/// hold (a feather of 1e9 picture pixels) is refused.
+#[test]
+fn a_map_feather_is_bounded_by_its_line_and_not_by_a_plane_it_does_not_make() -> Outcome {
+    let size = 2_000;
+    let layer = Layer::picture(solid(size, size, [0.4, 0.5, 0.6, 1.0])?)
+        .map("m", Map::new(size, size, vec![1.0; size * size])?)?
+        .mask(Mask::new("m").feather(1_600.0))?;
+    let got = scene(2_000, 2_000, [layer])?.render(10)?;
+    assert!(
+        pixels(&got).all(|pixel| (pixel[3] - 1.0).abs() <= 1e-6),
+        "a constant map stays 1 (to the area average of the reduction)"
+    );
+    // a tiny box makes a design pixel 1,000 picture pixels: the largest feather is 1e9 pixels of the picture
+    let tiny = Layer::picture(solid(2, 2, [0.4, 0.5, 0.6, 1.0])?)
+        .map("m", Map::new(2, 2, vec![1.0; 4])?)?
+        .fit([0.0, 0.0, 0.002, 0.002], Fit::Stretch, [0.5, 0.5])?
+        .mask(Mask::new("m").feather(1_000_000.0))?
+        .named("photo")?;
+    let refused = scene(1, 1, [tiny])?.render(1);
+    assert!(
+        matches!(&refused, Err(Error::Invalid { address, message }) if address == "photo.mask.feather" && message.contains("line")),
+        "{refused:?}"
+    );
     Ok(())
 }
