@@ -390,7 +390,7 @@ counts its `draw` calls (`Layer.make`, arrives with C7).
   `"softlight"` and a typo, so no list of known slips. *Alternative:* a refusal that lists the names only.
 - **Vector is the differential oracle of the separable modes, and its tolerance is its own.** Vector holds a translucent source
   premultiplied in 8 bits, which `color-burn` and `color-dodge` turn into up to 2.1 levels at alpha 0.5 where the W3C formula
-  and scene agree; the bound is 1.5 levels for an opaque source and 3 for a translucent one, and the translucent equation is
+  and scene agree; the bound is 1.5 levels (the largest seen is 1.498; translucent sources in the other ten modes reach 1.44), 2.5 for those two, and the translucent equation is
   also checked by hand cases whose numbers are exact.
 - **Mask-layer refusals are at the `mask` call**, as the name already was: a non-normal blend and `as_light(true)` are
   `InvalidError` naming `mask`; the calls that say nothing (`blend("normal")`, `as_light(False)`) are accepted.
