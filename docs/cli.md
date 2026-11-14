@@ -23,6 +23,11 @@ Results go to stdout, errors to stderr.
 - **`render`** writes `OUT` and prints its path: by the extension (`.pdf` in any case, else the picture writer's), `Raster::write`
   (an 8-bit RGBA PNG) or `Raster::write_pdf` (a raster PDF; "Output" in `api.md`). `--size` is the long side
   in pixels, default the canvas's long side; 1 to 65,000 (the library's limit: another is exit 1 naming `size`).
+  **A picture of more than 2^24 pixels (`BAND_PIXELS`, 4,096 squared) is drawn and written by bands** (`Scene::render_to_png`,
+  `render_to_pdf`): it is never held whole, so a print size past the 2^27 pixels of `render` (A0 at 300 dpi, 9,933 by 14,043
+  pixels) is written. A smaller one is written as before. The band height is not a flag: it is as many rows as 2^24 pixels hold
+  ("Banded rendering" in `design-decisions.md`). The two files differ in how they say sRGB (a banded PNG carries the PNG `sRGB`
+  chunk, a whole one image's profile) and in the compression, not in a pixel.
 - **PDF flags** (any of them with an output that is not `.pdf` is exit 1 naming the flag): `--dpi N` pixels per inch, so the page is
   the picture's size over N inches (1 to 2400, default 300); `--bleed MM` 0 to 50 mm of bleed, the rendered edge repeated outward
   (default 0); `--crop-marks` marks outside the bleed; `--flatten` the picture over white instead of a soft mask; `--cmyk-profile FILE.icc`

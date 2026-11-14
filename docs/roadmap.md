@@ -27,7 +27,7 @@ their later changes cannot break it; a bump of the pin is a reviewed commit, and
 | M1 | C3, C4 are merged (vector V10d is done); vector V10f (text runs) too if the piece wants mixed fonts |
 | M2 | C2 to C5 are merged (placement, masks, references, per-layer looks); vector has gradients and subtract |
 | M3 | C2 to C5 and C7 are merged (the piece needs placement, masks, per-layer effects and the cache) |
-| B1 | image has a banded render (done) and `Options::with_canvas`; vector has V10e (window render); the owner has decided the storage precision (decision 2). Until then a layer with a whole-picture effect renders whole |
+| B1 | **Met.** image has a banded render and `Options::with_canvas`; vector has V10e (window render); decision 2 is settled at B1 (float32). A layer with a whole-picture effect still renders whole: image has no position-aware effects yet (`future.md`) |
 | O1 | PNG: **done** (`Raster::write`). PDF: **done** (`Raster::write_pdf`, bleed, crop marks, CMYK through a caller's ICC profile) |
 | P1 | **Done.** C6 is merged (a scene is data); the command line is Rust (decision 3) |
 | R1 | image and vector are released, B1 is done or the owner defers it, and the owner decides to open the repository |
@@ -41,7 +41,7 @@ in `.superpowers/plans/`.
 | # | Decision | Needed by | Where it is recorded |
 |---|---|---|---|
 | 1 | ~~A design scale handed to effects by the caller~~ **Settled by image, 2026-11-11:** the design scale comes from the canvas (the working picture's long side over 480) and travels in the frame (`Place`); there is no public setter. A public `Options::with_canvas` is a later, additive change "when a caller needs it": scene is that caller, so C5 asks image for it | C5, B1 | image's design decisions, "the frame of reference (banded render, B1)" |
-| 2 | Storage precision of finished layers: 8 bit, 16 bit or float32. Image keeps float32 for working pictures (8 bit bands in smooth gradients and cannot take a further grade); still open for layers that wait for the canvas | B1 | image's design decisions |
+| 2 | ~~Storage precision of finished layers: 8 bit, 16 bit or float32.~~ **Settled at B1, 2026-11-14: float32** (image's entry stands: 8 bit bands in smooth gradients and cannot take a further grade). Scene holds one band of float32 plus what a layer needs whole, and the peak is measured: [design-decisions.md](design-decisions.md), "Banded rendering" | B1 | image's design decisions; [design-decisions.md](design-decisions.md) |
 | 3 | ~~Command line in Rust or Python~~ **Settled in A1, 2026-11-13:** a Rust command line crate that the Python console script runs, as image does | P1 | [design.md](design.md), open question 4 |
 | 4 | A browser build of scene | when a page needs it | [design.md](design.md), open question 1 |
 
@@ -67,7 +67,7 @@ shows them all is M3.
 ## Where the entire work ends
 
 Decided 2026-11-13, with its reasons in [design-decisions.md](design-decisions.md), "Where the entire work ends": A1, C1 to C7,
-M1 to M3, O1, P1 and the final poster; B1 is deferred.
+M1 to M3, O1, P1 and the final poster; B1 was deferred there and is built since (below).
 
 ## How we work
 
@@ -114,7 +114,7 @@ Real objects over mocks: the sibling crates are real, used through their public 
 | M1 | **Built** (`docs/examples/poster_two_ink.py`, demo 06 of `bullterrier-demos`). First milestone piece: a two-ink geometric poster with a photo clipped into a polygon, type in front of and behind a cut-out, flat shapes and grain | M | vector V10d (gradients, blend set, clips) |
 | M2 | **Built** (`docs/examples/composed_world.py`, demo 07 of `bullterrier-demos`). A composed-world piece: a cut-out subject standing in a generated world (vector sky, sun and receding grid floor), moved and scaled, with a contact shadow, a floor reflection and a glow on one layer only | M | image: `rim_light` and `bloom` as looks (the shadow and the reflection are references in scene, no image effect); vector: gradients, subtract |
 | M3 | **Built** (`docs/examples/mill.py`, demo 10 of `bullterrier-demos`; a mill frame is the cache's benchmark). The mill piece rebuilt as one scene (see "What the demos and the experiment asked"): a night-graded photo with windows and a sign glowing as separate layers, a logo drawn on, a title landing, a 9:16 delivery crop, every moving value set per frame; replaces the demos' hand-written frame function | M | image: `bloom`, `gradient_map`, `halftone`, `rgb_split`, regions; vector: `from_svg`, `slice`, text with words |
-| B1 | **Deferred** ([design-decisions.md](design-decisions.md), "Where the entire work ends"). Bands: compose band by band, finished layers compact, a 15-layer A3 poster measured whole and banded | L | image: footprint, banded render, storage precision, position-hashed noise, and an origin plus canvas size handed to effects, so that seeded and position-aware effects can band; vector: V10e window render |
+| B1 | **Done 2026-11-14** (`Scene::render_bands`, `render_to_png`, `render_to_pdf`, `bt-scene render` past 2^24 pixels; [api.md](api.md), "Output"; what was settled and measured: [design-decisions.md](design-decisions.md), "Banded rendering"). A banded render equals the whole one bit for bit; pictures, flat colours, groups and mask planes are drawn by band, a layer with a look, a drawing and a plugin kind whole once (the floor), and **banded looks wait for position-aware effects in image** ([future.md](future.md)). Was: compose band by band, finished layers compact, a 15-layer A3 poster measured whole and banded | L | was: image: footprint, banded render, storage precision, position-hashed noise, and an origin plus canvas size handed to effects, so that seeded and position-aware effects can band; vector: V10e window render |
 | O1 | **PNG done 2026-11-14** (`Raster::write`, through image's writer: [api.md](api.md), "Output"). **PDF done 2026-11-14** (`Raster::write_pdf`: a raster PDF at a physical size, bleed by edge repeat, crop marks, flatten, CMYK through a caller's ICC profile; vectors are not kept: [api.md](api.md), "Output") | M | |
 | P1 | **Done 2026-11-14.** `bt-scene render`, `parameters` and `validate`: a Rust crate (`crates/cli`) that the Python console script runs ([cli.md](cli.md)). Templates and presets are not built | S | |
 | R1 | First release | S | image and vector published first; the repository opens up |
@@ -138,7 +138,7 @@ Real objects over mocks: the sibling crates are real, used through their public 
 | O1, P1 | a PNG and `bt-scene render scene.json out.png`: [cli.md](cli.md), `docs/gallery/p1-cli.png`; a print PDF with bleed and crop marks: [cli.md](cli.md) |
 
 Order: C1 is the first batch that uses image and vector. M1 is the milestone that shows whether the layer model is right and
-can start once C4 and vector's V10d exist. B1 waits for image's banded render and vector's window render; until then a scene
+can start once C4 and vector's V10d exist. B1 is built within what image and vector give today (their needs are in "Needs from others"); a layer with a look
 renders whole.
 
 ## Later, each when something triggers it

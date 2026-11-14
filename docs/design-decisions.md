@@ -91,10 +91,9 @@ values)` and `with_values`) would make the cache key and the saved form depend o
 ## Where the entire work ends (2026-11-13)
 
 A1, C1 to C7, M1, M2, M3, O1 (PNG through image's writer; a raster PDF), P1 (a Rust
-command line crate that the Python console script runs, as image does) and the final poster. **B1 (bands) is deferred:** it needs
-vector's V10e (not built) and image effects that take an origin and a canvas size, and the render interface does not change
-when it arrives, so the API is final without it. The peak memory of a 15-layer A3 poster is still measured whole in C7 and
-recorded. R1 (the release and the first push) is the owner's. Storage precision of finished layers is settled at B1.
+command line crate that the Python console script runs, as image does) and the final poster. **B1 (bands) was deferred here** (it needed
+vector's V10e and image effects that take an origin and a canvas size) **and is built since**, within what the two give: "Banded rendering (B1)" below.
+R1 (the release and the first push) is the owner's. Storage precision of finished layers was settled at B1: float32.
 
 ## A layer drawn again is a reference, not a copy (2026-11-13)
 
@@ -181,7 +180,7 @@ last place over it in a float (a fit factor times a zoom) is not rounded up a pi
 source hands over its own pixels and the warp is the only resample (source, fit and place fold into one). *Cost:* an animated
 `scale` redraws the source and its look every frame, while `dx`, `dy`, `rotate`, `skew` and `flip` only re-warp a raster
 that can be cached (C7 relies on it). A large `scale` on a big layer meets the 2^27 drawn-size limit even where little of it
-shows: window drawing (B1) lifts it, and it is not worked around. After C5 gives looks design pixels, the scale handed to
+shows: B1 lifts it for a layer that draws only its own pixels, and a group drawn by band ("Banded rendering (B1)"). After C5 gives looks design pixels, the scale handed to
 image is `canvas scale x place.scale`, so a halo still follows `scale`.
 
 ## One footprint rule for a warp that is not an axis-aligned scale (2026-11-13)
@@ -756,3 +755,78 @@ and `[tool.uv.sources]`, pinned to the crates' revisions). That works (cold `uv 
 template's `poe audit`: `uv export` writes the git requirements without hashes and `pip-audit --require-hashes` refuses them, so the
 task needs `--no-emit-package` for both, an edit to a template-owned task. CI also has no token for the private repositories. Both
 tests passed in a scratch environment with the two packages installed at the pinned revisions.
+
+## Banded rendering (B1) (2026-11-14)
+
+- **One plane, a window of rows.** A render draws every layer for one plane (the canvas, or the canvas and a margin for a mask whose
+  blur reaches past it). `Target::window` is the rows of the plane that are drawn; the whole render is the window of all of them, one
+  band, through the same entry (`render::draw`), so there is no second path to keep equal to the first. The warp is told which rows
+  it is to give (`warp::Output`) and computes each from the map of the whole plane, so a pixel is what it is whichever rows are drawn
+  with it. *Alternative weighed:* the same map shifted by the band's first row (as a mask's margin is): the inverse of a shifted map
+  is another set of floats, and a pixel would differ in its last bit. *The oracle:* for every example scene at heights 1, 7, a prime
+  near an eighth, half, all and a height that divides nothing, at sizes whose long side is odd and even, the bands equal `render`
+  bit for bit (`tests/it/bands.rs`, `tests/test_bands.py`). A wrong band offset in the band's own window fails 7 of the 9 Rust tests; but
+  an error in code the whole render shares moves both alike, so `render` was also compared with the render of `main` before the change
+  (the 15-layer A3 poster below at three sizes, the cache tests' poster, the scene of every kind of parameter, nine digests of the
+  floats): identical.
+  *Hand mutants* (each breaks the code on purpose, the band tests run): the band's first row one too low, 8 tests fail; the margin of a
+  mask's band dropped, 3; the last band one row short, 7; the sink called in the wrong order, 7; no room round the rows a group is
+  drawn for, 1; a plugin kind not kept and so drawn again for each band, 1 (it is asked once): all killed. **One survives:** the
+  boxes of the blur not aligned to the whole plane. Unaligned, the sums of a pass are added in another order and differ in the last
+  bit of an `f64`, which the cast to `f32` hides except for a value within 1e-9 of a rounding step, so no test over a small plane can
+  tell. The alignment is kept because it is what makes the bands equal the whole by construction, not by luck of a rounding.
+- **What is drawn by band, and what whole (the floor).** By band: a picture with no look (the warp reads the rows it needs from the
+  picture's own pixels), a flat colour (one pixel), a group with no look (drawn for the rows of its raster the band reads:
+  `warp::rows_read` takes the four corners of the band through the map back, with the room the kernels read, and `View` lets the warp
+  read a part of a raster as some rows of a taller one), a mask plane (the band and the reach of its blur). Whole, once, kept in the
+  cache and cut per band: **a layer with a look** (image's effects are whole-picture in 40 of 62 cases, and image's frame has no
+  first-row setter; banded looks need position-aware effects, `future.md`), **a drawing** and **a plugin kind**. *A drawing is not
+  windowed although vector can:* vector's own notes say its window render is within one level of the whole render at an edge pixel
+  and the cause is not isolated; the cache-test poster's logo differed by one level at one pixel of a one-row band. A banded render that
+  is not the whole render is not the promise. *A kind is not asked for a band's rectangle:* its pixels are promised by rectangle and
+  scale, not by position (a kind with a seeded stream draws other pixels for another rectangle). A group's inner drawings are whole
+  at the group's scale and kept, so each band of a group finds them. State of the floor: the looked layers' rasters and the drawings
+  stay resident (the cache holds up to 2 GiB of them).
+- **The zoom limit.** A layer that draws only its own pixels with no look (a picture's, a flat colour's one) allocates nothing of the
+  size it is placed at, so its drawn size is no longer limited to 2^27 pixels: a side of 2^31 is (what the warp's positions keep
+  exact). A group drawn by band is limited by the rows it draws, so a group zoomed a thousand times (100,000 by 100,000 pixels) is
+  drawn. A look, a drawing and a plugin kind keep the 2^27 drawn-size limit (their raster is the size they are drawn at), and so does
+  `render`'s output; `render_bands` and the file writers limit what is held (a band is at most 2^27 pixels) and the long side
+  (65,000, vector's side and the size's own limit). A perspective layer is still cut down to 2^27 pixels as before (C2b).
+- **The band height is a memory budget, stated once.** `BAND_PIXELS` = 2^24 (an eighth of 2^27): a band of float32 RGBA is 256 MiB,
+  its height is `2^24 / columns` rows (at least one). Not a knob: `render_bands` takes the height as an argument for tests and API
+  users, `render_to_png` and `render_to_pdf` take none. The command line writes a picture of at most 2^24 pixels as before and streams a
+  larger one: the same constant, so one band is the whole render.
+- **PNG: the `png` crate, streaming, the `sRGB` chunk.** Image's writer is whole-image (it builds the PNG in memory), so a picture of
+  139 megapixels cannot go through it. The `png` crate (MIT or Apache-2.0, already in the tree through image) has a streaming
+  encoder: `render_to_png` writes each band as it is made, 8 bits a channel rounded as image rounds them (`level * 255 + 0.5`), filter
+  adaptive, compression balanced (`Best` is several times slower on a print). Image embeds a 588-byte ICC profile it keeps private; the
+  streamed file says sRGB by the PNG `sRGB` chunk (perceptual intent), which every viewer reads and which needs no profile bytes. The
+  pixels are those of `Raster::write` once decoded (a test over a picture of two bands); the bytes are not.
+- **PDF: one Flate stream, written incrementally.** The writer takes rows as they come (bleed rows repeat the first and last
+  row, a CMYK profile converts each row as before, the alpha stream is kept only if some pixel was not opaque) and compresses them
+  through miniz's streaming deflater into two buffers; `Raster::write_pdf` is one push of the whole picture, so the two share one
+  path and the boxes, the image and the operations are the same (a test of a picture of two bands with bleed and crop marks decodes both
+  and compares). **The floor of a PDF is its compressed image** (held until the file is assembled, as pdf-writer writes whole objects),
+  not the picture or its 8-bit planes; the 2^27 pixel limit of `write_pdf` is lifted for `render_to_pdf` (the page's 14,400 pt and the
+  PDF's 32-bit sides are the limits). A file is written under a temporary name and renamed when whole: a render that fails leaves no file
+  and a file that was there stays.
+- **Storage precision (decision 2): float32.** A band is float32 premultiplied RGBA, 16 bytes a pixel, and no finished layer is stored
+  but the looked ones (whole, float32, in the cache). *Why not 8 or 16 bits:* image keeps float32 for working pictures (8 bits bands in a
+  smooth gradient and cannot take a further grade); 8 bits would change the pixels of a render, so the bands could not equal what
+  `render` makes today; and what 8 bits would save is not what the peak is made of (below). *Measured* (release build, load average 5
+  to 20, peak resident set of the process, the scene's inputs included; the scene is a stand-in for the C7 poster, whose builder was not
+  kept: 15 layers on 4,961 by 3,508 design pixels at size 4,961: a ground, a 2,400 by 1,600 photo covering the canvas, a rotated photo
+  at 0.9, a looked photo, a photo masked by its own feathered map, a multiplied band, a drawing, two texts, a group put at 2x and 10
+  degrees, a looked reference to the looked photo, a feathered mask layer by a drawing, a looked light fill, a picture in perspective, an
+  overlay fill): **whole 1.47 GB, 1.66 s the first render and 0.55 s the second; banded in 1,000 rows 0.89 GB, 1.87 s; `render` on `main`
+  1.47 GB, 1.72 to 2.87 s, on this branch 1.47 GB, 1.68 to 2.26 s** (three runs of each, interleaved: no regression, the times are the
+  machine's). The band is 79 MB there; what is left is the inputs, the looked layers and the cache. **A0 at 300 dpi** (9,933 by 14,043
+  pixels, 139 megapixels, over 2^27: `render` refuses it): eight layers (a group of the full canvas size, two photos of 12 and 6
+  megapixels, one rotated, a multiplied band, type at 1,600, a feathered mask layer, an overlay fill) written to a PNG by `render_to_png`:
+  **25 s, 1.77 GB peak, a 44 MB file** that decodes to 9,933 by 14,043. A band there is 1,689 rows, 270 MB; the group alone would be
+  2.2 GB whole.
+- **Not built, and why.** Banded looks (image has no first-row setter and 40 of its 62 effects read positions); a drawing by window
+  (vector's window is within a level, not equal); a PDF whose compressed image is not held (a hand-written PDF writer, or pdf-writer taking a
+  stream); a kind drawn by band (its pixels are not by position); the reduction of a picture shrunk past 2x is made again for each
+  band (the area average of the whole raster; a time cost, not memory: `future.md`).

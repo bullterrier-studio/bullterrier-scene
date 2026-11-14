@@ -19,7 +19,7 @@ grouped (a scene used as a layer), and a group blends as one.
 | Blend modes (the W3C set), opacity, groups that blend as one | Values changing over time → control |
 | An effect chain on a layer or a group, applied at the right size | Footage, a timeline, sound, encoding → video |
 | Describing every parameter of the scene (name, unit, range, meaning) | An editor or painting tools |
-| Rendering in bands; caching per layer | |
+| Rendering in bands; caching per layer | built (B1, C7) |
 | Output: a picture, PNG, a raster PDF with bleed, crop marks and CMYK through a caller's profile | |
 
 ## What it is for
@@ -33,7 +33,7 @@ not the only goal. Every use below is the same scene with different layers, valu
 | Collage, photo grid, mockup on a tilted surface | placement with perspective, masks | C2, C3 |
 | One design, many pictures (a template run) | parameters, the scene as data, a command | C6, P1 |
 | Animation frames, kinetic type | parameters as states, cached re-render | C6, C7 (video adds the clock) |
-| Print-size piece | bands (B1, deferred); PDF and print colour are built (O1) | B1, O1 |
+| Print-size piece | bands (B1), PDF and print colour (O1): built | B1, O1 |
 | A reusable component (a badge in many scenes) | a scene as a layer source | C1, C6 |
 
 **Takes** a scene and its inputs (pictures, drawings, fonts, maps, looks, values for its parameters). **Gives** a picture of
@@ -103,31 +103,30 @@ Image and vector each made sensible choices alone; a scene puts their output sid
 
 ## Memory
 
-Bands are batch B1, deferred ([design-decisions.md](design-decisions.md), "Where the entire work ends"): `render` draws the whole
-picture until then, and the interface is final without them.
+Bands are built (batch B1; "Banded rendering" in [design-decisions.md](design-decisions.md) has the numbers): `Scene::render_bands`
+draws the picture a band of rows at a time and `render_to_png`, `render_to_pdf` write it as it is drawn, so a print size past what
+`render` draws is written. A banded render equals the whole render bit for bit, and `render` is one band.
 
 A stack of full-size float pictures is the wrong way to render a poster: one 12-megapixel float32 RGB picture is about
 144 MB, an A3 poster at 300 dpi about 200 MB a layer. So:
 
-1. **Render in bands.** Cut the canvas into rows, compose each band through every layer, then the next. Peak memory is a few
-   bands, not a few canvases, and does not grow with the number of layers.
-2. **Each effect declares its footprint:** nothing around a pixel, a radius, or the whole picture. Bands are cut with that
-   margin; a whole-picture effect falls back to one full picture, and only that layer pays.
-   A footprint is honest only if the effect's output at a pixel depends on absolute position and canvas size, never on a
-   sequential stream: an effect that draws noise from one seeded stream (grain, dust, scratches) is whole-picture until its
-   noise is position-hashed. Footprint also depends on the parameters (a blur's radius).
-   The same holds for any effect that knows where a pixel is: a centre-based warp, a vignette, scanlines, anything that uses
-   the picture's height or a whole-picture statistic. It bands only if the renderer hands it the band's row offset and the
-   full canvas size, not just a margin. Measured in image on 2026-11-08: 22 of 62 Rust effects were less than whole-picture,
-   40 were whole. Until effects take that origin and canvas size, banding saves little, and compact storage of finished
-   layers (item 3) is the saving that does not depend on it.
-3. **Finished layers are held compact** (8 or 16 bits), not float32; float is for the effect that is running.
-4. **Vector draws a window**, so a band of a drawing never needs the whole raster.
+1. **Render in bands.** The canvas is cut into rows, each band composed through every layer, then the next. A band is a window of
+   rows on the one plane every layer is drawn for (`Target::window`): the output, a group's inner scene and a mask's plane all take
+   one, and a pixel is what it is whatever rows are drawn with it, so the bands put together are the whole.
+2. **What is drawn by band and what whole.** A picture with no look hands its own pixels to the warp, which reads the rows a band
+   needs; a flat colour is one pixel; a group is drawn for the rows of its raster the band reads (`warp::rows_read`); a mask plane
+   is drawn for its band and the reach of its blur (the box passes of the blur are aligned so its sums add in the same order). A
+   layer with a look is drawn **whole** once and cut per band: image's effects are 22 of 62 less than whole-picture and 40 whole
+   (measured in image on 2026-11-08), and image's frame has no first-row setter, so a look cannot run on a band until effects take
+   a row origin and the canvas size (`future.md`). A drawing is drawn whole too: vector's window render is within one level of its
+   whole render, not equal, and a banded render must equal the whole one. A plugin kind is drawn whole once (its pixels are
+   promised by rectangle and scale, not by position). These are the memory floor of a banded render.
+3. **Finished layers are held as float32.** Decision 2 of the roadmap, settled at B1 with the peak measurements.
+4. **Vector draws a window** where its output is exact; it is not yet, so a drawing is whole.
 5. **Design pixels belong to the whole canvas,** not the band, so a banded render equals a whole one.
 
-The test that decides it: a banded render equals the whole render, and the peak of a 15-layer A3 poster is measured in both
-before any promise is made (batch B1). Needs from image (footprint, banded render, a design scale from the caller) and from
-vector (a window render) are in [roadmap.md](roadmap.md).
+The test that decides it: a banded render equals the whole render for every example scene at several band heights, and the peak of a
+15-layer A3 poster is measured in both.
 
 ## Why a package of its own
 

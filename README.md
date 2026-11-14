@@ -36,7 +36,7 @@ effects it gets. The scene then draws everything at the size you ask for, from a
   <tr>
     <td width="33%" valign="top"><b>One template, many pictures</b><br>Swap the photo, the title or a colour and render again. A hundred covers from one scene is a loop, not a hundred files.</td>
     <td width="33%" valign="top"><b>Any size, same picture</b><br>Draft small, print large. Every layer is drawn at the final size by the package that owns it, so the draft shows what the print will.</td>
-    <td width="33%" valign="top"><b>Big canvases without big memory (planned)</b><br>A large picture will be drawn a strip at a time, so fifteen layers at print size do not need fifteen full-size pictures in memory at once. Until then (batch B1 is deferred) <code>render</code> draws the whole picture.</td>
+    <td width="33%" valign="top"><b>Big canvases without big memory</b><br>A large picture is drawn a strip at a time and written as it is made, so an A0 print at 300 dpi (139 megapixels) goes to a PNG in under 2 GB, past what <code>render</code> draws whole. The strips put together are the whole picture, bit for bit. A layer with a look is still drawn whole once.</td>
   </tr>
 </table>
 
@@ -105,7 +105,7 @@ This is what the design allows; the [roadmap](docs/roadmap.md) says what is buil
 - **Generative pieces.** Drawings from `bullterrier-vector` (hatching, flow lines, type) and fields from
   `bullterrier-image` (noise, light) composed with photos in one picture.
 - **Large and reusable.** Print-size canvases drawn in strips; a finished badge or logo lockup built once as a scene and used
-  inside other scenes. A raster PDF at a physical size (dpi, bleed, crop marks, CMYK through your own ICC profile) is built; print-size bands come later.
+  inside other scenes. A raster PDF at a physical size (dpi, bleed, crop marks, CMYK through your own ICC profile) is built, and print sizes are drawn and written by bands.
 
 Not for: an editing app or painting tools, a 3D engine (lit relief such as chrome type is image's effects on a layer), photo retouching, or working with footage (that is video's).
 
