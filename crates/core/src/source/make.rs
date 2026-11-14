@@ -90,6 +90,7 @@ impl Source for Make {
                 raster: Arc::new(raster),
                 covers: window,
                 ends_at_window: false,
+                room: [0; 4],
                 maps: std::collections::BTreeMap::new(),
             })
         }))

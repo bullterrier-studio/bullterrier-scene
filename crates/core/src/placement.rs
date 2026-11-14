@@ -775,11 +775,14 @@ impl Layout {
             }
         } else {
             let (across, down) = (counts[0] / covers.width, counts[1] / covers.height);
+            // a light layer's room is shown with the window; its pixels are the raster's own
+            #[expect(clippy::cast_precision_loss, reason = "a room of at most 2^26 pixels")]
+            let [top, right, bottom, left] = drawn.room.map(|side| side as f64);
             Rect {
-                x: (self.window.x - covers.x) * across,
-                y: (self.window.y - covers.y) * down,
-                width: self.window.width * across,
-                height: self.window.height * down,
+                x: (self.window.x - covers.x) * across - left,
+                y: (self.window.y - covers.y) * down - top,
+                width: self.window.width * across + left + right,
+                height: self.window.height * down + top + bottom,
             }
         };
         let axes = [self.scale.x, self.scale.y];
@@ -1037,6 +1040,7 @@ mod tests {
             raster: Arc::new(Raster::made(20, 10, vec![0.0; 20 * 10 * 4])),
             covers: rect(20.0, 10.0),
             ends_at_window: false,
+            room: [0; 4],
             maps: std::collections::BTreeMap::new(),
         };
         layout.warp(&drawn).0

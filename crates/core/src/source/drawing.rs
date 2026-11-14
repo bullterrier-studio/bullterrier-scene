@@ -400,6 +400,7 @@ impl Source for Drawing {
                 raster: Arc::new(Raster::made(width, height, pixels)),
                 covers,
                 ends_at_window: request.window == own,
+                room: [0; 4],
                 maps: BTreeMap::new(),
             })
         });

@@ -164,6 +164,14 @@ fn poster() -> Result<Scene, Box<dyn std::error::Error>> {
                 .place(Place::new().dx(6.0).dy(4.0).scale(0.8))?
                 .mask(Layer::fill("#808080")?.place(Place::new().dx(4.0))?)?
                 .opacity(0.5)?,
+            // a light layer's halo is drawn on the raster grown by the room of its look: a look number that changes the room
+            // changes the picture
+            Layer::of("photo")
+                .named("halo")?
+                .look(r#"{"steps": [{"effect": "bloom", "params": {"radius": 6.0, "threshold": 0.2}}]}"#)?
+                .as_light(true)
+                .blend(Blend::Screen)
+                .place(Place::new().dx(10.0).dy(2.0))?,
         ],
     )?)
 }

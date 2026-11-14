@@ -84,6 +84,7 @@ pub(crate) struct Kept {
     raster: Arc<Raster>,
     covers: Rect,
     ends_at_window: bool,
+    room: [usize; 4],
 }
 
 impl Kept {
@@ -92,6 +93,7 @@ impl Kept {
             raster: drawn.raster,
             covers: drawn.covers,
             ends_at_window: drawn.ends_at_window,
+            room: drawn.room,
         }
     }
 
@@ -100,6 +102,7 @@ impl Kept {
             raster: Arc::clone(&self.raster),
             covers: self.covers,
             ends_at_window: self.ends_at_window,
+            room: self.room,
             maps: BTreeMap::new(),
         }
     }

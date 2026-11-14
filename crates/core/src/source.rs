@@ -85,6 +85,9 @@ pub(crate) struct Drawn {
     /// Whether the raster already ends, antialiased, where the window it was asked for ends, so that the warp does not cut it
     /// there again by coverage (a drawing's edge is drawn by vector: cutting it too would count the same pixel's cover twice).
     pub(crate) ends_at_window: bool,
+    /// The pixels the raster reaches past the window on each side (top, right, bottom, left): the room a light layer's looks
+    /// spread into, shown whole. `[0; 4]` for every other raster, which ends at the window or where `covers` says.
+    pub(crate) room: [usize; 4],
     /// The maps the layer's looks and masks use, each at the raster's size, resampled as the raster was: only from a source
     /// that has maps and was asked to draw at the size a look runs at (`Finish::is_looked`). The finish consumes them.
     pub(crate) maps: BTreeMap<String, Vec<f32>>,

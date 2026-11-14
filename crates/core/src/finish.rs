@@ -8,7 +8,7 @@ use std::sync::Arc;
 use crate::cache::Keyed;
 use crate::error::label;
 use crate::feather;
-use crate::geometry::whole_up;
+use crate::geometry::{MAX_LOOKED_PIXELS, Rect, whole_up};
 use crate::source::picture::Look;
 use crate::source::{Drawn, Request};
 use crate::{Error, Raster};
@@ -137,9 +137,10 @@ impl Finish {
     }
 
     /// `drawn` with each look run on it, in order, then each mask by a map multiplied into its alpha. A layer with no look
-    /// is as drawn: its source did the masks on its own pixels. The look sees the raster at the size the layer draws it, keeps
-    /// its alpha, and ends where the raster ends. A `light` layer (stage 7) is looked at over black, and what the look makes
-    /// of the black is light.
+    /// is as drawn: its source did the masks on its own pixels. The look sees the raster at the size the layer draws it, plus
+    /// and keeps its alpha. A `light` layer (stage 7) is looked at over black, and what the look makes of the black is light:
+    /// the raster is grown by the room its looks spread into (`Look::room`) before the look and kept grown, so the halo lands
+    /// past the box. Any other layer is looked at its own size.
     ///
     /// # Errors
     /// What image refuses of a look at this size or of a map it misses, and a blur that does not fit.
@@ -148,10 +149,11 @@ impl Finish {
             return Ok(drawn);
         }
         let Drawn {
-            mut raster,
-            covers,
-            ends_at_window,
-            maps,
+            raster,
+            mut covers,
+            mut ends_at_window,
+            mut maps,
+            ..
         } = drawn;
         // drawn pixels per design pixel of the fitted layer: what the layer is drawn at, less the fit
         let density = (
@@ -162,18 +164,116 @@ impl Finish {
         // (a side beyond u32 is as large as image can be told)
         let side = |length: f64| u32::try_from(whole_up(length)).unwrap_or(u32::MAX);
         let canvas = (side(request.canvas.0 * density.0), side(request.canvas.1 * density.1));
+        let drawn_size = (raster.width(), raster.height());
+        // only light shows the room: a layer that is not light keeps its source's alpha, so the halo would be cut, and a look
+        // that blurs its edge would mix black in where image's own edge rule would have kept the picture's colour
+        let room = if light {
+            Look::room(&self.looks, canvas)?
+                .filter(|room| fits(drawn_size, *room))
+                .unwrap_or_default()
+        } else {
+            [0; 4]
+        };
+        let grown = room != [0; 4];
+        let (mut looked, look_maps) = if grown {
+            let replicas = maps
+                .iter()
+                .map(|(name, values)| (name.clone(), replicated(values, drawn_size, room)))
+                .collect();
+            (Arc::new(padded(&raster, room)), replicas)
+        } else {
+            (raster, std::mem::take(&mut maps))
+        };
         for look in &self.looks {
-            raster = Arc::new(look.apply(&raster, &maps, canvas, light)?);
+            looked = Arc::new(look.apply(&looked, &look_maps, canvas, light)?);
         }
-        let values = maps
+        let mut shown = [0; 4];
+        if grown {
+            // the raster now reaches past the window by the room, so the warp lets all of it through
+            ends_at_window |= covers == request.window;
+            covers = grow(covers, drawn_size, room);
+            shown = room;
+        }
+        let values = look_maps
             .iter()
             .map(|(name, values)| (name.as_str(), values.as_slice()))
             .collect();
         Ok(Drawn {
-            raster: self.masking(&raster, density, &values)?,
+            raster: self.masking(&looked, density, &values)?,
             covers,
             ends_at_window,
+            room: shown,
             maps: BTreeMap::new(),
         })
+    }
+}
+
+/// Whether a raster of `size` (columns, rows) with `room` (top, right, bottom, left) added is one a look can run on: image's
+/// limit. A layer that would pass it gets no room, so that room never makes a render fail that would have run.
+fn fits((columns, rows): (usize, usize), [top, right, bottom, left]: [usize; 4]) -> bool {
+    let wide = columns.saturating_add(left).saturating_add(right);
+    wide.saturating_mul(rows.saturating_add(top).saturating_add(bottom)) <= MAX_LOOKED_PIXELS
+}
+
+/// `covers`, a part of the box drawn as `size` pixels, grown by `room` pixels of that density on each side.
+fn grow(covers: Rect, (columns, rows): (usize, usize), [top, right, bottom, left]: [usize; 4]) -> Rect {
+    // a side of at most 2^26 pixels: exact in a float
+    #[expect(clippy::cast_precision_loss, reason = "a raster side of at most 2^26 pixels")]
+    let (across, down, top, right, bottom, left) = (
+        columns as f64 / covers.width,
+        rows as f64 / covers.height,
+        top as f64,
+        right as f64,
+        bottom as f64,
+        left as f64,
+    );
+    Rect {
+        x: covers.x - left / across,
+        y: covers.y - top / down,
+        width: covers.width + (left + right) / across,
+        height: covers.height + (top + bottom) / down,
+    }
+}
+
+/// `raster` with `room` pixels of nothing (transparent black) round it.
+fn padded(raster: &Raster, [top, right, bottom, left]: [usize; 4]) -> Raster {
+    let (columns, rows) = (raster.width(), raster.height());
+    let wide = columns + left + right;
+    let mut pixels = vec![0.0_f32; wide * (rows + top + bottom) * 4];
+    for (row, line) in raster.pixels().chunks_exact(columns * 4).enumerate() {
+        let start = ((row + top) * wide + left) * 4;
+        pixels[start..start + line.len()].copy_from_slice(line);
+    }
+    Raster::made(wide, rows + top + bottom, pixels)
+}
+
+/// A map of `size` (columns, rows) with `room` pixels more on each side, each the nearest pixel of the map: a mask goes on past
+/// the box as it is at the box's edge, as a blur's does.
+fn replicated(values: &[f32], (columns, rows): (usize, usize), [top, right, bottom, left]: [usize; 4]) -> Vec<f32> {
+    let (wide, high) = (columns + left + right, rows + top + bottom);
+    (0..high)
+        .flat_map(|y| {
+            let row = y.saturating_sub(top).min(rows - 1) * columns;
+            (0..wide).map(move |x| row + x.saturating_sub(left).min(columns - 1))
+        })
+        .map(|at| values[at])
+        .collect()
+}
+
+// Inline, because no public route reaches the limit cheaply: a layer of 2^26 pixels is a gigabyte of floats.
+#[cfg(test)]
+mod tests {
+    use super::fits;
+    use crate::geometry::MAX_LOOKED_PIXELS;
+
+    #[test]
+    fn room_is_given_only_where_the_grown_raster_stays_within_what_a_look_runs_on() {
+        let side = 1 << 13; // 8192 x 8192 is the limit exactly
+        assert!(fits((side, side), [0; 4]));
+        assert!(!fits((side, side), [1, 0, 0, 0]));
+        assert!(!fits((side, side), [0, 0, 0, 1]));
+        assert!(fits((side - 2, side), [0, 1, 0, 1]));
+        assert!(!fits((1, 1), [usize::MAX, usize::MAX, 0, 0]));
+        assert_eq!(side * side, MAX_LOOKED_PIXELS);
     }
 }

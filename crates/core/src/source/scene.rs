@@ -131,6 +131,7 @@ impl Source for Group {
                 raster: Arc::new(Raster::made(columns, rows, straight(joined))),
                 covers,
                 ends_at_window: request.window == own,
+                room: [0; 4],
                 maps: BTreeMap::new(),
             })
         });

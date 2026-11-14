@@ -86,6 +86,7 @@ impl Source for Fill {
                 raster: Arc::new(raster),
                 covers,
                 ends_at_window: false,
+                room: [0; 4],
                 maps: BTreeMap::new(),
             })
         }))

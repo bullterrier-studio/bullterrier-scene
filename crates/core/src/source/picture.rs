@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
-use bullterrier_image::{Number, Options, Photo, Presets, RECIPE_FORMATS, Recipe};
+use bullterrier_image::{Number, Options, Photo, Presets, RECIPE_FORMATS, Recipe, Spread};
 use serde_json::{Value, json};
 
 use super::{Drawn, Given, Opened, Source};
@@ -183,6 +183,26 @@ impl Look {
         };
         key.digest(&fingerprint);
         Ok(())
+    }
+
+    /// The room the `looks` ask for together, in pixels of the picture they run on: how far past it they paint on the top, right,
+    /// bottom and left, as image declares it for a canvas of `canvas` pixels (what sets the look's design scale). The looks'
+    /// sides add, each working on what the one before made, rounded up to whole pixels. `None` if a look may paint anywhere (a
+    /// warp about the picture's centre, a statistic of the whole picture): no room holds it.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `look`, in image's words.
+    pub(crate) fn room(looks: &[Self], canvas: (u32, u32)) -> Result<Option<[usize; 4]>, Error> {
+        let longest = canvas.0.max(canvas.1);
+        let mut total = Spread::NONE;
+        for look in looks {
+            total = total.then(
+                look.recipe
+                    .spread(&look.presets, longest)
+                    .map_err(|error| refused(&error))?,
+            );
+        }
+        Ok(total.pixels())
     }
 
     /// The names of the maps the recipe can be given (`subject`, `depth`, a `given` region).
@@ -506,6 +526,7 @@ impl Source for Picture {
                     raster: finish.masking(&own, density, &values)?,
                     covers: whole,
                     ends_at_window: false,
+                    room: [0; 4],
                     maps: BTreeMap::new(),
                 });
             }
@@ -515,6 +536,7 @@ impl Source for Picture {
                 raster: resize(&own, window, (columns, rows)),
                 covers: window,
                 ends_at_window: false,
+                room: [0; 4],
                 maps: maps
                     .iter()
                     .filter(|(name, _)| finish.uses_map(name))

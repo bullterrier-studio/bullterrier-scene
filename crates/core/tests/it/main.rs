@@ -28,6 +28,7 @@ mod picture;
 mod placement;
 mod plugin;
 mod references;
+mod room;
 mod saved;
 mod structure;
 mod text;

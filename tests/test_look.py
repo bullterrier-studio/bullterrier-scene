@@ -306,13 +306,15 @@ def test_the_evening_is_the_same_opaque_picture_twice_and_at_two_sizes(evening):
     assert scene.render(300).shape == (200, 300, 4)
 
 
-def test_the_suns_glow_is_light_round_the_disc_that_fades_with_the_distance_and_stays_in_its_box(evening):
+def test_the_suns_glow_is_light_round_the_disc_that_fades_with_the_distance_and_spills_past_its_box(evening):
     drawn = evening.build().render(evening.W)
     # the sun's picture is the box (620, 40, 500, 500), its disc 110 pixels across from its middle (870, 290)
     row = 290
     ring, further, far = (luminance(drawn[row, x]) for x in (870 + 125, 870 + 175, 1150))
     assert ring > further > far + 0.01  # the glow brightens the sky it reaches, less with the distance
-    assert abs(luminance(drawn[row, 1150]) - luminance(drawn[row, 20])) < 1e-6  # and not the sky out of the box
+    assert (
+        luminance(drawn[row, 1150]) > luminance(drawn[row, 20]) + 0.005
+    )  # past the sun's box (C5c room), where a light layer shows it
 
 
 def test_the_shadow_is_cast_along_the_floor_from_the_figure_and_the_floor_is_clear_elsewhere(evening):
@@ -322,7 +324,7 @@ def test_the_shadow_is_cast_along_the_floor_from_the_figure_and_the_floor_is_cle
     # over the rows just above its feet (the figure itself covers the rest of it)
     beside = drawn[evening.FEET - 90 : evening.FEET - 60, 770:830, :3]
     assert luminance(beside).min() < 0.7 * luminance(floor)
-    assert np.allclose(drawn[evening.FEET - 40, 1100, :3], floor, atol=1e-6)
+    assert np.allclose(drawn[evening.FEET - 40, 20, :3], floor, atol=1e-6)  # far from the sun's glow
 
 
 def test_the_reflection_is_the_figure_mirrored_in_its_feet_and_faded(evening):
