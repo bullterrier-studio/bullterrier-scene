@@ -1,5 +1,7 @@
 //! Helpers the test modules share.
 
+pub(crate) mod counting;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 

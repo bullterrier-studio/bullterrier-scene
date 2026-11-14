@@ -23,6 +23,7 @@ mod parameters;
 mod perspective;
 mod picture;
 mod placement;
+mod plugin;
 mod references;
 mod saved;
 mod structure;

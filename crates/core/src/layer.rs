@@ -13,11 +13,12 @@ use crate::placement::{Fit, Fitting, Place, Placed, Placement};
 use crate::reference::Reference;
 use crate::source::drawing::Drawing;
 use crate::source::fill::Fill;
+use crate::source::make::Make;
 use crate::source::picture::{Look, Picture, recipe_file};
 use crate::source::scene::Group;
 use crate::source::{Given, Source};
 use crate::text::Text;
-use crate::{Error, Map, Raster, Scene};
+use crate::{Error, LayerKind, Map, Raster, Scene};
 
 /// One layer of a scene: a source, and how it joins the layers below it. A layer is an immutable value: every call
 /// returns a new one, and a layer can be used in several scenes, or twice in one.
@@ -241,6 +242,15 @@ impl Layer {
     #[must_use]
     pub fn scene(inner: Scene) -> Self {
         Self::from_source(Group::new(inner))
+    }
+
+    /// A layer that `kind` draws (a plugin: [`LayerKind`]): its box is the canvas, like a fill's, and the scene asks it for the
+    /// rectangle of the canvas that shows, at the scale it is drawn at. `fit`, `place`, looks, masks, `blend` and `opacity`
+    /// act on what it answers as they act on any layer; what it drew is kept and asked for again only for a rectangle or a
+    /// scale it has not drawn. A scene with such a layer has no JSON form yet (`to_json` refuses it, as it does an array).
+    #[must_use]
+    pub fn make(kind: Arc<dyn LayerKind>) -> Self {
+        Self::from_source(Make::new(kind))
     }
 
     /// A flat colour over the whole canvas: `#rrggbb` or `#rrggbbaa`, in sRGB values; the alpha is straight.

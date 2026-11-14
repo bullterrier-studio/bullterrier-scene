@@ -16,6 +16,7 @@ use crate::{Error, Map, Raster};
 
 pub(crate) mod drawing;
 pub(crate) mod fill;
+pub(crate) mod make;
 pub(crate) mod picture;
 pub(crate) mod scene;
 
