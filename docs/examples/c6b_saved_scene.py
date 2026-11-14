@@ -8,6 +8,7 @@ arithmetic (no third-party picture).
 """
 
 import json
+import sys
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
@@ -47,17 +48,34 @@ def save_png(pixels: np.ndarray, path: Path) -> Path:
     return path
 
 
-def saved_and_loaded(folder: Path, save: Callable[[np.ndarray, Path], Path] = save_png) -> tuple[bts.Scene, bts.Scene]:
-    """Save the scene in `folder` and read it back there: the scene and the scene read back (equal)."""
-    scene = build(save(photo(), folder / "photo.png"))
+def cover_by_values() -> bts.Scene:
+    """The committed `cover.scene.json` with three values set: what `bt-scene render` draws with the same three `--set`
+    (`docs/cli.md`; the gallery piece `p1-cli.png`)."""
+    cover = Path(__file__).with_name("cover.scene.json")
+    saved = bts.Scene.from_json(cover.read_text(encoding="utf-8"), base=cover.parent)
+    return saved.with_values({"title.text": "From the command line", "band.opacity": 0.6, "band.color": "#2b0a3d"})
+
+
+def saved_and_loaded(
+    folder: Path,
+    save: Callable[[np.ndarray, Path], Path] = save_png,
+    files: tuple[str, str] = ("photo.png", "scene.json"),
+) -> tuple[bts.Scene, bts.Scene]:
+    """Save the scene in `folder` and read it back there: the scene and the scene read back (equal). `files` names the
+    picture file and the scene file."""
+    picture_file, scene_file = files
+    scene = build(save(photo(), folder / picture_file))
     document = json.loads(scene.to_json())
-    document["layers"][0]["picture"]["path"] = "photo.png"  # relative to the folder the scene file is in
-    (folder / "scene.json").write_text(json.dumps(document, indent=2), encoding="utf-8")
-    loaded = bts.Scene.from_json((folder / "scene.json").read_text(encoding="utf-8"), base=folder)
+    document["layers"][0]["picture"]["path"] = picture_file  # relative to the folder the scene file is in
+    (folder / scene_file).write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+    loaded = bts.Scene.from_json((folder / scene_file).read_text(encoding="utf-8"), base=folder)
     return scene, loaded
 
 
 if __name__ == "__main__":
-    with tempfile.TemporaryDirectory() as folder:
-        scene, loaded = saved_and_loaded(Path(folder))
-        save_png(loaded.render(W), Path("saved-scene.png"))  # the picture of the scene read back
+    if len(sys.argv) > 1:  # `python c6b_saved_scene.py docs/examples` writes cover-photo.png and cover.scene.json there
+        saved_and_loaded(Path(sys.argv[1]), files=("cover-photo.png", "cover.scene.json"))
+    else:
+        with tempfile.TemporaryDirectory() as folder:
+            scene, loaded = saved_and_loaded(Path(folder))
+            save_png(loaded.render(W), Path("saved-scene.png"))  # the picture of the scene read back

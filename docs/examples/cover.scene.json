@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "canvas": {
+    "width": 320,
+    "height": 180
+  },
+  "layers": [
+    {
+      "name": "photo",
+      "picture": {
+        "path": "cover-photo.png",
+        "sha256": "bd5beef65c40247557aadf100f09b115f458d95c6281c4c499849e2de3fb6070"
+      },
+      "fit": {
+        "box": [
+          0,
+          0,
+          320,
+          180
+        ]
+      }
+    },
+    {
+      "name": "band",
+      "fill": "#101018",
+      "fit": {
+        "box": [
+          0,
+          120,
+          320,
+          60
+        ],
+        "how": "stretch"
+      },
+      "opacity": 0.82
+    },
+    {
+      "name": "title",
+      "text": "Saved scene",
+      "font": "bricolage_grotesque",
+      "color": "#ffffff",
+      "options": {
+        "size": 28,
+        "axes": {
+          "wght": 800
+        }
+      },
+      "place": {
+        "dx": 16,
+        "dy": 160
+      }
+    }
+  ]
+}

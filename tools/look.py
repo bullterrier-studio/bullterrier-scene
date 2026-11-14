@@ -42,6 +42,7 @@ PIECES: list[Piece] = [
     ("c5a_looks_on_everything.py", "build", 800, GALLERY / "c5a-looks-on-everything.png"),
     ("c6a_covers.py", "contact_sheet", 808, LOOK / "c6a-six-covers.png"),
     ("c6a_covers.py", "contact_sheet", 808, GALLERY / "c6a-six-covers.png"),
+    ("c6b_saved_scene.py", "cover_by_values", 640, GALLERY / "p1-cli.png"),
 ]
 
 
