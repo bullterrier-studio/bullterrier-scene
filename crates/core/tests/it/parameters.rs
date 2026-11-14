@@ -802,3 +802,58 @@ fn a_drawing_without_params_lists_none() -> Outcome {
     );
     Ok(())
 }
+
+/// Image's rule between two numbers of a look (a band's `low` is at most its `high`) holds for the set given together, and a
+/// number that image says is whole takes `4.0` and refuses `3.5`.
+#[test]
+fn a_look_takes_the_rules_between_its_numbers_and_its_whole_numbers_from_image() -> Outcome {
+    let band = r#"{"steps": [{"effect": "grade", "mask": "above"}], "regions": {"down": {"kind": "linear_gradient", "angle": 90.0}, "above": {"kind": "band", "of": "down", "low": 0.0, "high": 0.6, "feather": 0.05}}}"#;
+    let template = scene(6, 4, [Layer::picture(numbered(6, 4)?).look(band)?.named("p")?])?;
+    let low = "p.look.region.above.low";
+    let high = "p.look.region.above.high";
+    // each alone is fine inside the other's bound, and `low` above `high` is image's refusal, with its words
+    template.with_values(&Values::new().set(low, 0.5))?;
+    let alone = refusal(&template, low, 0.8)?;
+    assert!(alone.contains("p.look"), "{alone}");
+    // together they are a set that holds
+    template.with_values(&Values::new().set(low, 0.8).set(high, 0.9))?;
+    assert!(
+        template
+            .with_values(&Values::new().set(low, 0.8).set(high, 0.7))
+            .is_err()
+    );
+    // a whole number
+    let halftone = r#"{"steps": [{"effect": "halftone", "params": {"cell": 4}}]}"#;
+    let dots = scene(6, 4, [Layer::picture(numbered(6, 4)?).look(halftone)?.named("p")?])?;
+    let listed = dots.parameters();
+    let cell = at(&listed, "p.look.halftone.cell")?;
+    assert_eq!(cell.kind, Kind::Int);
+    dots.with_values(&Values::new().set("p.look.halftone.cell", 6.0))?;
+    let message = refusal(&dots, "p.look.halftone.cell", 3.5)?;
+    assert!(message.contains("whole"), "{message}");
+    Ok(())
+}
+
+/// Masks are numbered by the layer's `mask` calls, those by a map counting: the second call is `mask#2`, and a value set there
+/// lands on that mask layer and no other.
+#[test]
+fn a_value_at_the_second_mask_lands_on_the_second_mask() -> Outcome {
+    let before = drawable()?;
+    let after = before.with_values(
+        &Values::new()
+            .set("photo.mask#2.opacity", 0.25)
+            .set("photo.mask#2.dx", 5.0),
+    )?;
+    let listed = after.parameters();
+    assert_eq!(at(&listed, "photo.mask#2.opacity")?.value, Value::Number(0.25));
+    assert_eq!(at(&listed, "photo.mask#2.dx")?.value, Value::Number(5.0));
+    // nothing else changed
+    let changed: Vec<&str> = listed
+        .iter()
+        .zip(before.parameters().iter())
+        .filter(|(now, was)| now.value != was.value)
+        .map(|(now, _)| now.address.as_str())
+        .collect();
+    assert_eq!(changed, ["photo.mask#2.opacity", "photo.mask#2.dx"]);
+    Ok(())
+}

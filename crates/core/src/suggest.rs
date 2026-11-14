@@ -28,12 +28,18 @@ pub(crate) fn nearest<'a>(word: &str, names: impl Iterator<Item = &'a str> + Clo
     if !begins.is_empty() {
         return begins;
     }
-    let nearest = names
-        .clone()
-        .map(|name| distance(word, name))
-        .fold(usize::MAX, usize::min);
-    if nearest > (word.chars().count() / 3).max(1) {
+    let (typed, within) = (word.chars().count(), (word.chars().count() / 3).max(1));
+    // a name whose length differs by more than `within` is more than `within` edits away: no distance is worked out for it
+    let near: Vec<(&str, usize)> = names
+        .filter(|name| name.chars().count().abs_diff(typed) <= within)
+        .map(|name| (name, distance(word, name)))
+        .collect();
+    let nearest = near.iter().map(|&(_, edits)| edits).min().unwrap_or(usize::MAX);
+    if nearest > within {
         return Vec::new();
     }
-    names.filter(|name| distance(word, name) == nearest).collect()
+    near.into_iter()
+        .filter(|&(_, edits)| edits == nearest)
+        .map(|(name, _)| name)
+        .collect()
 }
