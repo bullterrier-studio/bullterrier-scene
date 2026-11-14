@@ -6,7 +6,7 @@ use crate::Error;
 use crate::geometry::{Rect, Scale};
 use crate::layer::Body;
 use crate::placement::{Layout, Placement};
-use crate::source::Drawn;
+use crate::source::{Drawn, Request};
 use crate::warp::{Map, is_identity, warp_into};
 
 /// Where a layer is drawn: the output grid of the canvas, with `margin` more pixels on each side (along x and y) for a mask
@@ -20,6 +20,11 @@ pub(crate) struct Target {
     pub(crate) columns: usize,
     pub(crate) rows: usize,
     pub(crate) margin: (usize, usize),
+    /// How far, in output pixels, the canvas's top left lies from the grid's (margin not counted): 0 for the whole canvas, and
+    /// the part of a pixel a scene used as a layer starts at when its box is not on a pixel.
+    pub(crate) offset: (f64, f64),
+    /// The pixels the scenes drawn round this one hold in their own rasters while it is drawn: 0 for the whole canvas.
+    pub(crate) held: usize,
 }
 
 impl Target {
@@ -89,18 +94,25 @@ pub(crate) fn land(body: &Body, target: &Target) -> Result<Landed, Error> {
     // it and a layer must be the same shape whatever its blur adds
     let unplaced = body.fit.is_none() && body.placement == Placement::default() && body.extras.is_empty();
     let opened = body.source.open(if unplaced { target.rect() } else { target.canvas })?;
-    let layout = Layout::new(body.fit, body.placement, &body.extras, opened.own, target.scale);
-    let request = layout.request(opened.own, opened.whole);
+    let layout = Layout::new(body.fit, body.placement, &body.extras, opened.own, target.scale).offset(target.offset);
+    let request = Request {
+        held: target.held,
+        ..layout.request(opened.own, opened.whole)
+    };
     // the one place the drawn-size limit is checked, before any source draws
     request.scale.size(request.window)?;
     let drawn = opened.draw(request)?;
     let (map, clip) = layout.warp(&drawn);
-    let map = if target.margin == (0, 0) {
+    // the output starts `margin` pixels, and the offset, up and left of the canvas
+    #[expect(clippy::cast_precision_loss, reason = "a margin of at most 2^27 pixels")]
+    let (across, down) = (
+        target.margin.0 as f64 + target.offset.0,
+        target.margin.1 as f64 + target.offset.1,
+    );
+    let map = if (across, down) == (0.0, 0.0) {
         map
     } else {
-        // the output starts `margin` pixels up and left of the canvas
-        #[expect(clippy::cast_precision_loss, reason = "a margin of at most 2^27 pixels")]
-        map.shifted(target.margin.0 as f64, target.margin.1 as f64)
+        map.shifted(across, down)
     };
     Ok(Landed {
         drawn,

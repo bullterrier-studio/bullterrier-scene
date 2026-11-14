@@ -12,9 +12,10 @@ use crate::reference::Reference;
 use crate::source::drawing::Drawing;
 use crate::source::fill::Fill;
 use crate::source::picture::{Picture, check_look, recipe_file};
+use crate::source::scene::Group;
 use crate::source::{Given, MapMask, Source};
 use crate::text::Text;
-use crate::{Error, Map, Raster};
+use crate::{Error, Map, Raster, Scene};
 
 /// One layer of a scene: a source, and how it joins the layers below it. A layer is an immutable value: every call
 /// returns a new one, and a layer can be used in several scenes, or twice in one.
@@ -80,13 +81,16 @@ fn check_name(field: &str, name: &str) -> Result<(), Error> {
 
 impl Layer {
     fn from_source(source: impl Source + 'static) -> Self {
-        Self::fresh(Base::Body(Body {
+        let budget = source.budget();
+        let mut layer = Self::fresh(Base::Body(Body {
             source: Arc::new(source),
             fit: None,
             placement: Placement::default(),
             extras: Vec::new(),
             chain: 0,
-        }))
+        }));
+        layer.join.budget = budget;
+        layer
     }
 
     /// A layer that draws `base` and joins as a plain, opaque, normal layer.
@@ -178,6 +182,15 @@ impl Layer {
     /// `inside`, `runs`, expressions and Params; [`Error::Read`] for a font file that cannot be read.
     pub fn text(content: &str, text: &Text) -> Result<Self, Error> {
         Ok(Self::from_source(Drawing::text(content, text)?))
+    }
+
+    /// A scene as a layer, a group: its canvas is the layer's box, at the canvas origin like a picture, and its layers are
+    /// drawn on their own, each joined as it says over the group's own content, before the finished picture is joined as one
+    /// layer (`fit`, `place`, `perspective`, masks, `blend`, `opacity` and `as_light` act on it as they act on any layer). The
+    /// scene is drawn at the density the layer has, so it is as sharp at any size. A look is refused until batch C5.
+    #[must_use]
+    pub fn scene(inner: Scene) -> Self {
+        Self::from_source(Group::new(inner))
     }
 
     /// A flat colour over the whole canvas: `#rrggbb` or `#rrggbbaa`, in sRGB values; the alpha is straight.

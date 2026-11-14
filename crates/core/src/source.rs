@@ -7,12 +7,14 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use crate::geometry::{Rect, Scale};
+use crate::budget::Budget;
+use crate::geometry::{Rect, Scale, whole_up};
 use crate::{Error, Map, Raster};
 
 pub(crate) mod drawing;
 pub(crate) mod fill;
 pub(crate) mod picture;
+pub(crate) mod scene;
 
 /// A map a picture layer is given, as it was given: held, a file read when the scene renders, or a hole (a map the caller
 /// has not given yet, which a render refuses until parameters fill holes).
@@ -51,6 +53,29 @@ pub(crate) struct Request {
     /// or put in perspective); `(0, 0)` otherwise. A source that draws a raster with its content moved by these fractions,
     /// and says so in `covers`, has the warp put the raster on whole pixels: no resample, no soft edge.
     pub(crate) phase: (f64, f64),
+    /// The pixels the scenes this one is drawn in (as a group, one inside another) hold in their own rasters, which stay alive
+    /// while this is drawn: the renderer sets it, `Layout::request` leaves it 0.
+    pub(crate) held: usize,
+}
+
+impl Request {
+    /// The part of the box `own` that a source drawing the whole of it draws: the box, from `phase` before its top left to the
+    /// whole pixels that hold it, at the density of `scale`. The warp then copies the raster onto whole pixels.
+    pub(crate) fn whole(&self, own: Rect) -> Rect {
+        let (across, down) = (self.scale.x.pixels(1.0), self.scale.y.pixels(1.0));
+        // whole pixels, a side of at most 2^27: exact in a float
+        #[expect(clippy::cast_precision_loss, reason = "a raster side of at most 2^27 pixels")]
+        let (columns, rows) = (
+            whole_up(self.phase.0 + own.width * across) as f64,
+            whole_up(self.phase.1 + own.height * down) as f64,
+        );
+        Rect {
+            x: own.x - self.phase.0 / across,
+            y: own.y - self.phase.1 / down,
+            width: columns / across,
+            height: rows / down,
+        }
+    }
 }
 
 /// What a source answers.
@@ -105,6 +130,11 @@ impl<'a> Opened<'a> {
 
 /// Something a layer draws.
 pub(crate) trait Source: Send + Sync + fmt::Debug {
+    /// What drawing a layer of this source costs: one layer, unless it draws layers of its own (a scene).
+    fn budget(&self) -> Budget {
+        Budget::LAYER
+    }
+
     /// Opens this source: reads what gives its box its size (a file is read here, once) and says how big the box is.
     /// `canvas` is the scene's canvas, the box of a source that has none of its own.
     ///

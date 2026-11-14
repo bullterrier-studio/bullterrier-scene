@@ -9,6 +9,7 @@ mod blend;
 mod compose;
 mod data_boundary;
 mod drawing;
+mod groups;
 mod light;
 mod look;
 mod maps;

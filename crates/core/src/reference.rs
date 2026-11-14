@@ -8,7 +8,6 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-use crate::budget::Budget;
 use crate::error::label;
 use crate::layer::{Base, Body};
 use crate::placement::Placed;
@@ -97,10 +96,13 @@ fn resolved(layer: &Layer, target: &impl Fn(&str) -> Result<Body, Error>) -> Res
                 .map_err(|error| error.in_layer(&label(mask.number())))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let chain = made.drawable()?.chain;
+    let (own, chain) = {
+        let body = made.drawable()?;
+        (body.source.budget(), body.chain)
+    };
     made.join.budget = masks
         .iter()
-        .fold(Budget::LAYER, |budget, mask| budget.needing(mask.layer().budget()))
+        .fold(own, |budget, mask| budget.needing(mask.layer().budget()))
         .through(chain);
     made.join.masks = masks;
     Ok(made)

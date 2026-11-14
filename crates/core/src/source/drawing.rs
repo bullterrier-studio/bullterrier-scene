@@ -6,7 +6,7 @@ use bullterrier_vector::{Font, Inputs, ScaleBy, Size, Values};
 use serde_json::{Value, json};
 
 use super::{Drawn, Opened, Source};
-use crate::geometry::{Rect, whole_up};
+use crate::geometry::Rect;
 use crate::text::{Face, Text};
 use crate::{Error, Raster};
 
@@ -195,14 +195,7 @@ impl Source for Drawing {
             // output pixels per design pixel of the box along each axis, and the fractions of a pixel the box starts at
             let (across, down) = (request.scale.x.pixels(1.0), request.scale.y.pixels(1.0));
             let (shift_x, shift_y) = request.phase;
-            // whole pixels, a side of at most 2^27: exact in a float
-            #[expect(clippy::cast_precision_loss, reason = "a raster side of at most 2^27 pixels")]
-            let covers = Rect {
-                x: own.x - shift_x / across,
-                y: own.y - shift_y / down,
-                width: whole_up(shift_x + own.width * across) as f64 / across,
-                height: whole_up(shift_y + own.height * down) as f64 / down,
-            };
+            let covers = request.whole(own);
             let (width, height) = request.scale.size(covers)?;
             // vector's one scale: the mean of the two, so that each axis is scaled by a factor of about 1
             let one = f64::midpoint(across, down);

@@ -475,6 +475,9 @@ pub(crate) struct Layout {
     /// The extra places, in order; empty for a layer that is not a reference (and for a perspective, whose steps are in
     /// its homography).
     steps: Vec<Step>,
+    /// How far, in output pixels, the canvas's top left lies from the output's: a part of a pixel when a scene used as a layer
+    /// is drawn from a fractional place (`Target::offset`); `(0, 0)` otherwise.
+    offset: (f64, f64),
 }
 
 impl Layout {
@@ -520,6 +523,7 @@ impl Layout {
                 factor,
                 basis: Basis::Place(placed),
                 steps,
+                offset: (0.0, 0.0),
             },
             // an affine map after a homography is one homography: its last row stays what it was, so a parallelogram stays
             // one (the exact path) and a perspective stays a perspective
@@ -534,8 +538,15 @@ impl Layout {
                         .fold(quad.matrix(), |matrix, step| multiply3(step.homography(), matrix)),
                 ),
                 steps: Vec::new(),
+                offset: (0.0, 0.0),
             },
         }
+    }
+
+    /// This layout on an output whose grid starts `offset` output pixels before the canvas, which moves the pixel phase.
+    pub(crate) fn offset(mut self, offset: (f64, f64)) -> Self {
+        self.offset = offset;
+        self
     }
 
     /// What the source is asked to draw: the window, at the output scale times the fit and the zoom. For a perspective, at
@@ -554,6 +565,7 @@ impl Layout {
                     scale: Scale::exactly(across * fit, down * fit),
                     factor: self.factor,
                     phase: (0.0, 0.0),
+                    held: 0,
                 };
             }
         };
@@ -564,6 +576,7 @@ impl Layout {
             scale: self.scale.times(self.factor.0 * zoom, self.factor.1 * zoom),
             factor: self.factor,
             phase: self.phase(own, placed),
+            held: 0,
         }
     }
 
@@ -585,7 +598,7 @@ impl Layout {
         });
         let design = self.steps.iter().fold(design, |point, step| step.at(point));
         let at = |row: usize, axis: Axis| {
-            let position = axis.pixels(design[row]);
+            let position = axis.pixels(design[row]) + [self.offset.0, self.offset.1][row];
             position - position.floor()
         };
         (at(0, self.scale.x), at(1, self.scale.y))

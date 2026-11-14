@@ -44,6 +44,8 @@ pub(crate) fn render(width: u32, height: u32, layers: &[Layer], size: i128) -> R
         columns,
         rows,
         margin: (0, 0),
+        offset: (0.0, 0.0),
+        held: 0,
     };
     let joined = draw(layers, &target)?;
     Ok(Raster::made(columns, rows, straight(joined)))
@@ -116,7 +118,7 @@ fn over_pixel(below: &mut [f32], above: [f32; 4], opacity: f32) {
 }
 
 /// `joined` (premultiplied) as straight alpha: the colour over the alpha, nothing where nothing is drawn.
-fn straight(mut joined: Vec<f32>) -> Vec<f32> {
+pub(crate) fn straight(mut joined: Vec<f32>) -> Vec<f32> {
     for pixel in joined.as_chunks_mut::<4>().0 {
         let alpha = pixel[3];
         for channel in &mut pixel[..3] {

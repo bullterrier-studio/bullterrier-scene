@@ -17,9 +17,9 @@ pub struct Scene {
     /// The layers as they were added.
     layers: Vec<Layer>,
     /// The same layers as they are drawn: each reference replaced by the body it draws.
-    drawn: Vec<Layer>,
+    pub(crate) drawn: Vec<Layer>,
     /// What drawing the scene costs, kept as layers are added so that a check is a sum, not a walk.
-    budget: Budget,
+    pub(crate) budget: Budget,
 }
 
 impl Scene {
