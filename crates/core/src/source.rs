@@ -1,13 +1,14 @@
 //! What a layer is made of: a source says how big its box is, then answers one question, "draw this part of it at this scale".
-//! `picture` and `drawing` are the two adapters that know a sibling crate; the renderer knows neither.
+//! `picture` and `drawing` are the two adapters that know a sibling crate; the renderer knows neither. The looks and masks of a
+//! layer are not the source's: they run on what it draws (`finish`).
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use serde_json::Value;
-
 use crate::budget::Budget;
+use crate::finish::Finish;
 use crate::geometry::{Rect, Scale, whole_up};
 use crate::{Error, Map, Raster};
 
@@ -23,19 +24,6 @@ pub(crate) enum Given {
     Held(Arc<Map>),
     File(PathBuf),
     Hole,
-}
-
-/// A mask by one of a picture's maps, as the layer's `mask` call gave it.
-#[derive(Debug, Clone)]
-pub(crate) struct MapMask {
-    /// The map's name.
-    pub(crate) name: String,
-    /// The mask's place among the layer's `mask` calls, from 1: `mask`, `mask#2`...
-    pub(crate) number: usize,
-    /// The blur of the map's edge, in design pixels as the layer is fitted; 0 is none.
-    pub(crate) feather: f64,
-    /// Whether the mask is 1 minus the map (after the blur).
-    pub(crate) invert: bool,
 }
 
 /// What the renderer asks of a source once it knows the size of the source's box.
@@ -90,7 +78,13 @@ pub(crate) struct Drawn {
     /// Whether the raster already ends, antialiased, where the window it was asked for ends, so that the warp does not cut it
     /// there again by coverage (a drawing's edge is drawn by vector: cutting it too would count the same pixel's cover twice).
     pub(crate) ends_at_window: bool,
+    /// The maps the layer's looks and masks use, each at the raster's size, resampled as the raster was: only from a source
+    /// that has maps and was asked to draw at the size a look runs at (`Finish::is_looked`). The finish consumes them.
+    pub(crate) maps: BTreeMap<String, Vec<f32>>,
 }
+
+/// How a source answers: told the request and what the layer's finish needs.
+type Draw<'a> = dyn FnOnce(Request, &Finish) -> Result<Drawn, Error> + 'a;
 
 /// A source that has said how big its box is and waits to be told what to draw. The renderer decides the request (and
 /// refuses one that is too large) between the two, so no source has to remember to.
@@ -100,12 +94,19 @@ pub(crate) struct Opened<'a> {
     /// Whether it draws the whole box whatever part is asked for (a vector drawing), so that what it allocates is the box at
     /// the scale, not the part.
     pub(crate) whole: bool,
-    draw: Box<dyn FnOnce(Request) -> Result<Drawn, Error> + 'a>,
+    draw: Box<Draw<'a>>,
 }
 
 impl<'a> Opened<'a> {
-    /// A source of box `own` that answers a request by `draw`.
+    /// A source of box `own` that answers a request by `draw`, at the size it is asked for: the layer's looks run on the
+    /// raster it gives back.
     pub(crate) fn new(own: Rect, draw: impl FnOnce(Request) -> Result<Drawn, Error> + 'a) -> Self {
+        Self::finishing(own, move |request, _| draw(request))
+    }
+
+    /// A source of box `own` that answers a request by `draw`, and that has more to hand over when the layer runs looks on
+    /// it (its own pixels, a map): `draw` is told what the layer's finish needs.
+    pub(crate) fn finishing(own: Rect, draw: impl FnOnce(Request, &Finish) -> Result<Drawn, Error> + 'a) -> Self {
         Self {
             own,
             whole: false,
@@ -119,12 +120,14 @@ impl<'a> Opened<'a> {
         self
     }
 
-    /// The part of the box that `request` asks for.
+    /// The part of the box that `request` asks for, with the layer's looks and masks by its own maps (stages 3 and 4) run on
+    /// it: the one place they run, whatever the source.
     ///
     /// # Errors
-    /// What the source cannot draw: a look the sibling refuses at this size.
-    pub(crate) fn draw(self, request: Request) -> Result<Drawn, Error> {
-        (self.draw)(request)
+    /// What the source cannot draw, and a look the sibling refuses at this size.
+    pub(crate) fn draw(self, request: Request, finish: &Finish) -> Result<Drawn, Error> {
+        let drawn = (self.draw)(request, finish)?;
+        finish.run(drawn, &request)
     }
 }
 
@@ -142,30 +145,9 @@ pub(crate) trait Source: Send + Sync + fmt::Debug {
     /// A file that cannot be read.
     fn open(&self, canvas: Rect) -> Result<Opened<'_>, Error>;
 
-    /// This source with the look written as the recipe document `recipe` run on it. Only a picture takes a look in this
-    /// release (looks on every layer arrive with batch C5).
-    ///
-    /// # Errors
-    /// What the sibling crate refuses in the recipe, and the refusal of a source that takes no look.
-    fn looked(&self, _recipe: &Value) -> Result<Arc<dyn Source>, Error> {
-        Err(Error::invalid(
-            "look",
-            "a look runs on a picture layer; looks on other layers arrive with batch C5",
-        ))
-    }
-
-    /// This source with the picture's map `mask.name` multiplied into its alpha, after its looks (stage 4 of a layer).
-    ///
-    /// # Errors
-    /// The refusal of a source that has no such map.
-    fn masked(&self, mask: &MapMask) -> Result<Arc<dyn Source>, Error> {
-        Err(Error::invalid(
-            "mask",
-            format!(
-                "{:?} names a map of this layer's picture, and this layer has no picture",
-                mask.name
-            ),
-        ))
+    /// The names of the maps this source holds, or `None` if it has no picture to hold them.
+    fn map_names(&self) -> Option<Vec<&str>> {
+        None
     }
 
     /// This source with the map `name` (of the picture's size when the scene renders), replacing a map of that name.

@@ -101,7 +101,7 @@ pub(crate) fn land(body: &Body, target: &Target) -> Result<Landed, Error> {
     };
     // the one place the drawn-size limit is checked, before any source draws
     request.scale.size(request.window)?;
-    let drawn = opened.draw(request)?;
+    let drawn = opened.draw(request, &body.finish)?;
     let (map, clip) = layout.warp(&drawn);
     // the output starts `margin` pixels, and the offset, up and left of the canvas
     #[expect(clippy::cast_precision_loss, reason = "a margin of at most 2^27 pixels")]

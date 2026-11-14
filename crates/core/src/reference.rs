@@ -9,9 +9,10 @@ use std::collections::HashMap;
 use serde_json::Value;
 
 use crate::error::label;
+use crate::finish::MapMask;
 use crate::layer::{Base, Body};
 use crate::placement::Placed;
-use crate::source::MapMask;
+use crate::source::picture::Look;
 use crate::{Error, Layer};
 
 /// A reference to the layer called `name` of the scene, with what it adds to that layer's body.
@@ -38,32 +39,27 @@ impl Reference {
     }
 
     /// The body this reference draws: that of `target` (the layer it names, itself resolved), then this reference's looks
-    /// and own-map masks on its source, and its extra place after the target's own and the extras of the chain that led to it.
+    /// and own-map masks after the target's, and its extra place after the target's own and the extras of the chain that led
+    /// to it.
     ///
     /// # Errors
-    /// What the source refuses of a look or a mask by a map: a layer that is no picture takes no look, and a map that is not
-    /// one of its picture's.
+    /// What image refuses of a look, and a mask by a map that is not one of the target's picture.
     fn body(&self, target: &Body) -> Result<Body, Error> {
-        let mut source = target.source.clone();
+        let mut body = target.clone();
         for look in &self.looks {
-            source = source.looked(look)?;
+            body.takes_look()?;
+            body.finish.add_look(Look::new(look)?);
         }
         for mask in &self.masks {
-            source = source
-                .masked(mask)
-                .map_err(|error| error.in_layer(&label(mask.number)))?;
+            let number = mask.number;
+            body.mask_by_map(mask.clone())
+                .map_err(|error| error.in_layer(&label(number)))?;
         }
-        let mut extras = target.extras.clone();
         if self.place != Placed::default() {
-            extras.push(self.place);
+            body.extras.push(self.place);
         }
-        Ok(Body {
-            source,
-            fit: target.fit,
-            placement: target.placement,
-            extras,
-            chain: target.chain + 1,
-        })
+        body.chain += 1;
+        Ok(body)
     }
 }
 

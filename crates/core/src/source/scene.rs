@@ -1,5 +1,6 @@
 //! A scene used as a layer, a group: its canvas is the layer's box, and it is drawn on its own, then joined as one picture.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
@@ -80,6 +81,7 @@ impl Source for Group {
                 raster: Arc::new(Raster::made(columns, rows, straight(joined))),
                 covers,
                 ends_at_window: request.window == own,
+                maps: BTreeMap::new(),
             })
         });
         Ok(opened.drawing_whole())

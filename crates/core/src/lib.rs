@@ -11,6 +11,7 @@ mod blend;
 mod budget;
 mod error;
 mod feather;
+mod finish;
 mod geometry;
 mod landing;
 mod layer;

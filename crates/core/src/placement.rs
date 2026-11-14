@@ -920,6 +920,7 @@ mod tests {
             raster: Arc::new(Raster::made(20, 10, vec![0.0; 20 * 10 * 4])),
             covers: rect(20.0, 10.0),
             ends_at_window: false,
+            maps: std::collections::BTreeMap::new(),
         };
         layout.warp(&drawn).0
     }

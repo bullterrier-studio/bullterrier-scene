@@ -1,5 +1,6 @@
 //! A vector drawing as a layer, and the one place that knows how the vector crate reads and draws a document.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bullterrier_vector::{Font, Inputs, ScaleBy, Size, Values};
@@ -216,6 +217,7 @@ impl Source for Drawing {
                 raster: Arc::new(Raster::made(width, height, pixels)),
                 covers,
                 ends_at_window: request.window == own,
+                maps: BTreeMap::new(),
             })
         });
         Ok(opened.drawing_whole())

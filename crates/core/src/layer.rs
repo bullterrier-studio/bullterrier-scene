@@ -5,15 +5,16 @@ use std::sync::Arc;
 
 use crate::blend::Blend;
 use crate::budget::{Budget, MAX_DEPTH};
+use crate::finish::{Finish, MapMask};
 use crate::mask::{By, CanvasMask, Mask, Use};
 use crate::perspective::Quad;
 use crate::placement::{Fit, Fitting, Place, Placed, Placement};
 use crate::reference::Reference;
 use crate::source::drawing::Drawing;
 use crate::source::fill::Fill;
-use crate::source::picture::{Picture, check_look, recipe_file};
+use crate::source::picture::{Look, Picture, check_look, recipe_file};
 use crate::source::scene::Group;
-use crate::source::{Given, MapMask, Source};
+use crate::source::{Given, Source};
 use crate::text::Text;
 use crate::{Error, Map, Raster, Scene};
 
@@ -34,11 +35,12 @@ pub(crate) enum Base {
     Of(Reference),
 }
 
-/// What a layer draws before it meets the scene: its source (with its looks and its own-map masks) and where that goes,
-/// stages 1 to 5 of "How a layer is drawn". A reference inherits it.
+/// What a layer draws before it meets the scene: its source, its looks and own-map masks (whatever the source), and where
+/// that goes, stages 1 to 5 of "How a layer is drawn". A reference inherits it.
 #[derive(Debug, Clone)]
 pub(crate) struct Body {
     pub(crate) source: Arc<dyn Source>,
+    pub(crate) finish: Finish,
     pub(crate) fit: Option<Fitting>,
     pub(crate) placement: Placement,
     /// The extra places of the references that lead to this body, in order, each after the one before: empty for a layer
@@ -79,11 +81,60 @@ fn check_name(field: &str, name: &str) -> Result<(), Error> {
     }
 }
 
+impl Body {
+    /// Whether this body takes a look.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `look` for a body with no picture, until the next commit lifts it.
+    pub(crate) fn takes_look(&self) -> Result<(), Error> {
+        if self.source.map_names().is_none() {
+            return Err(Error::invalid(
+                "look",
+                "a look runs on a picture layer; looks on other layers arrive with batch C5",
+            ));
+        }
+        Ok(())
+    }
+
+    /// This body with the mask `mask` by a map of its picture, after its looks and masks.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `mask` for a body with no picture, or with no map of that name.
+    pub(crate) fn mask_by_map(&mut self, mask: MapMask) -> Result<(), Error> {
+        let Some(names) = self.source.map_names() else {
+            return Err(Error::invalid(
+                "mask",
+                format!(
+                    "{:?} names a map of this layer's picture, and this layer has no picture",
+                    mask.name
+                ),
+            ));
+        };
+        if !names.contains(&mask.name.as_str()) {
+            return Err(Error::invalid(
+                "mask",
+                format!(
+                    "{:?} is no map of this layer; its maps: {}",
+                    mask.name,
+                    if names.is_empty() {
+                        "none".to_owned()
+                    } else {
+                        names.join(", ")
+                    }
+                ),
+            ));
+        }
+        self.finish.add_mask(mask);
+        Ok(())
+    }
+}
+
 impl Layer {
     fn from_source(source: impl Source + 'static) -> Self {
         let budget = source.budget();
         let mut layer = Self::fresh(Base::Body(Body {
             source: Arc::new(source),
+            finish: Finish::default(),
             fit: None,
             placement: Placement::default(),
             extras: Vec::new(),
@@ -187,7 +238,7 @@ impl Layer {
     /// A scene as a layer, a group: its canvas is the layer's box, at the canvas origin like a picture, and its layers are
     /// drawn on their own, each joined as it says over the group's own content, before the finished picture is joined as one
     /// layer (`fit`, `place`, `perspective`, masks, `blend`, `opacity` and `as_light` act on it as they act on any layer). The
-    /// scene is drawn at the density the layer has, so it is as sharp at any size. A look is refused until batch C5.
+    /// scene is drawn at the density the layer has, so it is as sharp at any size; a look runs on its finished picture.
     #[must_use]
     pub fn scene(inner: Scene) -> Self {
         Self::from_source(Group::new(inner))
@@ -202,13 +253,14 @@ impl Layer {
     }
 
     /// This layer with an image look run on it, after the looks it has: `json` is the recipe document that the image package's
-    /// `Recipe.to_dict()` writes, checked now by the linked image crate. The look runs on the picture at the output size, on
-    /// its colour with the alpha left as it is, and its `px` values are image's own (a picture whose long side is 480); a
-    /// look that sets `size` or `frame` is refused. Only a picture layer takes a look in this release.
+    /// `Recipe.to_dict()` writes, checked now by the linked image crate. Any layer takes one: the look runs on what its source
+    /// drew at the size the layer has (a picture resampled, a drawing, a text, a fill or a group's finished picture), on its
+    /// colour with the alpha left as it is, and its `px` values are image's own (a picture whose long side is 480); a look
+    /// that sets `size` or `frame` is refused.
     ///
     /// # Errors
     /// [`Error::Format`] if `json` is not a JSON object or carries a recipe `format` the linked image crate does not read;
-    /// [`Error::Invalid`] naming `look` for anything image refuses, in its words, and for a layer that is no picture.
+    /// [`Error::Invalid`] naming `look` for anything image refuses, in its words.
     pub fn look(self, json: &str) -> Result<Self, Error> {
         let recipe = serde_json::from_str(json).map_err(|error| Error::Format {
             pointer: "/look".to_owned(),
@@ -225,11 +277,14 @@ impl Layer {
         self.looked(recipe_file(path.as_ref())?)
     }
 
-    /// This layer with the look `recipe`: run on its source, or, for a reference, kept to be run on the source of the layer it
-    /// names after that layer's looks (`Scene::add` finds out whether that layer takes one).
+    /// This layer with the look `recipe`: run on what its source drew, or, for a reference, kept to be run on that of the layer
+    /// it names after that layer's looks.
     fn looked(mut self, recipe: serde_json::Value) -> Result<Self, Error> {
         match &mut self.base {
-            Base::Body(body) => body.source = body.source.looked(&recipe)?,
+            Base::Body(body) => {
+                body.takes_look()?;
+                body.finish.add_look(Look::new(&recipe)?);
+            }
             Base::Of(reference) => {
                 check_look(&recipe)?;
                 reference.looks.push(recipe);
@@ -377,7 +432,7 @@ impl Layer {
                     invert: mask.invert,
                 };
                 match &mut self.base {
-                    Base::Body(body) => body.source = body.source.masked(&map_mask)?,
+                    Base::Body(body) => body.mask_by_map(map_mask)?,
                     // a reference reads the maps of the layer it names, which `Scene::add` finds
                     Base::Of(reference) => reference.masks.push(map_mask),
                 }

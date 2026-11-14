@@ -2,6 +2,8 @@
 
 use std::sync::Arc;
 
+use std::collections::BTreeMap;
+
 use super::{Drawn, Opened, Source};
 use crate::geometry::Rect;
 use crate::{Error, Raster};
@@ -36,13 +38,24 @@ impl Fill {
 }
 
 impl Source for Fill {
-    /// One pixel: a flat colour is the same at any scale, so it is the one place that draws less than it was asked.
+    /// One pixel: a flat colour is the same at any scale, so it is the one place that draws less than it was asked. A layer
+    /// that runs a look on it is drawn at the size the look runs at, the window of the box that shows.
     fn open(&self, canvas: Rect) -> Result<Opened<'_>, Error> {
-        Ok(Opened::new(canvas, move |_| {
+        Ok(Opened::finishing(canvas, move |request, finish| {
+            let (raster, covers) = if finish.is_looked() {
+                let (columns, rows) = request.scale.size(request.window)?;
+                (
+                    Raster::made(columns, rows, self.rgba.repeat(columns * rows)),
+                    request.window,
+                )
+            } else {
+                (Raster::made(1, 1, self.rgba.to_vec()), canvas)
+            };
             Ok(Drawn {
-                raster: Arc::new(Raster::made(1, 1, self.rgba.to_vec())),
-                covers: canvas,
+                raster: Arc::new(raster),
+                covers,
                 ends_at_window: false,
+                maps: BTreeMap::new(),
             })
         }))
     }
