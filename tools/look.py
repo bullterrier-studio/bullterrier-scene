@@ -32,6 +32,8 @@ PIECES: list[Piece] = [
     ("c2b_perspective.py", "receding_floor", 800, GALLERY / "c2b-receding-floor.png"),
     ("c3_clip.py", "clipped_type", 1200, LOOK / "c3-clipped-type.png"),
     ("c3_clip.py", "clipped_type", 800, GALLERY / "c3-clipped-type.png"),
+    ("c4a_blends.py", "blend_sheet", 1200, LOOK / "c4a-blend-sheet.png"),
+    ("c4a_blends.py", "blend_sheet", 660, GALLERY / "c4a-blend-sheet.png"),
 ]
 
 

@@ -241,3 +241,45 @@ def test_the_landscape_shows_only_in_the_letters_and_nowhere_else_above_the_figu
     assert 0.1 < differs.mean() < 0.5  # letters, not a picture over the whole band
     # the sun of the landscape (it is orange) is in the band, in a letter
     assert (band[..., 0] - band[..., 2] > 0.35).any()
+
+
+# --- C4a: every blend mode on the same two layers ----------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def blends() -> ModuleType:
+    return load("c4a_blends", ROOT / "docs" / "examples" / "c4a_blends.py")
+
+
+def test_the_sheet_is_the_same_picture_twice_and_each_tile_is_the_same_backdrop_under_its_own_mode(blends):
+    sheet = blends.blend_sheet().render(blends.W)
+    assert sheet.shape == (blends.H, blends.W, 4)
+    assert np.array_equal(sheet, blends.blend_sheet().render(blends.W))
+    # the corner of each tile is clear in the source (alpha 0 at the edge), so it shows the backdrop whatever the mode
+    backdrop = blends.backdrop_tile()
+    for index in range(len(blends.MODES)):
+        x, y = blends.origin(index)
+        assert np.allclose(sheet[y, x, :3], backdrop[0, 0], atol=1e-6), blends.MODES[index]
+
+
+def test_a_tile_is_the_w3c_formula_of_its_mode_at_the_alpha_of_the_source(blends):
+    sheet = blends.blend_sheet().render(blends.W)
+    backdrop, source = blends.backdrop_tile(), blends.source_tile()
+    row, column = 75, 100  # the middle of the tile: opaque
+    cb, cs = backdrop[row, column], source[row, column, :3]
+    assert source[row, column, 3] == 1
+    for mode, expected in [
+        ("normal", cs),
+        ("multiply", cb * cs),
+        ("screen", cb + cs - cb * cs),
+        ("difference", abs(cb - cs)),
+    ]:
+        x, y = blends.origin(blends.MODES.index(mode))
+        assert np.allclose(sheet[y + row, x + column, :3], expected, atol=1e-5), mode
+    # a translucent pixel of the source: (1 - a) cb + a B(cb, cs), by multiply
+    row, column = 75, 20
+    a = source[row, column, 3]
+    assert 0.05 < a < 0.95
+    x, y = blends.origin(blends.MODES.index("multiply"))
+    expected = (1 - a) * backdrop[row, column] + a * backdrop[row, column] * source[row, column, :3]
+    assert np.allclose(sheet[y + row, x + column, :3], expected, atol=1e-5)
