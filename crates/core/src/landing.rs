@@ -97,6 +97,7 @@ pub(crate) fn land(body: &Body, target: &Target) -> Result<Landed, Error> {
     let layout = Layout::new(body.fit, body.placement, &body.extras, opened.own, target.scale).offset(target.offset);
     let request = Request {
         held: target.held,
+        canvas: (target.canvas.width, target.canvas.height),
         ..layout.request(opened.own, opened.whole)
     };
     // the one place the drawn-size limit is checked, before any source draws

@@ -45,7 +45,8 @@ Nothing else below exists yet (no parameters or addresses of an inner scene: C6)
 | Resampling | One warp per layer ([design-decisions.md](design-decisions.md), "Placement"): bilinear on premultiplied colour; where the map shrinks the picture, the average of what the output pixel's footprint covers (an exact area average where the map keeps the axes, a lattice of taps over the footprint elsewhere), at any skew; no negative weight (a bicubic upgrade must restore a clamp); nothing outside the fitted box is drawn and an edge between two pixels is soft by coverage; a move by whole pixels, a quarter turn and a flip are exact copies | |
 | `fit`, `place` | `anchor` outside 0 to 1, and `dx` or `dy` outside -1e6 to 1e6 (the range of the parameters), are `InvalidError` naming the field. A call that sets a number the call refuses leaves the layer as it was. `fit` is resolved when the scene renders | |
 | `perspective` | Corners beyond -1e6 to 1e6 or not finite, and corners that are no strictly convex quadrilateral, are `InvalidError` naming `corners`; a mirrored (counter-clockwise) one is accepted. A layer under one is drawn at the largest scale the quadrilateral gives any corner of its window along each axis, cut down by one factor to the 2^27 pixels of a layer where it would pass them (not refused: the near side loses sharpness, which window drawing, B1, lifts). A parallelogram is affine and takes the exact path: an axis-aligned one is what `place` makes, bit for bit where its numbers are exact (whole, or fractions of a power of two) and within the blend's rounding (1e-5) where they are decimals | |
-| A look | Every layer takes one (C5a). It runs on the raster the source drew at the size the layer has: `output scale x fit factor x scale` (see "How a layer is drawn"), on its straight colour with the alpha left as it is (it is the source's, put back after the look). A look's `px` are image's own, a pixel of the layer's drawn raster whose long side is 480, not yet pixels of the canvas (C5b); the tests keep to canvas-sized layers. Image refuses a look on a raster of more than 2^26 pixels, in its words | C5b |
+| A look | Every layer takes one (C5a). It runs on the raster the source drew at the size the layer has: `output scale x fit factor x scale` (see "How a layer is drawn"), on its straight colour with the alpha left as it is (it is the source's, put back after the look). A look's `px` are design pixels of the scene's canvas (C5b-lite, below). Image refuses a look on a raster of more than 2^26 pixels, in its words | |
+| Design pixels (C5b-lite) | `Finish::run` hands image `Options::with_canvas(w, h)` with the scene's canvas as this layer is drawn: its design size times the density the layer is drawn at without the fit (`output scale x place.scale`, per axis, rounded up to whole pixels; a group's inner layers: the group's drawn density, `Request::scale`). Image's design scale is the canvas's longer side over 480, so a `px` is one pixel of the canvas's 480 across its long side, the same number of output pixels on every layer of one canvas, whatever the layer's size or `fit`; `place.scale` 2 doubles it; a layer larger than the canvas (a drawing's whole frame) is looked at the canvas's scale. **Limits:** the canvas side is whole pixels, so at a fractional `place.scale` the design scale is that of the rounded canvas (within half a pixel in the canvas's long side); an effect that places itself in its picture (a vignette's centre) still sees the layer's raster as the whole, as the contract says. **Room and light that spills are not built:** they need a sideways footprint from image ("Needs from others") | C5b room |
 | `format` of a look | `Recipe.to_dict()` writes the lowest `format` the recipe needs, and image's reader takes it with the others it publishes (`RECIPE_FORMATS`). A `format` it does not read is a `FormatError` under `/look/format` naming the version found and the versions read, not the crate's version, which neither crate publishes | |
 | A drawing | `inputs` (font bytes) is not built: no layer needs a font yet. A document vector cannot read is `FormatError` under `/drawing` in vector's words, a version skew included, without the crate's version. Vector draws the whole frame, not a part (B1) | C6, text layers |
 | Errors | The address of an error of a layer in a scene starts with its name (`photo.look`), a layer without one `layer1`; at the call that made it, before the layer has a place, it is the field (`look`) | |
@@ -199,8 +200,8 @@ raster, the canvas is the scene's.
 1. **Source.** The layer's picture is drawn at its box (layer space).
 2. **Fit.** `fit` scales and crops it into its box; without `fit` it stays one design pixel per source pixel.
 3. **Looks,** in call order, on the fitted raster (layer space), whatever the source. A look's `px` is a pixel of the canvas as
-   the layer is fitted, before `place` (C5b: until then image's own, see "What is built"). A look that has a centre or an edge (a vignette, a warp) takes it from the fitted box. Looks see
-   the layer's colour over black. **Room** (C5b, not built): the fitted box grows by the look's footprint, so a halo or a bloom is
+   the layer is fitted, before `place` ("What is built", Design pixels). A look that has a centre or an edge (a vignette, a warp) takes it from the fitted box. Looks see
+   the layer's colour over black. **Room** (C5b room, not built): the fitted box grows by the look's footprint, so a halo or a bloom is
    not cut at the box's edge; the room is transparent unless the layer is light (stage 7).
 4. **Own-map masks** (`mask("name")`): layer space; the map is cut and fitted with the picture.
 5. **Place.** The finished raster is flipped, stretched along y by `aspect`, skewed and rotated about `anchor`, then moved by
@@ -222,7 +223,7 @@ look draws its source at the drawn size, runs the look there, and puts the resul
 - image gets the raster's straight colour (RGB, no alpha); the source's alpha is kept as it is and put back after the look, so a
   transparent corner stays transparent and a half-transparent fill keeps its 0.5; the result is brought into 0 to 1, a value
   that is not a number refused;
-- the raster ends where the source's did (`covers`, `ends_at_window`), so a look grows no room past the box (C5b);
+- the raster ends where the source's did (`covers`, `ends_at_window`), so a look grows no room past the box (C5b room);
 - stage 4 follows on the same raster; a reference runs its own looks after those of the layer it names.
 
 **Stages 4 and 6 in the one-warp paths** (built in C3; every mask is a factor on the alpha, so a mask-free layer takes exactly
@@ -265,8 +266,8 @@ pixels, so source, `fit` and `place` are one warp with no resample between them.
   and `aspect` only warp a raster that did not change, which is what C7 caches.
 - **Zoom limit.** A large `scale` on a big layer meets the 2^27 drawn-size limit even where only a part shows; drawing a window
   of the layer (B1) lifts it.
-- **After C5b.** Looks take design pixels of the canvas. The design scale handed to image is then `canvas scale x place.scale`
-  (not the fit factor alone), so a halo still follows `scale`.
+- **Design scale (C5b-lite).** Looks take design pixels of the canvas. The canvas handed to image is the canvas at `output scale x place.scale`
+  (not the fit factor), so a halo still follows `scale`.
 - **Fit.** The window `fit` shows is computed from the source's real size when the scene renders. `stretch` has a scale for
   each axis. The scale that binds (width or height) ends at the box exactly, so a layer fitted into a box of its own shape is
   not touched.
@@ -365,11 +366,10 @@ writes, or a `Path` to a recipe file; a `str` is `TypeError` (pass `Path(...)`).
   size the group is drawn at. A look on a fill sees a flat raster of the layer's size (a gradient map of a flat colour is flat;
   a look that depends on place, a scanline or a weave, is not). This keeps a layer's result independent of
   the others, so it caches by itself.
-- **Design pixels** (C5b; until then image's own convention, see "What is built"). A `px` value of a look is a pixel of the scene's canvas as the layer is fitted, before `place`: 2 px grain
+- **Design pixels** (C5b-lite). A `px` value of a look is a pixel of the scene's canvas as the layer is fitted, before `place`: 2 px grain
   on a small inset is as coarse as on the photo behind it, whatever the inset's size. `render(size)` multiplies it, as
-  image's `render(size=)` does. A layer that `place` then scales takes its grain and its halo with it. (C1: image's own
-  convention, a pixel of the layer's drawn picture whose long side is 480: see "What is built".)
-- **Light that spills** (C5b, not built). A look sees the layer's colour over black and the layer's box grows by the look's footprint (the
+  image's `render(size=)` does. A layer that `place` then scales takes its grain and its halo with it.
+- **Light that spills** (C5b room, not built). A look sees the layer's colour over black and the layer's box grows by the look's footprint (the
   room). A layer that is not light keeps its source's alpha, so the halo a bloom adds outside the shape is cut. A light layer
   shows it, and may extend past its box. A glow is a reference made light:
   `Layer.of("logo").look(bloom).as_light().blend("screen")`. Darkness outside a shape (a drop shadow, an emboss shadow) is
@@ -604,7 +604,7 @@ ends.
 | image, vector | a colour reference, so one colour is typed once across a scene, its looks and its drawings | C6 |
 | vector | a distance-field relief (V15), a later refinement of chrome type; not needed by `chrome_type.py` | later |
 | C6 | a group's address space (`badge.scene.label.text`) is a second name lookup; a reference resolves to a body at `add` and an inner scene resolves at its own `add`, so `with_values` must re-resolve every scene that holds a layer by name, and an inner scene held by `Arc` in a layer's source must be rebuilt (not mutated) when a value under it changes; a reference inside a group names a layer of the group's own scene only (no name crosses a group, which the per-scene walks give for free) | C6 |
-| C5b | a look's `px` inside an inner scene are the inner canvas's design pixels (the design scale handed to image is the group's drawn density, `Request::scale`, which the group already hands to its inner layers); the look runs in `Finish::run`, which has the `Request` | C5b |
+| image | a look's room: a sideways footprint per effect (how far past its box a blur, a bloom or a halo reaches, in px) so that scene can grow the fitted box and let a light layer spill; today a look ends where the raster ends (`covers`), and scene cannot ask image how far | C5b room |
 | C7 | a group is drawn again at each use and each reference to it, and its raster depends on the scene, the density and the phase: the cache key of a group is the inner scene's value, the density per axis and the phase; a nest of groups multiplies the cache the same way. The group's pictures are not shared with a mask plane or a reference: a reference to a group at an unchanged density could share the raster | C7 |
 | C6 | a layer's looks and own-map masks are one `Finish` (looks in call order, masks by the order of `mask`), whatever the source; the address walk of `<layer>.look#2...` reads it, and a reference's `Finish` is a copy of the named body's with its own after | C6 |
 | C6 | the address walk of a layer's masks merges two lists: its map masks (held by the layer's `Finish`) and its canvas masks (held by the layer's join), numbered together by the order of the `mask` calls (`mask`, `mask#2`...); `Mask` as a parameter needs one list | C6 |

@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use crate::error::label;
 use crate::feather;
+use crate::geometry::whole_up;
 use crate::source::picture::Look;
 use crate::source::{Drawn, Request};
 use crate::{Error, Raster};
@@ -107,14 +108,18 @@ impl Finish {
             ends_at_window,
             maps,
         } = drawn;
-        for look in &self.looks {
-            raster = Arc::new(look.apply(&raster, &maps)?);
-        }
         // drawn pixels per design pixel of the fitted layer: what the layer is drawn at, less the fit
         let density = (
             request.scale.x.pixels(1.0) / request.factor.0,
             request.scale.y.pixels(1.0) / request.factor.1,
         );
+        // the scene's canvas as this layer's `place` scale draws it: what a look's `px` count in, whatever the layer's size
+        // (a side beyond u32 is as large as image can be told)
+        let side = |length: f64| u32::try_from(whole_up(length)).unwrap_or(u32::MAX);
+        let canvas = (side(request.canvas.0 * density.0), side(request.canvas.1 * density.1));
+        for look in &self.looks {
+            raster = Arc::new(look.apply(&raster, &maps, canvas)?);
+        }
         let values = maps
             .iter()
             .map(|(name, values)| (name.as_str(), values.as_slice()))

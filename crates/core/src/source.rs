@@ -41,6 +41,9 @@ pub(crate) struct Request {
     /// or put in perspective); `(0, 0)` otherwise. A source that draws a raster with its content moved by these fractions,
     /// and says so in `covers`, has the warp put the raster on whole pixels: no resample, no soft edge.
     pub(crate) phase: (f64, f64),
+    /// The scene's canvas in design pixels, width and height: what a look's design scale is measured on (the renderer sets it,
+    /// `Layout::request` leaves it 0).
+    pub(crate) canvas: (f64, f64),
     /// The pixels the scenes this one is drawn in (as a group, one inside another) hold in their own rasters, which stay alive
     /// while this is drawn: the renderer sets it, `Layout::request` leaves it 0.
     pub(crate) held: usize,

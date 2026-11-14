@@ -565,6 +565,7 @@ impl Layout {
                     scale: Scale::exactly(across * fit, down * fit),
                     factor: self.factor,
                     phase: (0.0, 0.0),
+                    canvas: (0.0, 0.0),
                     held: 0,
                 };
             }
@@ -576,6 +577,7 @@ impl Layout {
             scale: self.scale.times(self.factor.0 * zoom, self.factor.1 * zoom),
             factor: self.factor,
             phase: self.phase(own, placed),
+            canvas: (0.0, 0.0),
             held: 0,
         }
     }

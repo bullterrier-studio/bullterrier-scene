@@ -254,8 +254,8 @@ fn a_look_that_overshoots_image_s_nominal_range_by_rounding_still_gives_a_pictur
 
 // --- a look on every kind of layer ----------------------------------------------------------------------------------
 
-/// A blur wide enough to act on a picture of 40 pixels: image's `px` are those of a picture whose long side is 480, so
-/// 48 of them are 4 pixels of a canvas drawn at 40.
+/// A blur wide enough to act on a picture of 40 pixels: a `px` is a design pixel of the canvas, whose long side is 480 of
+/// them, so 48 of them are 4 pixels of a canvas drawn at 40.
 const BLUR_4_PIXELS_AT_40: &str = r#"{"steps": [{"effect": "gaussian_blur", "params": {"radius": 48.0}}]}"#;
 
 /// Dark lines every 2 pixels at 40: a look that depends on where a pixel is, which a flat colour cannot show unless the
@@ -271,13 +271,21 @@ const BLUR_2_PIXELS_AT_40: &str = r#"{"steps": [{"effect": "gaussian_blur", "par
 /// What image's own render of `recipe` makes of the colour of `drawn` (straight, its alpha set aside), with the alpha of
 /// `drawn` put back: what a look on a layer that drew `drawn` must give.
 fn imaged(drawn: &Raster, recipe: &str) -> Result<Raster, Box<dyn std::error::Error>> {
+    imaged_on(drawn, recipe, None)
+}
+
+/// [`imaged`] on a canvas of `canvas` output pixels (width, height) that `drawn` lies on, or on itself for `None`.
+fn imaged_on(drawn: &Raster, recipe: &str, canvas: Option<(u32, u32)>) -> Result<Raster, Box<dyn std::error::Error>> {
     let colour: Vec<f32> = pixels(drawn)
         .flat_map(|[red, green, blue, _]| [red, green, blue])
         .collect();
     let presets = Presets::shipped()?;
     let recipe = Recipe::from_json(recipe)?.checked(&presets)?;
     let photo = Photo::new(bullterrier_image::Picture::new(drawn.height(), drawn.width(), &colour)?);
-    let image = photo.render(&recipe, &presets, Options::default())?;
+    let options = canvas.map_or_else(Options::default, |(width, height)| {
+        Options::default().with_canvas(width, height)
+    });
+    let image = photo.render(&recipe, &presets, options)?;
     let looked = image.into_values();
     let values = looked
         .as_chunks::<3>()
@@ -439,14 +447,15 @@ fn a_look_on_a_group_equals_the_look_on_a_picture_of_the_inner_scene_rendered_at
 }
 
 /// A look runs at the size the layer is drawn at, so a drawing at `scale` 2 is looked at twice its size, as a picture of
-/// that drawing is: the blur is image's own on the raster the layer has, not one run small and enlarged.
+/// that drawing is: the blur is image's own on the raster the layer has, on the canvas at that scale (160 by 120 pixels:
+/// the 80 by 60 canvas drawn at 80, doubled), not one run small and enlarged.
 #[test]
 fn a_look_on_a_drawing_runs_at_the_size_it_is_drawn_at() -> Outcome {
     let drawing = || Layer::drawing(&rectangle((40, 30), (5.0, 4.0), (33.0, 22.0), "#cc3355"));
     let big = |layer: Layer| layer.place(Place::new().scale(2.0).anchor(0.0, 0.0));
     let plain = scene(80, 60, [big(drawing()?)?])?.render(80)?;
     let got = scene(80, 60, [big(drawing()?.look(BLUR_4_PIXELS_AT_40)?)?])?.render(80)?;
-    let expected = imaged(&plain, BLUR_4_PIXELS_AT_40)?;
+    let expected = imaged_on(&plain, BLUR_4_PIXELS_AT_40, Some((160, 120)))?;
     assert!(most(&got, &expected) < 1e-5, "{}", most(&got, &expected));
     // the blur reaches far enough to be seen: not a no-op
     assert!(most(&got, &plain) > 1e-2);
@@ -572,5 +581,108 @@ fn a_reference_adds_its_looks_after_those_of_the_fill_it_names() -> Outcome {
     assert_eq!(both.pixels(), expected.pixels());
     // the stop alone would give 0.5019; the flat contrast after it is what makes 0.5
     assert!(pixels(&both).all(|got| close(got, [0.5, 0.5, 0.5, 1.0], 1e-6)));
+    Ok(())
+}
+
+// --- a look's `px` are design pixels of the canvas -------------------------------------------------------------------
+
+/// The part of `raster` from column `x`, row `y`, `width` by `height`.
+fn crop(raster: &Raster, (x, y): (usize, usize), (width, height): (usize, usize)) -> Result<Raster, Error> {
+    made(width, height, |column, row| pixel(raster, x + column, y + row))
+}
+
+/// How many pixels of `expected` differ from those of `whole` from its corner `at`, in any premultiplied channel, by more than
+/// a step (the colour of a transparent pixel is nothing).
+fn differing(whole: &Raster, at: (usize, usize), expected: &Raster) -> usize {
+    let premultiplied = |[red, green, blue, alpha]: [f32; 4]| [red * alpha, green * alpha, blue * alpha, alpha];
+    (0..expected.height())
+        .flat_map(|y| (0..expected.width()).map(move |x| (x, y)))
+        .filter(|&(x, y)| {
+            let (got, want) = (pixel(whole, at.0 + x, at.1 + y), pixel(expected, x, y));
+            !close(premultiplied(got), premultiplied(want), 1e-6)
+        })
+        .count()
+}
+
+/// A look's `px` are the same number of output pixels on every layer of one canvas: a small inset and a full-bleed picture
+/// given one blur are each image's own render of their picture on that canvas (the oracle, through the pinned crate), and
+/// the inset's differs from image's own convention (its picture alone), which is what this replaces.
+#[test]
+fn a_looks_px_are_the_same_number_of_output_pixels_on_a_small_inset_and_a_full_bleed_layer() -> Outcome {
+    let canvas = (40, 30);
+    for (what, (width, height), (dx, dy)) in [("inset", (10, 8), (12, 9)), ("full bleed", (40, 30), (0, 0))] {
+        let picture = varied(width, height)?;
+        let place = Place::new()
+            .dx(f64::from(u32::try_from(dx)?))
+            .dy(f64::from(u32::try_from(dy)?));
+        let drawn = scene(40, 30, [looked(picture.clone(), BLUR_4_PIXELS_AT_40)?.place(place)?])?.render(40)?;
+        let on_canvas = imaged_on(&picture, BLUR_4_PIXELS_AT_40, Some(canvas))?;
+        assert_eq!(
+            differing(&drawn, (dx, dy), &on_canvas),
+            0,
+            "{what} is not image's render on the canvas"
+        );
+        let alone = imaged(&picture, BLUR_4_PIXELS_AT_40)?;
+        assert_eq!(
+            differing(&drawn, (dx, dy), &alone) == 0,
+            (width, height) == (40, 30),
+            "{what}: image's own convention"
+        );
+    }
+    Ok(())
+}
+
+/// `place.scale` 2 draws the layer at twice the size and the canvas it is looked on at twice the size: the blur is twice as
+/// many output pixels, as image's render of the doubled raster on the doubled canvas is.
+#[test]
+fn a_layer_placed_at_scale_two_has_the_look_of_the_doubled_canvas() -> Outcome {
+    let picture = varied(10, 8)?;
+    let place = Place::new().anchor(0.0, 0.0).scale(2.0).dx(4.0).dy(2.0);
+    let plain = scene(40, 30, [Layer::picture(picture.clone()).place(place)?])?.render(40)?;
+    let doubled = crop(&plain, (4, 2), (20, 16))?;
+    let drawn = scene(40, 30, [looked(picture, BLUR_4_PIXELS_AT_40)?.place(place)?])?.render(40)?;
+    let on_doubled = imaged_on(&doubled, BLUR_4_PIXELS_AT_40, Some((80, 60)))?;
+    assert_eq!(
+        differing(&drawn, (4, 2), &on_doubled),
+        0,
+        "image's render on a canvas of 80 by 60"
+    );
+    let on_canvas = imaged_on(&doubled, BLUR_4_PIXELS_AT_40, Some((40, 30)))?;
+    assert!(differing(&drawn, (4, 2), &on_canvas) > 0, "the scale changed nothing");
+    Ok(())
+}
+
+/// A layer larger than the canvas (a drawing's frame is drawn whole) is looked on the canvas's scale: image's render of the
+/// whole frame on the canvas, cut to the canvas.
+#[test]
+fn a_layer_larger_than_the_canvas_is_looked_at_the_canvas_scale() -> Outcome {
+    let frame = || Layer::drawing(&rectangle((100, 80), (10.0, 10.0), (90.0, 70.0), "#cc3355"));
+    let whole = scene(100, 80, [frame()?])?.render(100)?;
+    let on_canvas = imaged_on(&whole, BLUR_4_PIXELS_AT_40, Some((40, 30)))?;
+    let drawn = scene(40, 30, [frame()?.look(BLUR_4_PIXELS_AT_40)?])?.render(40)?;
+    assert_eq!(differing(&drawn, (0, 0), &crop(&on_canvas, (0, 0), (40, 30))?), 0);
+    Ok(())
+}
+
+/// The looks of an inner scene's layers run on the inner canvas at the density the group is drawn at: a group at any size is
+/// its scene rendered at that size, whether it is the whole of the outer canvas or enlarged to it.
+#[test]
+fn the_looks_inside_a_group_use_the_group_s_density() -> Outcome {
+    let inner = scene(20, 15, [looked(varied(20, 15)?, BLUR_4_PIXELS_AT_40)?])?;
+    for size in [20_u32, 40, 60] {
+        let group = scene(20, 15, [Layer::scene(inner.clone())])?.render(size)?;
+        assert_eq!(differing(&group, (0, 0), &inner.render(size)?), 0, "at size {size}");
+    }
+    let enlarged = scene(
+        40,
+        30,
+        [Layer::scene(inner.clone()).place(Place::new().anchor(0.0, 0.0).scale(2.0))?],
+    )?
+    .render(40)?;
+    assert_eq!(
+        differing(&enlarged, (0, 0), &inner.render(40)?),
+        0,
+        "the group enlarged by place"
+    );
     Ok(())
 }

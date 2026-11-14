@@ -30,8 +30,8 @@ pub(crate) struct Picture {
 
 /// A recipe that image has checked, with the presets it was checked against.
 ///
-/// A look's `px` values are image's own: a pixel of a picture whose long side is 480, scaled to the layer's output picture
-/// (batch C5b makes them design pixels of the canvas).
+/// A look's `px` values are design pixels of the scene's canvas (image's design scale: the canvas's long side over 480), the
+/// same number of output pixels on every layer of one canvas.
 #[derive(Debug, Clone)]
 pub(crate) struct Look {
     recipe: Recipe,
@@ -105,9 +105,15 @@ impl Look {
     }
 
     /// `layer` with the look run on its colour, straight, whatever the layer is; its alpha stays. `maps` are the picture's
-    /// maps at the size of `layer`; the look sees those its recipe can be given, and image refuses the render, naming the
+    /// maps at the size of `layer`; `canvas` is the scene's canvas in the output pixels this layer is drawn at (width, height), which fixes the
+    /// design scale of the look's `px`; the look sees those its recipe can be given, and image refuses the render, naming the
     /// step and the map, if the recipe needs one that is not there.
-    pub(crate) fn apply(&self, layer: &Raster, maps: &BTreeMap<String, Vec<f32>>) -> Result<Raster, Error> {
+    pub(crate) fn apply(
+        &self,
+        layer: &Raster,
+        maps: &BTreeMap<String, Vec<f32>>,
+        canvas: (u32, u32),
+    ) -> Result<Raster, Error> {
         let colour: Vec<f32> = layer
             .pixels()
             .as_chunks::<4>()
@@ -125,7 +131,11 @@ impl Look {
             photo = photo.with_map(name, map).map_err(|error| refused(&error))?;
         }
         let image = photo
-            .render(&self.recipe, &self.presets, Options::default())
+            .render(
+                &self.recipe,
+                &self.presets,
+                Options::default().with_canvas(canvas.0, canvas.1),
+            )
             .map_err(|error| refused(&error))?;
         let mut graded = image.into_values();
         if !(graded.iter().all(|value| value.is_finite()) && into_range(&mut graded)) {

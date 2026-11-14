@@ -22,9 +22,9 @@ Neither crate is published (`publish = false`). A path dependency would tie scen
 branch. *Reason:* a pinned revision builds the same everywhere and a bump is a reviewed commit. *Consequence:* `deny.toml`
 allows exactly those two git sources; a dependency arrives with its first user (C1), since an unused crate fails the gate.
 
-## The pins: image `3b90e7d`, vector `5442066` (2026-11-13; image bumped 2026-11-14)
+## The pins: image `c6b58ac`, vector `5442066` (2026-11-13; image bumped 2026-11-14)
 
-`Cargo.toml` pins `bullterrier-image` (`3b90e7d910f2bd0c62721f1c8452af3c7fd52d39`; C1 began at `f319f13`, C5b-lite moved it to image's pushed `main`: `Recipe.to_dict()` writes `format`, `RECIPE_FORMATS` is public, `Options::with_canvas`; the private copy of image's format list is gone) and `bullterrier-vector`
+`Cargo.toml` pins `bullterrier-image` (`c6b58acb0cfc908478c0893c9055556f76290700`; C1 began at `f319f13`, C5b-lite moved it to image's pushed `main`, with a canvas smaller than the picture allowed (a layer larger than the canvas): `Recipe.to_dict()` writes `format`, `RECIPE_FORMATS` is public, `Options::with_canvas`; the private copy of image's format list is gone) and `bullterrier-vector`
 (`5442066f9fa5e280ffab6f3a9f85456578900c7f`), the heads of their `main` when C1 began (vector's was `05debff`; C3 bumped it
 for text), with no feature turned on (image's `onnx` stays off). *Vector's bump brought* V10e (`Window`: a rectangle of the
 output drawn alone, the window drawing B1 and the C2 zoom limit wait for) and V10f (text runs: a text of several fonts and
@@ -500,6 +500,17 @@ counts its `draw` calls (`Layer.make`, arrives with C7).
   raster, so the design scale and room are one change there; the raster ends at the source's `covers`. C6: one list of looks and one
   of map masks a layer, whatever the source. C7: a looked layer is drawn at the drawn size and looked again for each use (a reference
   with an unchanged density could share the raster).
+
+## C5b-lite: the design scale from the canvas (2026-11-14)
+
+- **A look's `px` are pixels of the canvas, handed as `Options::with_canvas`.** `Finish::run` tells image the scene's canvas in the
+  output pixels the layer is drawn at (`Request::canvas` times the density without the fit: `output scale x place.scale`), and image
+  takes the longer side over 480. *Reason:* one `px` is the same number of output pixels on a small inset and a full-bleed photo,
+  and doubles with `place.scale`; a group's inner layers get the group's drawn density for free (its inner target's scale).
+  *Cost:* image takes whole pixels, so a fractional scale uses the rounded canvas (half a pixel of the long side).
+- **A layer larger than the canvas is legal,** so image relaxed its refusal of a canvas smaller than the picture (only a side of 0 is
+  refused); the C5a test of a drawing at `scale` 2 now expects the doubled canvas, as it did the doubled picture.
+- **Room and light that spill wait** for a sideways footprint from image (api.md, "Needs from others").
 
 ## Smaller choices of the API (2026-11-13)
 
