@@ -45,13 +45,19 @@ pub(crate) fn render(width: u32, height: u32, layers: &[Layer], size: i128) -> R
         rows,
         margin: (0, 0),
     };
-    // premultiplied red, green, blue and alpha of what is drawn so far
-    let mut joined = vec![0.0_f32; columns * rows * 4];
+    let joined = draw(layers, &target)?;
+    Ok(Raster::made(columns, rows, straight(joined)))
+}
+
+/// `layers` drawn one over the other on `target`: premultiplied red, green, blue and alpha of each of its pixels. The one
+/// entry that draws a stack, for the whole canvas ([`render`]) and for a scene used as a layer.
+pub(crate) fn draw(layers: &[Layer], target: &Target) -> Result<Vec<f32>, Error> {
+    let mut joined = vec![0.0_f32; target.columns * target.rows * 4];
     for (index, layer) in layers.iter().enumerate() {
         let name = layer.name.clone().unwrap_or_else(|| format!("layer{}", index + 1));
-        lay(layer, &target, &mut joined).map_err(|error| error.in_layer(&name))?;
+        lay(layer, target, &mut joined).map_err(|error| error.in_layer(&name))?;
     }
-    Ok(Raster::made(columns, rows, straight(joined)))
+    Ok(joined)
 }
 
 /// `layer` laid over `joined`: its source drawn at the scale it will have, then put where it belongs by one warp, each pixel
