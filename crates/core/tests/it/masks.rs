@@ -3,7 +3,7 @@
 //! an opaque white fill changes nothing; a ramp multiplies; the weights of luminance; the Gaussian's distribution function
 //! for a blurred edge), never from the code's own arithmetic.
 
-use bullterrier_scene::{Deg, Error, Layer, MAX_DEPTH, Map, Mask, Place, Raster, Use};
+use bullterrier_scene::{Blend, Deg, Error, Layer, MAX_DEPTH, Map, Mask, Place, Raster, Use};
 use proptest::prelude::*;
 
 use crate::common::{Outcome, pixels, rectangle, scene, solid};
@@ -424,7 +424,7 @@ fn what_a_mask_call_cannot_take_is_refused_naming_the_field() -> Outcome {
         )
     };
     let fill = |color: &str| Layer::fill(color);
-    let rows: [(&str, Result<Layer, Error>, Option<&str>); 13] = [
+    let rows: [(&str, Result<Layer, Error>, Option<&str>); 17] = [
         ("a layer", fill(WHITE)?.mask(fill(WHITE)?), None),
         (
             "a feather of 5",
@@ -461,6 +461,26 @@ fn what_a_mask_call_cannot_take_is_refused_naming_the_field() -> Outcome {
             fill(WHITE)?.mask(fill(WHITE)?.named("shape")?),
             Some("mask"),
         ),
+        (
+            "a mask layer with a blend",
+            fill(WHITE)?.mask(fill(WHITE)?.blend(Blend::Multiply)),
+            Some("mask"),
+        ),
+        (
+            "a mask layer with the normal blend",
+            fill(WHITE)?.mask(fill(WHITE)?.blend(Blend::Normal)),
+            None,
+        ),
+        (
+            "a mask layer that is light",
+            fill(WHITE)?.mask(fill(WHITE)?.as_light(true)),
+            Some("mask"),
+        ),
+        (
+            "a mask layer that is not light",
+            fill(WHITE)?.mask(fill(WHITE)?.as_light(false)),
+            None,
+        ),
         ("a map of the layer", with_map()?.mask("matte"), None),
         ("a map it has not", with_map()?.mask("subject"), Some("mask")),
         (
@@ -477,6 +497,21 @@ fn what_a_mask_call_cannot_take_is_refused_naming_the_field() -> Outcome {
             (Err(Error::Invalid { address, .. }), Some(field)) => assert_eq!(address, field, "{what}"),
             (other, _) => return Err(format!("{what}: {other:?}").into()),
         }
+    }
+    Ok(())
+}
+
+#[test]
+fn a_mask_layer_with_a_blend_or_a_light_is_refused_saying_which() -> Outcome {
+    for (made, word) in [
+        (Layer::fill(WHITE)?.blend(Blend::Screen), "blend"),
+        (Layer::fill(WHITE)?.as_light(true), "light"),
+    ] {
+        let Err(Error::Invalid { address, message }) = Layer::fill(WHITE)?.mask(made) else {
+            return Err(format!("a mask layer with a {word} was accepted").into());
+        };
+        assert_eq!(address, "mask");
+        assert!(message.contains(word), "{message}");
     }
     Ok(())
 }

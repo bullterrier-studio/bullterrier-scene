@@ -246,7 +246,8 @@ impl Layer {
     /// # Errors
     /// [`Error::Invalid`] naming `feather` for a number outside 0 to 1,000,000; `use` for a map read as luminance; `mask`
     /// for a name that is no map of this layer (it has no picture, or no map of that name yet), for a mask layer that
-    /// has a name, for masks nested more than [`MAX_DEPTH`] deep, and for more than 1,000 mask layers in all.
+    /// has a name, a blend other than normal or is light, for masks nested more than [`MAX_DEPTH`] deep, and for more than
+    /// 1,000 mask layers in all.
     pub fn mask(mut self, mask: impl Into<Mask>) -> Result<Self, Error> {
         let mask = mask.into();
         mask.checked()?;
@@ -271,6 +272,21 @@ impl Layer {
                     return Err(Error::invalid(
                         "mask",
                         format!("a mask layer has no name (it is owned by the layer it masks), got {name:?}"),
+                    ));
+                }
+                if by.blend != Blend::Normal {
+                    return Err(Error::invalid(
+                        "mask",
+                        format!(
+                            "a mask layer has no blend (a mask is not joined to what is below), got {:?}",
+                            by.blend
+                        ),
+                    ));
+                }
+                if by.light {
+                    return Err(Error::invalid(
+                        "mask",
+                        "a mask layer is not a light (its alpha is its own), got as_light(true)",
                     ));
                 }
                 if by.depth + 1 > MAX_DEPTH {
