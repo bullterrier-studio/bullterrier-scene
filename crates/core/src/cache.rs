@@ -17,11 +17,12 @@ use sha2::{Digest, Sha256};
 use crate::Error;
 use crate::files::Fingerprint;
 
-/// The most bytes of pixels, planes and decoded files the cache of one scene keeps: 1 GiB. Chosen from the peak of a whole
-/// render of 15 layers on an A3 poster at 300 dpi (`docs/design-decisions.md`, "The cache"): the cache may hold about as much
-/// as such a render itself needs, and an animation at 1080p (33 MB a layer) keeps about thirty layers. An entry larger than
-/// the bound is not kept, and that is never an error.
-pub(crate) const MAX_BYTES: usize = 1 << 30;
+/// The most bytes of pixels, planes and decoded files the cache of one scene keeps: 2 GiB. Measured on a 15-layer A3 poster at
+/// 300 dpi (`docs/design-decisions.md`, "The cache"): what its render can reuse is about 1.2 GiB, and a bound below that keeps
+/// nothing useful (a render takes the layers in turn, so the least recently used is always the next one wanted: 5.2 s again),
+/// at 1.25 GiB the second render of the same poster takes 0.39 s. An entry larger than the bound is not kept, and that is never
+/// an error.
+pub(crate) const MAX_BYTES: usize = 1 << 31;
 
 /// What a cached value is found by: a SHA-256 of everything that reaches it.
 pub(crate) type Key = Fingerprint;
