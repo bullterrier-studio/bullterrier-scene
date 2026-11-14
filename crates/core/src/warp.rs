@@ -54,6 +54,20 @@ impl Affine {
         (self.a * x + self.b * y + self.c, self.d * x + self.e * y + self.f)
     }
 
+    /// This map followed by `outer`: the point goes through this map, then through `outer`. A move that follows a move is
+    /// the sum of the two translations, and a quarter turn that follows a quarter turn has exact entries, as `outer`'s
+    /// entries that are 0 or 1 add no rounding.
+    pub(crate) fn then(self, outer: Self) -> Self {
+        Self {
+            a: outer.a * self.a + outer.b * self.d,
+            b: outer.a * self.b + outer.b * self.e,
+            c: outer.a * self.c + outer.b * self.f + outer.c,
+            d: outer.d * self.a + outer.e * self.d,
+            e: outer.d * self.b + outer.e * self.e,
+            f: outer.d * self.c + outer.e * self.f + outer.f,
+        }
+    }
+
     /// The map back. Exact when the determinant is 1 and the entries are small whole or half numbers: a division by 1.
     pub(super) fn inverse(self) -> Self {
         let determinant = self.a * self.e - self.b * self.d;

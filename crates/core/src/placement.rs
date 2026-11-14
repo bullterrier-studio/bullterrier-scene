@@ -320,6 +320,30 @@ fn multiply(left: [[f64; 2]; 2], right: [[f64; 2]; 2]) -> [[f64; 2]; 2] {
 }
 
 impl Placed {
+    /// Where the corners of the fitted box `area` (top left, top right, bottom right, bottom left) land on the canvas, in
+    /// design pixels: the point of the box `(x, y)` goes to `origin + anchor + moved + scale x linear x ((x, y) - anchor)`.
+    fn corners(self, area: Rect) -> [[f64; 2]; 4] {
+        let linear = self.linear();
+        let anchor = [self.anchor.0 * area.width, self.anchor.1 * area.height];
+        [
+            [0.0, 0.0],
+            [area.width, 0.0],
+            [area.width, area.height],
+            [0.0, area.height],
+        ]
+        .map(|point| {
+            let turned: [f64; 2] = std::array::from_fn(|row| {
+                (0..2)
+                    .map(|column| linear[row][column] * (point[column] - anchor[column]))
+                    .sum()
+            });
+            [
+                area.x + anchor[0] + self.dx + self.scale * turned[0],
+                area.y + anchor[1] + self.dy + self.scale * turned[1],
+            ]
+        })
+    }
+
     /// Whether the placement only moves and zooms: no flip, no `aspect`, no skew, no turn. Its map then takes a pixel of
     /// the raster to a pixel of the output (at the zoom the source was asked to draw at), so that a raster put on whole pixels
     /// is copied, not resampled.
@@ -361,8 +385,84 @@ fn multiply3(left: [[f64; 3]; 3], right: [[f64; 3]; 3]) -> [[f64; 3]; 3] {
     ]
 }
 
-/// Where one layer's box lands, for a source of a given size.
+/// An extra `place` (a reference's, applied after the placement of the layer it names) made concrete for one layer: the map
+/// of design pixels of the canvas `p -> matrix x p + at`, about the pivot the bounding rectangle of what came before gave.
 #[derive(Debug, Clone, Copy)]
+struct Step {
+    /// The zoom times the flip, aspect, skew and turn of the extra place.
+    matrix: [[f64; 2]; 2],
+    /// The zoom alone: the factor the drawn density follows.
+    zoom: f64,
+    at: [f64; 2],
+    /// Whether it only moves and zooms.
+    keeps_pixels: bool,
+}
+
+impl Step {
+    /// The extra place `extra` about the point of `bounds` its anchor names. The translation is `moved + (pivot - matrix x
+    /// pivot)`, so that a move alone is its `dx`, `dy` to the bit, not the difference of two sums that hold the pivot.
+    fn new(extra: Placed, bounds: Rect) -> Self {
+        let pivot = [
+            bounds.x + extra.anchor.0 * bounds.width,
+            bounds.y + extra.anchor.1 * bounds.height,
+        ];
+        let linear = extra.linear();
+        let matrix = linear.map(|row| row.map(|entry| extra.scale * entry));
+        let at = std::array::from_fn(|row| {
+            [extra.dx, extra.dy][row] + (pivot[row] - (matrix[row][0] * pivot[0] + matrix[row][1] * pivot[1]))
+        });
+        Self {
+            matrix,
+            zoom: extra.scale,
+            at,
+            keeps_pixels: extra.keeps_pixels(),
+        }
+    }
+
+    /// The point `(x, y)` of the canvas, moved.
+    fn at(&self, [x, y]: [f64; 2]) -> [f64; 2] {
+        [
+            self.matrix[0][0] * x + self.matrix[0][1] * y + self.at[0],
+            self.matrix[1][0] * x + self.matrix[1][1] * y + self.at[1],
+        ]
+    }
+
+    /// This step as a 3 by 3 matrix of design pixels.
+    fn homography(&self) -> [[f64; 3]; 3] {
+        [
+            [self.matrix[0][0], self.matrix[0][1], self.at[0]],
+            [self.matrix[1][0], self.matrix[1][1], self.at[1]],
+            [0.0, 0.0, 1.0],
+        ]
+    }
+
+    /// This step as a map of output pixels, the axes `axes` scaling each design length: entry `(row, column)` is the design
+    /// entry times the pixels of one design pixel along `row`, over those along `column`.
+    fn in_pixels(&self, axes: [Axis; 2]) -> Affine {
+        let one = [axes[0].pixels(1.0), axes[1].pixels(1.0)];
+        let entry = |row: usize, column: usize| axes[row].pixels(self.matrix[row][column]) / one[column];
+        Affine {
+            a: entry(0, 0),
+            b: entry(0, 1),
+            c: axes[0].pixels(self.at[0]),
+            d: entry(1, 0),
+            e: entry(1, 1),
+            f: axes[1].pixels(self.at[1]),
+        }
+    }
+}
+
+/// How the fitted box is put on the canvas, with every extra place folded in where that can be: the fields of a placement
+/// (the extras follow, as steps), or the one homography of the unit square to the canvas that a perspective and its extras
+/// make.
+#[derive(Debug, Clone, Copy)]
+enum Basis {
+    Place(Placed),
+    Homography([[f64; 3]; 3]),
+}
+
+/// Where one layer's box lands, for a source of a given size.
+#[derive(Debug, Clone)]
 pub(crate) struct Layout {
     scale: Scale,
     /// The part of the source's box that is shown.
@@ -371,19 +471,70 @@ pub(crate) struct Layout {
     area: Rect,
     /// The scale `fit` gives, along each axis.
     factor: (f64, f64),
-    placement: Placement,
+    basis: Basis,
+    /// The extra places, in order; empty for a layer that is not a reference (and for a perspective, whose steps are in
+    /// its homography).
+    steps: Vec<Step>,
 }
 
 impl Layout {
-    /// The layout of a source whose box is `own`, drawn on an output of scale `scale`.
-    pub(crate) fn new(fit: Option<Fitting>, placement: Placement, own: Rect, scale: Scale) -> Self {
+    /// The layout of a source whose box is `own`, drawn on an output of scale `scale`, with the extra places `extras` (a
+    /// reference's own, in the order of its chain) applied after `placement`, each about the bounding rectangle of the
+    /// fitted box as it lands so far.
+    pub(crate) fn new(fit: Option<Fitting>, placement: Placement, extras: &[Placed], own: Rect, scale: Scale) -> Self {
         let (window, area, factor) = fitted(own, fit);
-        Self {
-            scale,
-            window,
-            area,
-            factor,
-            placement,
+        let mut corners = match placement {
+            Placement::Place(placed) => placed.corners(area),
+            Placement::Perspective(quad) => quad.corners(),
+        };
+        let steps: Vec<Step> = extras
+            .iter()
+            .map(|&extra| {
+                let (low, high) =
+                    corners
+                        .iter()
+                        .fold(([f64::INFINITY; 2], [f64::NEG_INFINITY; 2]), |(low, high), corner| {
+                            (
+                                std::array::from_fn(|axis| low[axis].min(corner[axis])),
+                                std::array::from_fn(|axis| high[axis].max(corner[axis])),
+                            )
+                        });
+                let step = Step::new(
+                    extra,
+                    Rect {
+                        x: low[0],
+                        y: low[1],
+                        width: high[0] - low[0],
+                        height: high[1] - low[1],
+                    },
+                );
+                corners = corners.map(|corner| step.at(corner));
+                step
+            })
+            .collect();
+        match placement {
+            Placement::Place(placed) => Self {
+                scale,
+                window,
+                area,
+                factor,
+                basis: Basis::Place(placed),
+                steps,
+            },
+            // an affine map after a homography is one homography: its last row stays what it was, so a parallelogram stays
+            // one (the exact path) and a perspective stays a perspective
+            Placement::Perspective(quad) => Self {
+                scale,
+                window,
+                area,
+                factor,
+                basis: Basis::Homography(
+                    steps
+                        .iter()
+                        .fold(quad.matrix(), |matrix, step| multiply3(step.homography(), matrix)),
+                ),
+                steps: Vec::new(),
+            },
         }
     }
 
@@ -392,10 +543,10 @@ impl Layout {
     /// by one factor if what the source allocates (`whole` says whether that is its whole box or the window) would pass the
     /// 2^27 pixels of a layer: the render stays valid and the near side loses sharpness.
     pub(crate) fn request(&self, own: Rect, whole: bool) -> Request {
-        let placed = match self.placement {
-            Placement::Place(placed) => placed,
-            Placement::Perspective(quad) => {
-                let (across, down) = self.largest_scales(&quad);
+        let placed = match self.basis {
+            Basis::Place(placed) => placed,
+            Basis::Homography(matrix) => {
+                let (across, down) = self.largest_scales(&matrix);
                 let part = if whole { own } else { self.window };
                 let fit = capped(part, (across, down));
                 return Request {
@@ -406,7 +557,8 @@ impl Layout {
                 };
             }
         };
-        let zoom = placed.scale;
+        // the drawn density follows the composite: a halo scales with the extra places as with the layer's own
+        let zoom = self.steps.iter().fold(placed.scale, |zoom, step| zoom * step.zoom);
         Request {
             window: self.window,
             scale: self.scale.times(self.factor.0 * zoom, self.factor.1 * zoom),
@@ -418,7 +570,7 @@ impl Layout {
     /// Where the top left of the box `own` falls between output pixels (`Request::phase`), worked out as `warp` works out
     /// the translation of a raster whose top left is the box's: `(0, 0)` unless the placement only moves and zooms.
     fn phase(&self, own: Rect, placed: Placed) -> (f64, f64) {
-        if !placed.keeps_pixels() {
+        if !(placed.keeps_pixels() && self.steps.iter().all(|step| step.keeps_pixels)) {
             return (0.0, 0.0);
         }
         let corner = [
@@ -426,10 +578,14 @@ impl Layout {
             (own.y - self.window.y) * self.factor.1,
         ];
         let anchor = [placed.anchor.0 * self.area.width, placed.anchor.1 * self.area.height];
-        let at = |row: usize, axis: Axis| {
+        let design: [f64; 2] = std::array::from_fn(|row| {
             let origin = [self.area.x, self.area.y][row];
             let moved = [placed.dx, placed.dy][row];
-            let position = axis.pixels(origin + anchor[row] + moved + placed.scale * (corner[row] - anchor[row]));
+            origin + anchor[row] + moved + placed.scale * (corner[row] - anchor[row])
+        });
+        let design = self.steps.iter().fold(design, |point, step| step.at(point));
+        let at = |row: usize, axis: Axis| {
+            let position = axis.pixels(design[row]);
             position - position.floor()
         };
         (at(0, self.scale.x), at(1, self.scale.y))
@@ -438,10 +594,10 @@ impl Layout {
     /// The largest, over the four corners of the fitted box, of the output pixels a design pixel of the box has along its x
     /// axis and along its y axis under the quadrilateral: the scale is largest at a corner, since a homography's local scale
     /// changes by the last coordinate, which is linear (`the_largest_scale_of_a_perspective_is_at_a_corner` walks the box).
-    fn largest_scales(&self, quad: &Quad) -> (f64, f64) {
+    fn largest_scales(&self, m: &[[f64; 3]; 3]) -> (f64, f64) {
         [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)]
             .into_iter()
-            .map(|corner| self.scales_at(quad, corner))
+            .map(|corner| self.scales_at(m, corner))
             .fold((0.0, 0.0), |(across, down), (x, y)| {
                 (f64::max(across, x), f64::max(down, y))
             })
@@ -449,8 +605,7 @@ impl Layout {
 
     /// The output pixels a design pixel of the box has along x and along y at the point `(u, v)` of the fitted box (each
     /// from 0 to 1): the lengths of the columns of the Jacobian of the output with respect to the box's design pixels.
-    fn scales_at(&self, quad: &Quad, (u, v): (f64, f64)) -> (f64, f64) {
-        let m = quad.matrix();
+    fn scales_at(&self, m: &[[f64; 3]; 3], (u, v): (f64, f64)) -> (f64, f64) {
         let axes = [self.scale.x.pixels(1.0), self.scale.y.pixels(1.0)];
         let w = m[2][0] * u + m[2][1] * v + m[2][2];
         let (qx, qy) = (
@@ -505,10 +660,10 @@ impl Layout {
             (covers.x - self.window.x) * self.factor.0,
             (covers.y - self.window.y) * self.factor.1,
         ];
-        let placed = match self.placement {
-            Placement::Place(placed) => placed,
-            Placement::Perspective(quad) => {
-                return (self.perspective(&quad, axes, extent, corner, counts), clip);
+        let placed = match self.basis {
+            Basis::Place(placed) => placed,
+            Basis::Homography(matrix) => {
+                return (self.perspective(&matrix, axes, extent, corner, counts), clip);
             }
         };
         let linear = placed.linear();
@@ -532,14 +687,22 @@ impl Layout {
             e: entry(1, 1),
             f: translation(1),
         };
+        // each extra place after the layer's own, in output pixels: no steps leaves the map as it was
+        let map = self.steps.iter().fold(map, |map, step| map.then(step.in_pixels(axes)));
         (Map::Affine(map), clip)
     }
 
     /// The map of a perspective: raster pixel to the point of the fitted box (a unit square), the box's homography to the
     /// quadrilateral, and the output scale of each axis. A parallelogram is affine, and its entries are formed as those of
     /// `place` are, so that an axis-aligned one that `place` can make gives the same map bit for bit.
-    fn perspective(&self, quad: &Quad, axes: [Axis; 2], extent: [f64; 2], corner: [f64; 2], counts: [f64; 2]) -> Map {
-        let m = quad.matrix();
+    fn perspective(
+        &self,
+        m: &[[f64; 3]; 3],
+        axes: [Axis; 2],
+        extent: [f64; 2],
+        corner: [f64; 2],
+        counts: [f64; 2],
+    ) -> Map {
         let (width, height) = (self.area.width, self.area.height);
         if m[2][0] == 0.0 && m[2][1] == 0.0 {
             let ratio = [[m[0][0] / width, m[0][1] / height], [m[1][0] / width, m[1][1] / height]];
@@ -567,7 +730,7 @@ impl Layout {
             [0.0, axes[1].pixels(1.0), 0.0],
             [0.0, 0.0, 1.0],
         ];
-        Map::Projective(Projective(multiply3(to_output, multiply3(m, to_square))))
+        Map::Projective(Projective(multiply3(to_output, multiply3(*m, to_square))))
     }
 }
 
@@ -587,9 +750,15 @@ fn capped(part: Rect, (across, down): (f64, f64)) -> f64 {
 // Inline, because no public route reaches these: a render shows the scale a source is asked for only through its pixels.
 #[cfg(test)]
 mod tests {
-    use super::{Fit, Fitting, Layout, Placement, capped};
+    use std::sync::Arc;
+
+    use super::{Fit, Fitting, Layout, Place, Placed, Placement, capped};
+    use crate::Raster;
     use crate::geometry::{MAX_PIXELS, Rect, Scale};
     use crate::perspective::Quad;
+    use crate::placement::Deg;
+    use crate::source::Drawn;
+    use crate::warp::{Affine, Map};
 
     fn rect(width: f64, height: f64) -> Rect {
         Rect {
@@ -637,14 +806,15 @@ mod tests {
             let layout = Layout::new(
                 None,
                 Placement::Perspective(quad),
+                &[],
                 rect(20.0, 12.0),
                 Scale::of_canvas(64, 64, 64, 64),
             );
-            let (across, down) = layout.largest_scales(&quad);
+            let (across, down) = layout.largest_scales(&quad.matrix());
             for step_u in 0..=40 {
                 for step_v in 0..=40 {
                     let at = (f64::from(step_u) / 40.0, f64::from(step_v) / 40.0);
-                    let (a, d) = layout.scales_at(&quad, at);
+                    let (a, d) = layout.scales_at(&quad.matrix(), at);
                     assert!(
                         a <= across * (1.0 + 1e-9) && d <= down * (1.0 + 1e-9),
                         "{at:?}: ({a}, {d}) above ({across}, {down})"
@@ -688,6 +858,7 @@ mod tests {
         let layout = Layout::new(
             fit,
             Placement::Perspective(quad),
+            &[],
             rect(20.0, 10.0),
             Scale::of_canvas(64, 64, 64, 64),
         );
@@ -708,11 +879,181 @@ mod tests {
             let along_x = ((right.0 - left.0) / (2.0 * step)).hypot((right.1 - left.1) / (2.0 * step));
             let along_y = ((below.0 - above.0) / (2.0 * step)).hypot((below.1 - above.1) / (2.0 * step));
             let (u, v) = (x * 2.0 / 40.0, y / 10.0);
-            let (got_x, got_y) = layout.scales_at(&quad, (u, v));
+            let (got_x, got_y) = layout.scales_at(&quad.matrix(), (u, v));
             assert!(
                 (got_x - along_x).abs() <= 1e-4 * along_x && (got_y - along_y).abs() <= 1e-4 * along_y,
                 "({x}, {y}): ({got_x}, {got_y}) is not ({along_x}, {along_y})"
             );
         }
+    }
+
+    // --- extra places: a reference's, applied after the placement of the layer it names -----------------------------
+
+    /// A placement with the fields `fields` sets.
+    fn placed(fields: impl FnOnce(Place) -> Place) -> Placed {
+        Placed::default()
+            .with(fields(Place::new()))
+            .unwrap_or_else(|_| unreachable!())
+    }
+
+    /// A layout of a 20 by 10 box on a canvas of the same size drawn at one pixel to the design pixel.
+    fn layout(base: Placement, extras: &[Placed]) -> Layout {
+        Layout::new(None, base, extras, rect(20.0, 10.0), Scale::of_canvas(20, 10, 20, 10))
+    }
+
+    /// The warp of the whole 20 by 10 raster: its map.
+    fn map_of(layout: &Layout) -> Map {
+        let drawn = Drawn {
+            raster: Arc::new(Raster::made(20, 10, vec![0.0; 20 * 10 * 4])),
+            covers: rect(20.0, 10.0),
+            ends_at_window: false,
+        };
+        layout.warp(&drawn).0
+    }
+
+    fn affine(layout: &Layout) -> Affine {
+        match map_of(layout) {
+            Map::Affine(map) => map,
+            Map::Projective(_) => unreachable!("an affine placement made a homography"),
+        }
+    }
+
+    /// The point `(x, y)` turned clockwise by `degrees` about `about`, worked out here with the sine and cosine of the angle.
+    fn turned((x, y): (f64, f64), degrees: f64, about: (f64, f64)) -> (f64, f64) {
+        let (sine, cosine) = degrees.to_radians().sin_cos();
+        let (dx, dy) = (x - about.0, y - about.1);
+        (about.0 + cosine * dx - sine * dy, about.1 + sine * dx + cosine * dy)
+    }
+
+    const CORNERS: [(f64, f64); 4] = [(0.0, 0.0), (20.0, 0.0), (20.0, 10.0), (0.0, 10.0)];
+
+    /// An extra turn is about the bounding rectangle of the layer's box as the named layer's placement leaves it (a tilted
+    /// quadrilateral), not about the box: here the extra's anchor is that rectangle's top left corner, and each corner of the
+    /// box lands where turning, by hand, the first placement's corners about that point puts it.
+    #[test]
+    fn an_extra_turn_is_about_the_bounding_rectangle_of_the_placed_box() {
+        let base = placed(|place| place.rotate(Deg(30.0)).dx(3.0));
+        let extra = placed(|place| place.rotate(Deg(40.0)).anchor(0.0, 0.0).dy(2.5));
+        let map = affine(&layout(Placement::Place(base), &[extra]));
+        let tilted = CORNERS.map(|corner| {
+            let (x, y) = turned(corner, 30.0, (10.0, 5.0));
+            (x + 3.0, y)
+        });
+        let left = tilted.iter().map(|corner| corner.0).fold(f64::INFINITY, f64::min);
+        let top = tilted.iter().map(|corner| corner.1).fold(f64::INFINITY, f64::min);
+        for (corner, tilt) in CORNERS.into_iter().zip(tilted) {
+            let (x, y) = turned(tilt, 40.0, (left, top));
+            let (got_x, got_y) = map.at(corner.0, corner.1);
+            assert!(
+                (got_x - x).abs() < 1e-9 && (got_y - (y + 2.5)).abs() < 1e-9,
+                "{corner:?}: ({got_x}, {got_y}) is not ({x}, {})",
+                y + 2.5
+            );
+        }
+    }
+
+    /// A quarter turn after a quarter turn is a half turn, bit for bit, and a move by whole pixels after one is the move of
+    /// their sum: the entries of the map are those of the single placement.
+    #[test]
+    fn exact_places_compose_to_the_exact_place_of_their_sum() {
+        let half = affine(&layout(Placement::Place(placed(|place| place.rotate(Deg(180.0)))), &[]));
+        let quarters = affine(&layout(
+            Placement::Place(placed(|place| place.rotate(Deg(90.0)))),
+            &[placed(|place| place.rotate(Deg(90.0)))],
+        ));
+        assert_eq!(quarters, half);
+        let one_move = affine(&layout(Placement::Place(placed(|place| place.dx(7.0).dy(1.0))), &[]));
+        let two_moves = affine(&layout(
+            Placement::Place(placed(|place| place.dx(3.0).dy(2.0))),
+            &[placed(|place| place.dx(4.0).dy(-1.0))],
+        ));
+        assert_eq!(two_moves, one_move);
+        // and a flip after a flip is no flip at all
+        let none = affine(&layout(Placement::Place(placed(|place| place)), &[]));
+        let flips = affine(&layout(
+            Placement::Place(placed(|place| place.flip_x(true))),
+            &[placed(|place| place.flip_x(true))],
+        ));
+        assert_eq!(flips, none);
+    }
+
+    /// An affine map after a perspective is one homography: the box's corners land on the quadrilateral's corners moved by
+    /// the extra place, which is worked out by hand here; and after a parallelogram the map stays affine.
+    #[test]
+    fn an_extra_place_after_a_perspective_is_one_homography() {
+        let corners = [[5.0, 2.0], [18.0, 4.0], [16.0, 9.0], [3.0, 8.0]];
+        let quad = Quad::new(corners).unwrap_or_else(|_| unreachable!());
+        let extra = placed(|place| place.scale(0.5).rotate(Deg(20.0)).dx(4.0).anchor(1.0, 1.0));
+        let Map::Projective(homography) = map_of(&layout(Placement::Perspective(quad), &[extra])) else {
+            unreachable!("a perspective with an extra place is no longer a perspective")
+        };
+        let (high_x, high_y) = (
+            corners.iter().map(|c| c[0]).fold(f64::NEG_INFINITY, f64::max),
+            corners.iter().map(|c| c[1]).fold(f64::NEG_INFINITY, f64::max),
+        );
+        let pivot = (high_x, high_y);
+        for (corner, at) in CORNERS.into_iter().zip(corners) {
+            let (x, y) = turned((at[0], at[1]), 20.0, pivot);
+            // the zoom is about the pivot too: p -> pivot + 0.5 (turned p - pivot), then moved by dx
+            let want = (pivot.0 + 0.5 * (x - pivot.0) + 4.0, pivot.1 + 0.5 * (y - pivot.1));
+            let m = homography.0;
+            let w = m[2][0] * corner.0 + m[2][1] * corner.1 + m[2][2];
+            let got = (
+                (m[0][0] * corner.0 + m[0][1] * corner.1 + m[0][2]) / w,
+                (m[1][0] * corner.0 + m[1][1] * corner.1 + m[1][2]) / w,
+            );
+            assert!(
+                (got.0 - want.0).abs() < 1e-9 && (got.1 - want.1).abs() < 1e-9,
+                "{corner:?}: {got:?} is not {want:?}"
+            );
+        }
+        let parallelogram =
+            Quad::new([[2.0, 1.0], [14.0, 3.0], [16.0, 9.0], [4.0, 7.0]]).unwrap_or_else(|_| unreachable!());
+        assert!(matches!(
+            map_of(&layout(Placement::Perspective(parallelogram), &[extra])),
+            Map::Affine(_)
+        ));
+    }
+
+    /// What the source is asked to draw follows the composite: the zoom of the extra place multiplies the layer's own, for an
+    /// affine placement and for a perspective.
+    #[test]
+    fn the_drawn_density_follows_the_composite_zoom() {
+        let density = |layout: &Layout| layout.request(rect(20.0, 10.0), false).scale.x.pixels(1.0);
+        let base = layout(Placement::Place(placed(|place| place.scale(0.5))), &[]);
+        let both = layout(
+            Placement::Place(placed(|place| place.scale(0.5))),
+            &[
+                placed(|place| place.scale(3.0)),
+                placed(|place| place.scale(2.0).rotate(Deg(10.0))),
+            ],
+        );
+        assert!((density(&both) / density(&base) - 6.0).abs() < 1e-12);
+        let quad = Quad::new([[5.0, 2.0], [18.0, 4.0], [16.0, 9.0], [3.0, 8.0]]).unwrap_or_else(|_| unreachable!());
+        let flat = layout(Placement::Perspective(quad), &[]);
+        let doubled = layout(
+            Placement::Perspective(quad),
+            &[placed(|place| place.scale(2.0).rotate(Deg(35.0)))],
+        );
+        assert!((density(&doubled) / density(&flat) - 2.0).abs() < 1e-9);
+    }
+
+    /// Where the box's top left falls between pixels includes the extra places: 0.25 and 0.5 of a pixel add to 0.75, and a
+    /// whole pixel after them takes none away.
+    #[test]
+    fn the_phase_of_a_move_includes_the_extra_moves() {
+        let phase = |extras: &[Placed]| {
+            layout(Placement::Place(placed(|place| place.dx(0.25))), extras)
+                .request(rect(20.0, 10.0), false)
+                .phase
+        };
+        assert_eq!(phase(&[]), (0.25, 0.0));
+        assert_eq!(phase(&[placed(|place| place.dx(0.5))]), (0.75, 0.0));
+        assert_eq!(
+            phase(&[placed(|place| place.dx(0.5)), placed(|place| place.dx(3.0).dy(-1.0))]),
+            (0.75, 0.0)
+        );
+        // a turned extra place gives the warp the pixels: no phase
+        assert_eq!(phase(&[placed(|place| place.rotate(Deg(10.0)))]), (0.0, 0.0));
     }
 }

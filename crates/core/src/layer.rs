@@ -6,7 +6,7 @@ use std::sync::Arc;
 use crate::blend::Blend;
 use crate::mask::{By, CanvasMask, Mask, Use};
 use crate::perspective::Quad;
-use crate::placement::{Fit, Fitting, Place, Placement};
+use crate::placement::{Fit, Fitting, Place, Placed, Placement};
 use crate::scene::MAX_LAYERS;
 use crate::source::drawing::Drawing;
 use crate::source::fill::Fill;
@@ -36,6 +36,9 @@ pub(crate) struct Body {
     pub(crate) source: Arc<dyn Source>,
     pub(crate) fit: Option<Fitting>,
     pub(crate) placement: Placement,
+    /// The extra places of the references that lead to this body, in order, each after the one before: empty for a layer
+    /// that is not a reference.
+    pub(crate) extras: Vec<Placed>,
 }
 
 /// How a layer joins the scene, stages 6 to 9: its masks by layers drawn on the canvas, light, opacity and blend. A
@@ -77,6 +80,7 @@ impl Layer {
                 source: Arc::new(source),
                 fit: None,
                 placement: Placement::default(),
+                extras: Vec::new(),
             },
             join: Join {
                 opacity: 1.0,

@@ -41,6 +41,11 @@ impl Quad {
         Ok(Self { corners })
     }
 
+    /// The four corners, in the order given: top left, top right, bottom right, bottom left.
+    pub(crate) fn corners(&self) -> [[f64; 2]; 4] {
+        self.corners
+    }
+
     /// The homography from the unit square, `(u, v)` with `u` along the top edge and `v` down the left, to the quadrilateral,
     /// as the matrix of `(u, v, 1) -> (x w, y w, w)`: its last entry is 1, and the entries of the last row are 0 exactly when
     /// the quadrilateral is a parallelogram (an affine map, which takes the exact path of the warp). Closed form: the

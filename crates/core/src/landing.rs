@@ -87,9 +87,9 @@ pub(crate) fn land(body: &Body, target: &Target) -> Result<Landed, Error> {
     // a source with no box of its own (a fill) takes the part of the canvas the target holds, margin included, so that a mask
     // that fills the canvas goes on into the margin; but only where nothing acts on the box, for `fit` and `place` work on
     // it and a layer must be the same shape whatever its blur adds
-    let unplaced = body.fit.is_none() && body.placement == Placement::default();
+    let unplaced = body.fit.is_none() && body.placement == Placement::default() && body.extras.is_empty();
     let opened = body.source.open(if unplaced { target.rect() } else { target.canvas })?;
-    let layout = Layout::new(body.fit, body.placement, opened.own, target.scale);
+    let layout = Layout::new(body.fit, body.placement, &body.extras, opened.own, target.scale);
     let request = layout.request(opened.own, opened.whole);
     // the one place the drawn-size limit is checked, before any source draws
     request.scale.size(request.window)?;
