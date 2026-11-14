@@ -2,7 +2,7 @@
 //! scene's own render, closed forms of the compositing equation and the inner render placed as a picture. Pictures and colours
 //! are the small ones of `common`, whose values are exact in a float.
 
-use bullterrier_scene::{Blend, Deg, Error, Fit, Layer, Place, Raster, Scene};
+use bullterrier_scene::{Blend, Deg, Error, Fit, Layer, MAX_DEPTH, MAX_LAYERS, Place, Raster, Scene};
 
 use crate::common::{Outcome, close, exactly, made, pixel, pixels, rectangle, scene};
 
@@ -319,6 +319,173 @@ fn a_group_at_a_fraction_of_a_pixel_is_not_resampled_again() -> Outcome {
                 most(&by_group, &direct)
             );
         }
+    }
+    Ok(())
+}
+
+// --- depth and count -----------------------------------------------------------------------------------------------
+
+/// The message of the refusal of `result`.
+fn refusal<T>(result: Result<T, Error>) -> Result<String, String> {
+    match result {
+        Err(error @ Error::Invalid { .. }) => Ok(error.to_string()),
+        Err(other) => Err(format!("not an Invalid error: {other:?}")),
+        Ok(_) => Err("accepted".to_owned()),
+    }
+}
+
+/// A scene of one translucent fill, wrapped in `levels` scenes, each holding the one before as its only layer.
+fn nest(levels: usize) -> Result<Scene, Error> {
+    let mut nested = scene(4, 4, [Layer::fill("#ffffff80")?])?;
+    for _ in 0..levels {
+        nested = scene(4, 4, [Layer::scene(nested)])?;
+    }
+    Ok(nested)
+}
+
+/// A chain of `links` references on a fill, each naming the one before.
+fn chain(links: usize) -> Result<Vec<Layer>, Error> {
+    let mut layers = vec![Layer::fill("#ffffff80")?.named("l0")?];
+    for link in 1..=links {
+        layers.push(Layer::of(&format!("l{}", link - 1)).named(&format!("l{link}"))?);
+    }
+    Ok(layers)
+}
+
+/// A scene that leans `links + plain + 2 x masked` deep: at the bottom a chain of `links` references, then `plain` scenes that
+/// each hold the one before as a layer (the first also a reference to that layer, which draws the group again: more would
+/// double the layers drawn at each level), then `masked` scenes that each hold the one before as the mask layer of a fill (a
+/// group used as a mask is two levels).
+fn mixed(links: usize, plain: usize, masked: usize) -> Result<Scene, Error> {
+    let mut leaning = scene(4, 4, chain(links)?)?;
+    for level in 0..plain {
+        let group = Layer::scene(leaning).named("group")?;
+        let layers = if level == 0 {
+            vec![group, Layer::of("group").opacity(0.5)?]
+        } else {
+            vec![group]
+        };
+        leaning = scene(4, 4, layers)?;
+    }
+    for _ in 0..masked {
+        leaning = scene(4, 4, [Layer::fill("#ffffff")?.mask(Layer::scene(leaning))?])?;
+    }
+    Ok(leaning)
+}
+
+/// What a thread of 256 KB can do with a scene: draw it, print it, copy it and drop it. The pixels drawn come back.
+fn on_a_small_stack(build: fn() -> Result<Scene, Error>) -> Result<usize, Box<dyn std::error::Error>> {
+    let worked = std::thread::Builder::new()
+        .stack_size(256 * 1024)
+        .spawn(move || -> Result<usize, String> {
+            let nested = build().map_err(|error| error.to_string())?;
+            let shown = format!("{nested:?}");
+            let copy = nested.clone();
+            let raster = copy.render(4).map_err(|error| error.to_string())?;
+            drop(nested);
+            Ok(raster.pixels().len() + shown.len().min(1))
+        })?;
+    Ok(worked.join().map_err(|_| "the thread panicked")??)
+}
+
+/// A nest of `MAX_DEPTH` scenes is drawn, printed, copied and dropped on a thread of 256 KB, and one scene more is refused
+/// when it is added: nothing recurses past the bound, and the bound is on the nest.
+#[test]
+fn a_nest_of_sixteen_scenes_is_drawn_on_a_small_stack_and_seventeen_are_refused() -> Outcome {
+    assert_eq!(MAX_DEPTH, 16);
+    assert_eq!(on_a_small_stack(|| nest(MAX_DEPTH))?, 64 + 1);
+    let message = refusal(scene(4, 4, [Layer::scene(nest(MAX_DEPTH)?)]))?;
+    assert!(message.contains("16") && message.contains("17"), "{message}");
+    // a nest used as a mask layer is a level more than a scene as a layer
+    let message = refusal(Layer::fill("#ffffff")?.mask(Layer::scene(nest(MAX_DEPTH)?)))?;
+    assert!(message.contains("17"), "{message}");
+    Ok(())
+}
+
+/// Masks, scenes and references share the one depth: the worst mix at exactly 16 is drawn on a thread of 256 KB, and the limit
+/// is exact for other mixes.
+#[test]
+fn masks_scenes_and_references_share_one_depth_and_the_limit_is_exact() -> Outcome {
+    assert_eq!(on_a_small_stack(|| mixed(6, 4, 3))?, 64 + 1);
+    assert_eq!(on_a_small_stack(|| mixed(0, 8, 4))?, 64 + 1);
+    assert_eq!(on_a_small_stack(|| mixed(0, 0, 8))?, 64 + 1);
+    for (links, plain, masked) in [
+        (6, 4, 3),
+        (6, 4, 4),
+        (7, 4, 3),
+        (6, 5, 3),
+        (16, 0, 0),
+        (0, 16, 0),
+        (0, 15, 0),
+        (0, 0, 8),
+    ] {
+        let accepted = mixed(links, plain, masked).is_ok();
+        assert_eq!(
+            accepted,
+            links + plain + 2 * masked <= MAX_DEPTH,
+            "{links} links, {plain} scenes, {masked} masks"
+        );
+    }
+    Ok(())
+}
+
+/// The layers a scene draws are counted at each use of an inner scene: a group is one layer and the layers of its scene.
+#[test]
+fn the_layers_of_an_inner_scene_are_counted_at_each_use() -> Outcome {
+    let of = |count: usize| -> Result<Scene, Error> {
+        scene(
+            2,
+            2,
+            (0..count)
+                .map(|_| Layer::fill("#10203040"))
+                .collect::<Result<Vec<_>, _>>()?,
+        )
+    };
+    assert_eq!(MAX_LAYERS, 1_000);
+    // two uses of a scene of 499 layers are 2 x (1 + 499)
+    assert!(scene(2, 2, [Layer::scene(of(499)?), Layer::scene(of(499)?)]).is_ok());
+    let message = refusal(scene(2, 2, [Layer::scene(of(499)?), Layer::scene(of(500)?)]))?;
+    assert!(message.contains("1001") || message.contains("1002"), "{message}");
+    // a scene of 600 layers used twice is 1,202, though it holds only 600
+    let message = refusal(scene(2, 2, [Layer::scene(of(600)?), Layer::scene(of(600)?)]))?;
+    assert!(message.contains("1202") && message.contains("1000"), "{message}");
+    // a scene holds a thousand layers and is one layer more as a layer
+    assert!(of(MAX_LAYERS).is_ok());
+    assert!(refusal(scene(2, 2, [Layer::scene(of(MAX_LAYERS)?)])).is_ok());
+    // a reference to a group draws it again, and counts again
+    let group = || Layer::scene(of(499).unwrap_or_else(|_| unreachable!())).named("g");
+    assert!(scene(2, 2, [group()?, Layer::of("g")]).is_ok());
+    assert!(refusal(scene(2, 2, [group()?, Layer::of("g"), Layer::of("g")])).is_ok());
+    // as the mask layer of a layer it counts at each use too
+    let mask = Layer::scene(of(300)?);
+    let masked = || -> Result<Layer, Error> { Layer::fill("#ffffff")?.mask(mask.clone()) };
+    assert!(scene(2, 2, [masked()?, masked()?]).is_ok());
+    assert!(refusal(scene(2, 2, [masked()?, masked()?, masked()?, masked()?])).is_ok());
+    Ok(())
+}
+
+/// A reference to a layer that is a group draws the group again: it is a second copy of the group.
+#[test]
+fn a_reference_to_a_group_is_a_second_copy_of_it() -> Outcome {
+    for size in [24, 40] {
+        let group =
+            || Layer::scene(inner().unwrap_or_else(|_| unreachable!())).place(Place::new().dx(3.5).rotate(Deg(9.0)));
+        let by_reference = scene(
+            40,
+            30,
+            [group()?.named("g")?, Layer::of("g").place(Place::new().dx(6.0))?],
+        )?
+        .render(size)?;
+        let by_copy = scene(
+            40,
+            30,
+            [
+                group()?.named("g")?,
+                group()?.place(Place::new().dx(9.5).rotate(Deg(9.0)))?,
+            ],
+        )?
+        .render(size)?;
+        assert!(most(&by_reference, &by_copy) <= 1e-6, "at {size}");
     }
     Ok(())
 }
