@@ -382,9 +382,53 @@ counts its `draw` calls (`Layer::make`, built in C7: "The cache", below).
 
 **Hashing once.** A picture or map held in memory keeps the digest of its pixels (`Raster::digest`, a `OnceLock`), made on the first `==` or key, over pieces of 4 MiB on every core, so `==` of a 12 megapixel picture is no longer a fraction of a second at each call and a swapped picture costs its hash once. The first render of a layer with a look pays 22 ms for 3 megapixels. `Finish::run` takes `light` as an argument, so a draw no longer deep-clones every recipe of the layer.
 
-**The plugin seam** is the smallest that the test needs: the public trait `LayerKind` (`name`, `options`, `draw(area, scale)`) and `Layer::make(Arc<dyn LayerKind>)`. **A kind declares its identity by its name and options**, which are also what a saved scene will write, so what the cache keys and what the file holds cannot differ; the promise (the same name, options, rectangle and scale give the same raster) is the trait's, and a kind with a hidden input must put it in its options. The scene asks for the part of the canvas that shows at the drawn scale, per axis, and refuses a raster of another size, naming both. *Not built, on purpose:* a registry, entry points, Python `register_layer` and `Layer.make`, and a JSON form (`to_json` refuses the layer as it does an array); each is a later step that does not change the trait.
+**The plugin seam** is the smallest that the test needs: the public trait `LayerKind` (`name`, `options`, `draw(area, scale)`) and `Layer::make(Arc<dyn LayerKind>)`. **A kind declares its identity by its name and options**, which are also what a saved scene will write, so what the cache keys and what the file holds cannot differ; the promise (the same name, options, rectangle and scale give the same raster) is the trait's, and a kind with a hidden input must put it in its options. The scene asks for the part of the canvas that shows at the drawn scale, per axis, and refuses a raster of another size, naming both. *Not built then, built in C8 (below):* a registry, entry points, Python `register_layer` and `Layer.make`, and a JSON form; none changed the trait.
 
 **Not built: a prefix of a look chain.** A reference runs the named layer's looks and then its own, and the cache keeps the finished chain, so changing the last look runs the chain again (a mill frame whose two swells change: 0.413 s, of which 0.025 s hits). Keeping the raster after each look would take the frame to about the two swells; it needs the maps kept with each stage. It is the next speed step, with the mill's numbers as the evidence ("Future").
+
+## C8: layer kinds by name (2026-11-14)
+
+Copied from the design of audio's measures by name (its A7), adapted to layer kinds; what differs is stated.
+
+- **The registry is a value.** `LayerKinds` (`new`, `register`, `get`, `names`, `make`) is passed where it is needed; a `Scene` holds none,
+  because a layer made through one remembers its kind and options. Python holds the one process-wide registry in the bindings,
+  as audio does. Scene has no built-in kinds (its five sources are not plugins), so there is no `builtin()` and no built-in
+  name to protect; what is protected is the keys that say what a layer draws.
+- **A factory builds a kind from options.** `LayerKindFactory { name, identity, create(&options) }` is smaller than audio's
+  `Measure` (no description, unit or scaling: a kind states none of them). `create` is what lets JSON recreate a layer; the
+  `LayerKind` trait is unchanged. A factory that makes a kind of another name is refused at `make`.
+- **Getting in is checked once**, in `register`: the name (`^[a-z0-9][a-z0-9_.-]*$`, at most 64 characters, as long as the
+  names of a saved scene are kept short), not one of the source keys (`picture`, `drawing`, `text`, `fill`, `scene`, `of`,
+  `make`: the same list the reader uses, so a flat spelling `{"<kind>": ...}` stays possible), and the identity rule: the
+  same identity re-registered replaces itself (a module loaded again), another identity under a taken name is refused. A name
+  in a message is cut at 40 characters, so a name of a megabyte is refused in a line.
+- **The JSON form is `{"make": {"kind", "options"}}`**, not top-level `kind` and `options` keys: `options` already belongs to a
+  text layer (`OWNED`), and one source key keeps "a layer draws one thing" true. The document was already what `==` compared.
+  A layer made by `Layer::make(kind)` has no factory behind it and still refuses `to_json`, naming why. An unknown kind is a
+  `FormatError` at `/layers/N/make/kind` (the registered names and the nearest, by the rule of `suggest.rs`); options the
+  factory refuses are at `/layers/N/make/options`.
+- **One Python callable, per-axis scales unpacked:** `draw(x, y, width, height, scale_x, scale_y, **options)`. The earlier
+  draft of `api.md` had one `scale`; the core asks per axis (a fractional canvas makes the two differ by up to one part in the
+  long side) and a size of `ceil(width * scale_x)` by `ceil(height * scale_y)` cannot be written from one number. Options
+  travel as JSON text both ways (`json.dumps` in the facade, `json.loads` per call), so the callable sees plain data and
+  cannot alter the layer's own.
+- **A plugin's exception becomes an `InvalidError` naming the kind**, with its type and message, where audio re-raises the
+  plugin's own exception unchanged. Audio needs the original because a measure runs on the caller's thread; a layer is drawn on
+  render threads, where one exception among several has no caller to be raised unchanged to, and the error must carry the
+  layer's address like every other refusal of `render`. A returned array is checked where it comes in: its shape before its
+  pixels (more than 2^27 pixels is refused before a copy), then `Raster::rgba` (a NaN or a value outside 0 to 1, by row and
+  column), then the scene's own size check.
+- **Loading is lazy and safe**, as in audio: the group `bullterrier_scene.layers` is read by the first `layer_kinds`,
+  `Layer.make` or `Scene.from_json`, never at import, sorted by name, under a lock; a module that fails leaves the registry as
+  it was (snapshot and restore) and its half-imported modules forgotten, and the error names the entry point. The extension
+  calls `plugin._load` at run time, so it still imports nothing of the package; `plugin` is a layer of the import contract
+  above `_native`.
+- **Threads.** Each call into Python takes the GIL (`Python::attach`) and the render runs without it (`detach`), so several
+  renders in threads work; a registry is cloned for each query, so no lock is held while a kind draws.
+- **The contract is a test over every registered kind**, found in the registry (`tests/test_layer_kind_contract.py`, and its
+  Rust twin in `tests/it/layer_kinds.rs`): the size asked, values from 0 to 1, no NaN, deterministic, for rectangles and
+  scales that include a fractional, a tiny and one beyond the canvas. A kind that breaks it is refused at render, with a
+  known-bad kind of each sort in `tests/test_plugin.py`. Scene has no built-in kinds, so the tests register their own two.
 
 ## Blend modes and light: what C4a settled (2026-11-14)
 

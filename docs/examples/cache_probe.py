@@ -2,8 +2,7 @@
 
 A plugin layer kind that counts its `draw` calls is the test seam of the cache: the count is public. Proves: a
 value that only moves the headline never redraws the static layer; a changed option of the static layer does.
-The Rust seam is built (`crates/core/tests/it/cache.rs` counts the same way); Python's `Layer.make` and
-`bts.register_layer` are later, so this program does not run yet.
+`crates/core/tests/it/cache.rs` counts the same way in Rust.
 """
 
 import math
@@ -13,13 +12,13 @@ import numpy as np
 import bullterrier_scene as bts
 
 W, H = 640, 360
-calls: list[tuple[float, float, float, float, float]] = []
+calls: list[tuple[float, float, float, float, float, float]] = []
 
 
-def draw(x: float, y: float, width: float, height: float, scale: float, *, tone: float) -> np.ndarray:
-    """One rectangle of the canvas (design pixels) at `scale` output pixels per design pixel: a flat grey."""
-    calls.append((x, y, width, height, scale))
-    return np.full((math.ceil(height * scale), math.ceil(width * scale), 4), tone, np.float32)
+def draw(x: float, y: float, width: float, height: float, scale_x: float, scale_y: float, *, tone: float) -> np.ndarray:
+    """One rectangle of the canvas (design pixels) at `scale_x` by `scale_y` output pixels per design pixel."""
+    calls.append((x, y, width, height, scale_x, scale_y))
+    return np.full((math.ceil(height * scale_y), math.ceil(width * scale_x), 4), tone, np.float32)
 
 
 def build(tone: float) -> bts.Scene:

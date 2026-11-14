@@ -57,9 +57,9 @@ Each item has the evidence that found it. Fix by the usual rule: reproduce at th
 
 - Read `CLAUDE.md`, `docs/api.md` (the code API and what is built) and `docs/design-decisions.md` (why).
 - **What exists:** the whole core roadmap through C7, O1 and P1 (`roadmap.md`): layers of picture, drawing, text, fill, scene
-  and (Rust) plugin kinds; `fit`, `place`, `perspective`; masks, maps, references, groups; looks on every layer; the sixteen
+  and plugin kinds (C8); `fit`, `place`, `perspective`; masks, maps, references, groups; looks on every layer; the sixteen
   blends and light; parameters and `with_values`; the saved scene; the cache; PNG output; `bt-scene`. **What is missing:**
-  room for looks (C5b, image's footprint), bands (B1, deferred), PDF and print colour, Python and JSON for plugin kinds,
+  room for looks (C5b, image's footprint), bands (B1, deferred), PDF and print colour,
   the open polish rows 9 and 10, the look chain cache above, the web export, hit-test and tree edit for an editor.
 - **The pieces** are in `bullterrier-demos` and use scene as a library from a checkout (`BT_SCENE_SRC`, the sibling's
   `src/`): 06 the two-ink poster, 07 the composed world, 08 the Conan poster, 09 the wow poster (a loop with a value set per
