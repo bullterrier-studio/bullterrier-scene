@@ -42,7 +42,7 @@ effects it gets. The scene then draws everything at the size you ask for, from a
 
 ## What it looks like
 
-The calls are in [docs/api.md](docs/api.md) and the programs in [docs/examples/](docs/examples/); the `c*` examples (C1 to C5a) render now (`uv run poe look`), the others wait for their batches.
+The calls are in [docs/api.md](docs/api.md) and the programs in [docs/examples/](docs/examples/); the `c*` examples render now (`uv run poe look`); the pieces built from real photos and a matte (`poster_two_ink.py`, `composed_world.py`, `mill.py`, `wow_poster.py`) need image and its models.
 
 ```python
 import bullterrier_scene as bts
@@ -91,7 +91,7 @@ for frame in range(48):
 
 ## What you can make
 
-Nothing renders yet; this is what the design allows and the [roadmap](docs/roadmap.md) delivers, batch by batch.
+This is what the design allows; the [roadmap](docs/roadmap.md) says what is built.
 
 - **Stills.** Posters, flyers, tickets and certificates; album, book and podcast covers; social cards, banners and
   thumbnails; collages and photo grids; before-and-after pairs; product mockups (a photo placed on a tilted surface);
@@ -101,7 +101,7 @@ Nothing renders yet; this is what the design allows and the [roadmap](docs/roadm
 - **Motion.** A scene has no clock of its own; a value in it (a position, a colour, how far a headline has slid in) is a
   number you set before each render. Set it a little differently for every frame and render again, and the frames make an
   animation: kinetic type, an animated cover, a loop, a frame sequence to lay over footage. Drawing only what changed keeps
-  that cheap (planned, batch C7), and the video tool is built on exactly this.
+  that cheap (built, C7: a layer that only moves is not drawn again), and the video tool is built on exactly this.
 - **Generative pieces.** Drawings from `bullterrier-vector` (hatching, flow lines, type) and fields from
   `bullterrier-image` (noise, light) composed with photos in one picture.
 - **Large and reusable.** Print-size canvases drawn in strips; a finished badge or logo lockup built once as a scene and used
@@ -125,7 +125,7 @@ a video frame is a scene drawn at one moment. The reasoning is in [docs/design.m
 
 **Pre-alpha, and private.** A scene of pictures (with an image look), vector drawings and flat fills, each fitted into a box
 and turned, skewed, mirrored, scaled, moved or put on a quadrilateral in perspective, can be rendered whole at any size, with masks, opacity and a blend mode: [docs/gallery](docs/gallery)
-shows what it draws, and `uv run poe look` draws it. A scene can be a layer too (`Layer.scene`: a group that fades and blends as one picture). Effects on every layer, parameters and caching come in the next batches ([docs/roadmap.md](docs/roadmap.md)). The repository
+shows what it draws, and `uv run poe look` draws it. A scene can be a layer too (`Layer.scene`: a group that fades and blends as one picture). Effects on every layer, parameters, the saved scene, the cache and the command line are built ([docs/roadmap.md](docs/roadmap.md)). The repository
 is private because it is built on two sibling packages that are themselves not released; it opens up when they do.
 
 ## Works with

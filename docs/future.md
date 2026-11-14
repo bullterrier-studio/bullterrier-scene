@@ -23,12 +23,12 @@ drawn in the drawing: 3 s). Sources: the 71 s in `bullterrier-demos/feedback/sce
 
 ## Batches still to do, in order
 
-1. **Polish** the list below.
-2. **C7** the per-layer cache, with the move-only fast path: done.
-3. **M3** the mill piece rebuilt as one scene.
-4. ~~**O1** PNG output.~~ Done: `Raster::write`.
-5. ~~**P1** the Rust command line, `bt-scene render`.~~ Done: `docs/cli.md`.
-6. **The final poster** in `bullterrier-demos`, using every library (the owner wants it to be properly impressive).
+1. ~~**Polish**~~ done below, bar the open rows.
+2. ~~**C7** the per-layer cache, with the move-only fast path~~ done.
+3. ~~**M3** the mill piece rebuilt as one scene~~ built (`docs/examples/mill.py`, demo 10 of `bullterrier-demos`).
+4. ~~**O1** PNG output~~ done: `Raster::write`.
+5. ~~**P1** the Rust command line, `bt-scene render`~~ done: `docs/cli.md`.
+6. **The final poster** (`bullterrier-demos`, demo 09, built on every library): the owner judges whether it is the final one.
 7. After scene's first release: video (clock, mapping, encode), the web export, editor support (hit-test, tree edit), a
    frontend.
 
@@ -56,9 +56,17 @@ Each item has the evidence that found it. Fix by the usual rule: reproduce at th
 ## Context for the next agent
 
 - Read `CLAUDE.md`, `docs/api.md` (the code API and what is built) and `docs/design-decisions.md` (why).
+- **What exists:** the whole core roadmap through C7, O1 and P1 (`roadmap.md`): layers of picture, drawing, text, fill, scene
+  and (Rust) plugin kinds; `fit`, `place`, `perspective`; masks, maps, references, groups; looks on every layer; the sixteen
+  blends and light; parameters and `with_values`; the saved scene; the cache; PNG output; `bt-scene`. **What is missing:**
+  room for looks (C5b, image's footprint), bands (B1, deferred), PDF and print colour, Python and JSON for plugin kinds,
+  the open polish rows 9 and 10, the look chain cache above, the web export, hit-test and tree edit for an editor.
+- **The pieces** are in `bullterrier-demos` and use scene as a library from a checkout (`BT_SCENE_SRC`, the sibling's
+  `src/`): 06 the two-ink poster, 07 the composed world, 08 the Conan poster, 09 the wow poster (a loop with a value set per
+  frame: `with_values` then `render`), 10 the mill video. Its `feedback/scene-*.md` are the evidence of every polish row.
+  Each demo builds one `Scene` from a function and renders it at several sizes; a frame loop reuses one scene, so the cache works.
+- **The owner's rules:** speed over ceremony (`poe fast` per commit, one `poe check` per batch, a few hand mutants, no
+  independent review unless asked); a gap found in image, vector or control while building a piece is fixed in that repository
+  by its own rules without asking; pushes to the other repositories are authorised; no pushes of this one unless asked.
 - The per-batch plans were written in the git-ignored `.superpowers/plans/`, which may be absent. The decisions are in
   `design-decisions.md`.
-- Process is lean: `poe fast` per commit, one full gate (`poe check`) per batch. A gap found in image, vector or control
-  while building a piece is fixed in that repository without asking; pushes to the other repositories are authorised.
-- The real pieces are in `bullterrier-demos`: 06 the two-ink poster, 07 the composed world, 08 the Conan poster, 04 the mill
-  video; `feedback/scene-*.md` hold the gap notes.
