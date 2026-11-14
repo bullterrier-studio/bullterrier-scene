@@ -287,3 +287,38 @@ fn a_blend_inside_a_group_sees_the_group_and_a_blend_of_the_group_sees_the_base(
     assert!(close(pixel(&got, 3, 2), [1.0, 128.0 / 255.0, 0.0, 1.0], 2e-6));
     Ok(())
 }
+
+// --- the pixel phase -----------------------------------------------------------------------------------------------
+
+/// A group put at a fraction of a pixel is its children put there: a picture is resampled once (not once inside and once more
+/// outside), a drawing is drawn at the fraction (not drawn on whole pixels and then moved), and a fill keeps the coverage of
+/// its edge. Children of a normal blend at full opacity on a transparent backdrop are the same as laid on the canvas (over is
+/// associative), within the rounding of one trip through straight alpha.
+#[test]
+fn a_group_at_a_fraction_of_a_pixel_is_not_resampled_again() -> Outcome {
+    let moved = Place::new().dx(2.4).dy(1.7);
+    let rows: Vec<(&str, Layer)> = vec![
+        ("a picture", Layer::picture(crate::common::numbered(12, 8)?)),
+        (
+            "a drawing",
+            Layer::drawing(&rectangle((16, 12), (3.25, 2.5), (12.75, 9.5), "#cc3355"))?,
+        ),
+        (
+            "a fill",
+            Layer::fill("#22aa66")?.fit([1.0, 1.0, 14.0, 10.0], Fit::Stretch, [0.5, 0.5])?,
+        ),
+    ];
+    for (what, child) in rows {
+        for size in [32, 48] {
+            let by_group =
+                scene(32, 24, [Layer::scene(scene(16, 12, [child.clone()])?).place(moved)?])?.render(size)?;
+            let direct = scene(32, 24, [child.clone().place(moved)?])?.render(size)?;
+            assert!(
+                most(&by_group, &direct) <= 2e-6,
+                "{what} at {size}: most {}",
+                most(&by_group, &direct)
+            );
+        }
+    }
+    Ok(())
+}
