@@ -1,7 +1,7 @@
 //! Drawing a scene: the size of the picture, each layer drawn at it, joined by its blend mode in premultiplied floats, and
 //! given back as straight alpha.
 
-use crate::blend::{Blend, join};
+use crate::blend::{Blend, join, lit};
 use crate::geometry::{MAX_PIXELS, Rect, Scale};
 use crate::landing::{Target, land};
 use crate::mask::product;
@@ -61,16 +61,14 @@ fn lay(layer: &Layer, target: &Target, joined: &mut [f32]) -> Result<(), Error> 
     let landed = land(layer, target)?;
     let opacity = layer.opacity;
     let blend = layer.blend;
-    if blend != Blend::Normal {
-        // every pixel is joined where it lands, by the compositing equation of its mode
-        landed.each(&mut |at, [red, green, blue, alpha]| {
+    let light = layer.light;
+    if blend != Blend::Normal || light {
+        // every pixel is made light if the layer is (stage 7), scaled by the masks and the opacity (stages 6 and 8), and
+        // joined where it lands by the compositing equation of its mode (stage 9)
+        landed.each(&mut |at, above @ [red, green, blue, alpha]| {
             let weight = factor.as_ref().map_or(opacity, |factor| opacity * factor.values[at]);
-            join(
-                &mut joined[at * 4..at * 4 + 4],
-                [red, green, blue],
-                alpha * weight,
-                blend,
-            );
+            let (colour, alpha) = if light { lit(above) } else { ([red, green, blue], alpha) };
+            join(&mut joined[at * 4..at * 4 + 4], colour, alpha * weight, blend);
         });
     } else if let Some(factor) = factor {
         landed.each(&mut |at, above| over_pixel(&mut joined[at * 4..at * 4 + 4], above, opacity * factor.values[at]));

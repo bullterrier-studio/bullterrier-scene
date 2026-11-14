@@ -27,6 +27,8 @@ pub struct Layer {
     pub(crate) name: Option<String>,
     pub(crate) opacity: f32,
     pub(crate) blend: Blend,
+    /// Whether the layer's alpha is made from the brightness of its colour (stage 7).
+    pub(crate) light: bool,
     pub(crate) source: Arc<dyn Source>,
     pub(crate) fit: Option<Fitting>,
     pub(crate) placement: Placement,
@@ -59,6 +61,7 @@ impl Layer {
             name: None,
             opacity: 1.0,
             blend: Blend::Normal,
+            light: false,
             source: Arc::new(source),
             fit: None,
             placement: Placement::default(),
@@ -323,6 +326,16 @@ impl Layer {
     #[must_use]
     pub fn blend(mut self, blend: Blend) -> Self {
         self.blend = blend;
+        self
+    }
+
+    /// This layer made light (`true`), or not (`false`, the default). A light layer's premultiplied colour, after its looks
+    /// and masks, is its colour over black, and its alpha is the largest of the red, green and blue of that colour, so what
+    /// is black adds nothing, a `screen` of the layer over black gives that colour exactly, and white is opaque white. A
+    /// layer that is not light keeps the alpha of its source.
+    #[must_use]
+    pub fn as_light(mut self, on: bool) -> Self {
+        self.light = on;
         self
     }
 }

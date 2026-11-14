@@ -271,3 +271,18 @@ pub(crate) fn join(below: &mut [f32], source: [f32; 3], alpha: f32, blend: Blend
     }
     below[3] = result_alpha;
 }
+
+/// A light layer's pixel (stage 7): `pixel`, straight RGBA, as its colour over black (its premultiplied colour), whose
+/// alpha is the largest of red, green and blue of that colour; the straight colour is the colour over that alpha, 0 where
+/// there is none. Returns the straight colour and the alpha.
+#[inline]
+pub(crate) fn lit([red, green, blue, alpha]: [f32; 4]) -> ([f32; 3], f32) {
+    let over_black = [red * alpha, green * alpha, blue * alpha];
+    let brightest = over_black[0].max(over_black[1]).max(over_black[2]);
+    if brightest > 0.0 {
+        // each channel is at most the brightest, so the quotient is at most 1
+        (over_black.map(|channel| channel / brightest), brightest)
+    } else {
+        ([0.0; 3], 0.0)
+    }
+}
