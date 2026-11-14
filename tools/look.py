@@ -38,6 +38,8 @@ PIECES: list[Piece] = [
     ("c4b_references.py", "build", 800, GALLERY / "c4b-references.png"),
     ("c4c_groups.py", "build", 1200, LOOK / "c4c-groups.png"),
     ("c4c_groups.py", "build", 800, GALLERY / "c4c-groups.png"),
+    ("c5a_looks_on_everything.py", "build", 1200, LOOK / "c5a-looks-on-everything.png"),
+    ("c5a_looks_on_everything.py", "build", 800, GALLERY / "c5a-looks-on-everything.png"),
 ]
 
 

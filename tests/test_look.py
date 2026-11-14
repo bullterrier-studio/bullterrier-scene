@@ -387,3 +387,38 @@ def test_the_badge_example_renders(tmp_path):
     drawn = badge.build().render(300)
     assert drawn.shape == (200, 300, 4)
     assert 0.0 <= drawn.min() <= drawn.max() <= 1.0
+
+
+# --- C5a: looks on every layer: a headline, a fill and a badge, plain above and looked below -------------------------
+
+
+@pytest.fixture(scope="module")
+def everything() -> ModuleType:
+    return load("c5a_looks_on_everything", ROOT / "docs" / "examples" / "c5a_looks_on_everything.py")
+
+
+def test_a_look_changes_only_the_layer_it_is_on_and_keeps_the_alpha_of_a_badge(everything):
+    drawn = everything.build().render(everything.W)
+    drop = everything.ROWS[1] - everything.ROWS[0]
+    ground, cream = level(everything.INK), level(everything.BADGE_STOPS[1])
+    # the dark tile behind the headline, and the white tile behind the badge, are not looked at: the same in both rows
+    assert np.allclose(drawn[430, 70, :3], ground, atol=1e-5)
+    assert np.allclose(drawn[430 - drop, 70, :3], ground, atol=1e-5)
+    # the badge's ring is white plain and the last stop of the gradient map looked; the clear corner of the badge shows
+    # the white tile in both rows (the look kept the group's alpha)
+    ring_x, ring_y = 1085, 550
+    assert np.allclose(drawn[ring_y - drop, ring_x, :3], 1.0, atol=1e-5)
+    assert np.allclose(drawn[ring_y, ring_x, :3], cream, atol=2e-3)
+    assert np.allclose(drawn[440, 870, :3], 1.0, atol=1e-5)
+    assert np.allclose(drawn[440 - drop, 870, :3], 1.0, atol=1e-5)
+
+
+def test_the_weave_look_texturizes_a_flat_fill_and_keeps_its_brightness(everything):
+    drawn = everything.build().render(everything.W)
+    x, y, width, height = everything.box(1, 0)
+    plain = drawn[y + 20 : y + height - 20, x + 20 : x + width - 20, :3]
+    x, y, width, height = everything.box(1, 1)
+    looked = drawn[y + 20 : y + height - 20, x + 20 : x + width - 20, :3]
+    assert plain.std(axis=(0, 1)).max() < 1e-3  # a flat fill is flat, in each channel
+    assert looked.std(axis=(0, 1)).min() > 0.02  # and the weave is not
+    assert np.abs(looked.mean(axis=(0, 1)) - plain.mean(axis=(0, 1))).max() < 0.05  # it keeps the average brightness
