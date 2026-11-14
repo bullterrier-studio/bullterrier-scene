@@ -36,9 +36,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Render a saved scene to a PNG.
+    /// Render a saved scene to a PNG or a PDF.
     #[command(
-        after_help = "example: bt-scene render docs/examples/cover.scene.json out.png --size 800 --set title.opacity=0.5"
+        after_help = "examples: bt-scene render docs/examples/cover.scene.json out.png --size 800 --set title.opacity=0.5\n          bt-scene render docs/examples/cover.scene.json out.pdf --size 3508 --dpi 300 --bleed 3 --crop-marks"
     )]
     Render(render::Args),
     /// List every parameter of a saved scene: its address, kind, unit, range and value.

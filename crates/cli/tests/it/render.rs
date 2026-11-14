@@ -1,6 +1,6 @@
 //! `bt-scene render`: the picture it writes is the one the core renders, and a refusal is one line and exit 1.
 
-use bullterrier_scene::{Raster, Value, Values};
+use bullterrier_scene::{PdfOptions, Raster, Value, Values};
 
 use crate::common::{Outcome, Project, bt, decoded, text};
 
@@ -249,5 +249,96 @@ fn hostile_input_is_refused_in_one_short_line() -> Outcome {
             ran.err.len()
         );
     }
+    Ok(())
+}
+
+#[test]
+fn a_pdf_extension_writes_the_core_pdf_of_the_flags_and_defaults_to_300_dpi() -> Outcome {
+    let project = Project::new()?;
+    let scene = text(&project.file("scene.json")).to_owned();
+    let picture = project.scene()?.render(64)?;
+    let rows: [(&str, Vec<&str>, PdfOptions); 4] = [
+        ("no flags", vec![], PdfOptions::new(300.0)?),
+        ("dpi", vec!["--dpi", "150"], PdfOptions::new(150.0)?),
+        (
+            "bleed and crop marks",
+            vec!["--bleed", "3", "--crop-marks"],
+            PdfOptions::new(300.0)?.bleed_mm(3.0)?.crop_marks(true),
+        ),
+        ("flatten", vec!["--flatten"], PdfOptions::new(300.0)?.flatten(true)),
+    ];
+    for (what, flags, options) in rows {
+        let (out, expected) = (project.file("out.PDF"), project.file("expected.pdf"));
+        picture.write_pdf(&expected, &options)?;
+        let mut args = vec!["render", scene.as_str(), text(&out)];
+        args.extend(flags);
+        let ran = bt(&args);
+        assert_eq!(
+            (ran.code, ran.out.trim(), ran.err.as_str()),
+            (0, text(&out), ""),
+            "{what}"
+        );
+        assert!(
+            std::fs::read(&out)? == std::fs::read(&expected)?,
+            "{what}: not the core's PDF"
+        );
+    }
+    // --size is the long side in pixels: 32 pixels at 300 dpi are 7.68 pt
+    let (out, expected) = (project.file("small.pdf"), project.file("small-expected.pdf"));
+    project
+        .scene()?
+        .render(32)?
+        .write_pdf(&expected, &PdfOptions::new(300.0)?)?;
+    let ran = bt(&["render", scene.as_str(), text(&out), "--size", "32"]);
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    assert!(
+        std::fs::read(&out)? == std::fs::read(&expected)?,
+        "the core's PDF at the size"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_pdf_flag_on_a_picture_that_is_not_a_pdf_and_a_bad_pdf_value_are_exit_1_naming_the_flag_and_no_file() -> Outcome {
+    let project = Project::new()?;
+    let scene = text(&project.file("scene.json")).to_owned();
+    let rows: [(&str, &str, Vec<&str>, &str); 9] = [
+        ("dpi on a PNG", "never.png", vec!["--dpi", "300"], "dpi"),
+        ("bleed on a PNG", "never.png", vec!["--bleed", "3"], "bleed"),
+        ("crop marks on a PNG", "never.png", vec!["--crop-marks"], "crop-marks"),
+        ("flatten on a PNG", "never.png", vec!["--flatten"], "flatten"),
+        (
+            "a profile on a PNG",
+            "never.png",
+            vec!["--cmyk-profile", "x.icc"],
+            "cmyk-profile",
+        ),
+        ("dpi 0", "never.pdf", vec!["--dpi", "0"], "dpi"),
+        ("dpi NaN", "never.pdf", vec!["--dpi", "NaN"], "dpi"),
+        ("a negative bleed", "never.pdf", vec!["--bleed=-1"], "bleed_mm"),
+        (
+            "a profile that is not there",
+            "never.pdf",
+            vec!["--cmyk-profile", "gone.icc"],
+            "gone.icc",
+        ),
+    ];
+    for (what, name, extra, named) in rows {
+        let out = project.file(name);
+        let mut args = vec!["render", scene.as_str(), text(&out)];
+        args.extend(extra);
+        let ran = bt(&args);
+        assert_eq!(ran.code, 1, "{what}: {}", ran.err);
+        assert!(
+            ran.err.starts_with("error: ") && ran.err.contains(named),
+            "{what}: {}",
+            ran.err
+        );
+        assert!(!out.exists(), "{what}: a file was made");
+    }
+    let out = project.file("nowhere/out.pdf");
+    let ran = bt(&["render", scene.as_str(), text(&out)]);
+    assert_eq!(ran.code, 1);
+    assert!(ran.err.contains("nowhere"), "{}", ran.err);
     Ok(())
 }

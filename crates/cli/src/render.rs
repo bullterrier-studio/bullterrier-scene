@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use bullterrier_scene::{Error, Kind, Values};
+use bullterrier_scene::{Error, Kind, PdfOptions, Values};
 use clap::Parser;
 
 use crate::{open, say};
@@ -12,7 +12,7 @@ use crate::{open, say};
 pub(crate) struct Args {
     /// The saved scene (JSON).
     scene: PathBuf,
-    /// The picture to write: a PNG (`.png`).
+    /// The picture to write: a PNG (`.png`) or a PDF (`.pdf`), by its extension.
     out: PathBuf,
     /// The picture's long side in pixels (default: the canvas's long side); 1 to 65,000.
     #[arg(long, value_name = "PIXELS")]
@@ -24,7 +24,60 @@ pub(crate) struct Args {
     /// The folder the scene's relative paths are relative to (default: the scene file's folder).
     #[arg(long, value_name = "DIR")]
     base: Option<PathBuf>,
+    /// PDF: pixels per inch, which fixes the page's physical size (the picture's width over DPI inches); 1 to 2400 (default 300).
+    #[arg(long, value_name = "DPI")]
+    dpi: Option<f64>,
+    /// PDF: millimetres of bleed on every side, the picture's edge repeated outward; 0 to 50 (default 0).
+    #[arg(long, value_name = "MM")]
+    bleed: Option<f64>,
+    /// PDF: draw crop marks outside the bleed.
+    #[arg(long)]
+    crop_marks: bool,
+    /// PDF: put the picture over white instead of keeping its transparency.
+    #[arg(long)]
+    flatten: bool,
+    /// PDF: write CMYK through this ICC output profile and embed it.
+    #[arg(long, value_name = "FILE.icc")]
+    cmyk_profile: Option<PathBuf>,
 }
+
+/// The PDF options the flags give, or `None` for a picture that is not a PDF.
+///
+/// # Errors
+/// [`Error::Invalid`] naming the first PDF flag given with an output that is not a PDF, or the one a value is wrong for.
+fn pdf_options(args: &Args) -> Result<Option<PdfOptions>, Error> {
+    let is_pdf = args
+        .out
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"));
+    if !is_pdf {
+        let given = [
+            ("dpi", args.dpi.is_some()),
+            ("bleed", args.bleed.is_some()),
+            ("crop-marks", args.crop_marks),
+            ("flatten", args.flatten),
+            ("cmyk-profile", args.cmyk_profile.is_some()),
+        ];
+        return match given.iter().find(|(_, set)| *set) {
+            Some((flag, _)) => Err(Error::Invalid {
+                address: (*flag).to_owned(),
+                message: "only a PDF takes this option; name the output `.pdf`".to_owned(),
+            }),
+            None => Ok(None),
+        };
+    }
+    let mut options = PdfOptions::new(args.dpi.unwrap_or(DEFAULT_DPI))?
+        .bleed_mm(args.bleed.unwrap_or(0.0))?
+        .crop_marks(args.crop_marks)
+        .flatten(args.flatten);
+    if let Some(profile) = &args.cmyk_profile {
+        options = options.cmyk_profile(profile);
+    }
+    Ok(Some(options))
+}
+
+/// The resolution of a PDF when none is given: the usual one for print.
+const DEFAULT_DPI: f64 = 300.0;
 
 /// `ADDRESS=VALUE` split at the first `=`.
 fn assignment(text: &str) -> Result<(String, String), String> {
@@ -44,6 +97,7 @@ fn shortened(text: &str) -> String {
 }
 
 pub(crate) fn command(args: &Args, out: &mut dyn std::io::Write) -> Result<(), Error> {
+    let pdf = pdf_options(args)?;
     let scene = open(&args.scene, args.base.as_deref())?;
     let scene = if args.set.is_empty() {
         scene
@@ -62,7 +116,11 @@ pub(crate) fn command(args: &Args, out: &mut dyn std::io::Write) -> Result<(), E
     let size = args
         .size
         .unwrap_or_else(|| i64::from(scene.width().max(scene.height())));
-    scene.render(size)?.write(&args.out)?;
+    let picture = scene.render(size)?;
+    match &pdf {
+        Some(options) => picture.write_pdf(&args.out, options)?,
+        None => picture.write(&args.out)?,
+    }
     say(out, &args.out.display().to_string())
 }
 
