@@ -3,7 +3,7 @@
 //! and a mask draws its layer through it onto a plane of its own.
 
 use crate::Error;
-use crate::geometry::{Rect, Scale};
+use crate::geometry::{MAX_LOOKED_PIXELS, MAX_PIXELS, Rect, Scale};
 use crate::layer::Body;
 use crate::placement::{Layout, Placement};
 use crate::source::{Drawn, Request};
@@ -98,7 +98,15 @@ pub(crate) fn land(body: &Body, target: &Target) -> Result<Landed, Error> {
     let request = Request {
         held: target.held,
         canvas: (target.canvas.width, target.canvas.height),
-        ..layout.request(opened.own, opened.whole)
+        ..layout.request(
+            opened.own,
+            opened.whole,
+            if body.finish.is_looked() {
+                MAX_LOOKED_PIXELS
+            } else {
+                MAX_PIXELS
+            },
+        )
     };
     // the one place the drawn-size limit is checked, before any source draws
     request.scale.size(request.window)?;

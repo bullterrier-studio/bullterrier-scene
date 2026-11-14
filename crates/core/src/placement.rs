@@ -5,7 +5,7 @@
 use std::str::FromStr;
 
 use crate::Error;
-use crate::geometry::{Axis, MAX_PIXELS, Rect, Scale};
+use crate::geometry::{Axis, Rect, Scale};
 use crate::perspective::Quad;
 use crate::ranges::{FRACTION, RATIO, SKEW, TRAVEL};
 use crate::source::{Drawn, Request};
@@ -552,14 +552,14 @@ impl Layout {
     /// What the source is asked to draw: the window, at the output scale times the fit and the zoom. For a perspective, at
     /// the largest scale the quadrilateral gives any corner of the window along each axis (the near side is sharp), cut down
     /// by one factor if what the source allocates (`whole` says whether that is its whole box or the window) would pass the
-    /// 2^27 pixels of a layer: the render stays valid and the near side loses sharpness.
-    pub(crate) fn request(&self, own: Rect, whole: bool) -> Request {
+    /// `limit` pixels of a layer (2^27, or the 2^26 image allows a look): the render stays valid and the near side loses sharpness.
+    pub(crate) fn request(&self, own: Rect, whole: bool, limit: usize) -> Request {
         let placed = match self.basis {
             Basis::Place(placed) => placed,
             Basis::Homography(matrix) => {
                 let (across, down) = self.largest_scales(&matrix);
                 let part = if whole { own } else { self.window };
-                let fit = capped(part, (across, down));
+                let fit = capped(part, (across, down), limit);
                 return Request {
                     window: self.window,
                     scale: Scale::exactly(across * fit, down * fit),
@@ -750,11 +750,11 @@ impl Layout {
 }
 
 /// The factor, at most 1, by which a part `part` of a box drawn at the scales `(across, down)` must be made smaller to have
-/// no more than 2^27 pixels: the ceilings add at most a pixel to each side, so `(w k a + 1)(h k d + 1)` is the bound, and `k`
+/// no more than `limit` pixels: the ceilings add at most a pixel to each side, so `(w k a + 1)(h k d + 1)` is the bound, and `k`
 /// is the root of that quadratic.
-fn capped(part: Rect, (across, down): (f64, f64)) -> f64 {
+fn capped(part: Rect, (across, down): (f64, f64), limit: usize) -> f64 {
     #[expect(clippy::cast_precision_loss, reason = "the limit is a power of two: exact")]
-    let limit = MAX_PIXELS as f64;
+    let limit = limit as f64;
     let (wide, tall) = (part.width * across, part.height * down);
     let (square, sides) = (wide * tall, wide + tall);
     // wide tall k^2 + (wide + tall) k + 1 - limit = 0
@@ -794,7 +794,7 @@ mod tests {
             (4000.0, 3000.0, 40.0, 10.0),
             (1.0, 1.0, 11584.0, 11584.0),
         ] {
-            let factor = capped(rect(width, height), (across, down));
+            let factor = capped(rect(width, height), (across, down), MAX_PIXELS);
             assert!(factor > 0.0 && factor <= 1.0, "{factor}");
             let (columns, rows) = ((width * across * factor).ceil(), (height * down * factor).ceil());
             #[expect(clippy::cast_precision_loss, reason = "a power of two")]
@@ -804,7 +804,7 @@ mod tests {
                 "{width} x {height} at {across}, {down}: {columns} x {rows}"
             );
         }
-        assert!((capped(rect(10.0, 10.0), (2.0, 2.0)) - 1.0).abs() < f64::EPSILON);
+        assert!((capped(rect(10.0, 10.0), (2.0, 2.0), MAX_PIXELS) - 1.0).abs() < f64::EPSILON);
     }
 
     /// The largest scale along each axis of the box is at a corner: a dense walk over the fitted box finds none above it.
@@ -852,7 +852,7 @@ mod tests {
             (4000.0, 3000.0, 40.0, 10.0),
             (20.0, 12.0, 5000.0, 7000.0),
         ] {
-            let factor = capped(rect(width, height), (across, down));
+            let factor = capped(rect(width, height), (across, down), MAX_PIXELS);
             let bound = |k: f64| (width * across * k + 1.0) * (height * down * k + 1.0);
             assert!(
                 (bound(factor) - limit).abs() <= limit * 1e-12,
@@ -1069,7 +1069,7 @@ mod tests {
     /// affine placement and for a perspective.
     #[test]
     fn the_drawn_density_follows_the_composite_zoom() {
-        let density = |layout: &Layout| layout.request(rect(20.0, 10.0), false).scale.x.pixels(1.0);
+        let density = |layout: &Layout| layout.request(rect(20.0, 10.0), false, MAX_PIXELS).scale.x.pixels(1.0);
         let base = layout(Placement::Place(placed(|place| place.scale(0.5))), &[]);
         let both = layout(
             Placement::Place(placed(|place| place.scale(0.5))),
@@ -1094,7 +1094,7 @@ mod tests {
     fn the_phase_of_a_move_includes_the_extra_moves() {
         let phase = |extras: &[Placed]| {
             layout(Placement::Place(placed(|place| place.dx(0.25))), extras)
-                .request(rect(20.0, 10.0), false)
+                .request(rect(20.0, 10.0), false, MAX_PIXELS)
                 .phase
         };
         assert_eq!(phase(&[]), (0.25, 0.0));

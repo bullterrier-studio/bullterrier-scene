@@ -13,6 +13,9 @@ use crate::Error;
 /// The most pixels a picture has, the render and every layer drawn for it: 2^27 (a float32 RGBA picture of that size is 2 GiB).
 pub(crate) const MAX_PIXELS: usize = 1 << 27;
 
+/// The most pixels a look runs on: 2^26, image's own limit (8192 x 8192). A perspective layer with a look is drawn within it.
+pub(crate) const MAX_LOOKED_PIXELS: usize = 1 << 26;
+
 /// A rectangle, in design pixels or in the pixels of a raster, as its context says.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Rect {

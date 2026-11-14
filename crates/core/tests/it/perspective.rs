@@ -747,3 +747,18 @@ proptest! {
         }
     }
 }
+
+/// A look on a layer whose near side is magnified far past the canvas is drawn smaller, as a layer with no look is, instead of
+/// asking image for a picture past its limit (2^26 pixels): the floor of a world with a glow on it.
+#[test]
+fn a_looked_layer_with_a_strongly_magnified_near_side_renders() -> Outcome {
+    let at_defaults = r#"{"steps": [{"effect": "grade"}]}"#;
+    // an 8 x 8 box drawn about 1000 x 1500 times larger at its near edge: 8e7 pixels, between 2^26 and 2^27
+    let floor = Layer::fill("#ff2bd6")?
+        .fit([0.0, 0.0, 8.0, 8.0], Fit::Stretch, [0.5, 0.5])?
+        .look(at_defaults)?
+        .perspective([[32.0, 0.0], [34.0, 0.0], [4000.0, 64.0], [-4000.0, 64.0]])?;
+    let drawn = render(floor, (64, 64), 64)?;
+    assert!(pixel(&drawn, 32, 60)[3] > 0.99, "{:?}", pixel(&drawn, 32, 60));
+    Ok(())
+}
