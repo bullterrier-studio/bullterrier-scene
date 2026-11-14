@@ -34,6 +34,8 @@ PIECES: list[Piece] = [
     ("c3_clip.py", "clipped_type", 800, GALLERY / "c3-clipped-type.png"),
     ("c4a_blends.py", "blend_sheet", 1200, LOOK / "c4a-blend-sheet.png"),
     ("c4a_blends.py", "blend_sheet", 660, GALLERY / "c4a-blend-sheet.png"),
+    ("c4b_references.py", "build", 1200, LOOK / "c4b-references.png"),
+    ("c4b_references.py", "build", 800, GALLERY / "c4b-references.png"),
 ]
 
 

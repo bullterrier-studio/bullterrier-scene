@@ -283,3 +283,64 @@ def test_a_tile_is_the_w3c_formula_of_its_mode_at_the_alpha_of_the_source(blends
     x, y = blends.origin(blends.MODES.index("multiply"))
     expected = (1 - a) * backdrop[row, column] + a * backdrop[row, column] * source[row, column, :3]
     assert np.allclose(sheet[y + row, x + column, :3], expected, atol=1e-5)
+
+
+# --- C4b: references: a glowing sun, a figure with its shadow and reflection, a headline behind it -----------------
+
+
+@pytest.fixture(scope="module")
+def evening() -> ModuleType:
+    return load("c4b_references", ROOT / "docs" / "examples" / "c4b_references.py")
+
+
+def luminance(pixels: np.ndarray) -> np.ndarray:
+    return pixels[..., :3] @ np.array([0.2126, 0.7152, 0.0722], np.float32)
+
+
+def test_the_evening_is_the_same_opaque_picture_twice_and_at_two_sizes(evening):
+    scene = evening.build()
+    first = scene.render(600)
+    assert first.shape == (400, 600, 4)
+    assert np.array_equal(first, scene.render(600))
+    assert (first[..., 3] == 1).all()  # the floor is opaque everywhere
+    assert scene.render(300).shape == (200, 300, 4)
+
+
+def test_the_suns_glow_is_light_round_the_disc_that_fades_with_the_distance_and_stays_in_its_box(evening):
+    drawn = evening.build().render(evening.W)
+    # the sun's picture is the box (620, 40, 500, 500), its disc 110 pixels across from its middle (870, 290)
+    row = 290
+    ring, further, far = (luminance(drawn[row, x]) for x in (870 + 125, 870 + 175, 1150))
+    assert ring > further > far + 0.01  # the glow brightens the sky it reaches, less with the distance
+    assert abs(luminance(drawn[row, 1150]) - luminance(drawn[row, 20])) < 1e-6  # and not the sky out of the box
+
+
+def test_the_shadow_is_cast_along_the_floor_from_the_figure_and_the_floor_is_clear_elsewhere(evening):
+    drawn = evening.build().render(evening.W)
+    floor = evening.rgb("#4a3772")
+    # the shadow is the figure flattened to 0.18 of its height and skewed 55 degrees, so it falls to the figure's right,
+    # over the rows just above its feet (the figure itself covers the rest of it)
+    beside = drawn[evening.FEET - 90 : evening.FEET - 60, 770:830, :3]
+    assert luminance(beside).min() < 0.7 * luminance(floor)
+    assert np.allclose(drawn[evening.FEET - 40, 1100, :3], floor, atol=1e-6)
+
+
+def test_the_reflection_is_the_figure_mirrored_in_its_feet_and_faded(evening):
+    drawn = evening.build().render(evening.W)
+    skin, matte = evening.figure()
+    column, below = 600, 40  # the middle of the figure; 40 rows under its feet
+    source = evening.FEET - 40 - (evening.FEET - 520)  # the row of the figure that lands there
+    fade = 1.0 - below / 220.0
+    alpha = 0.4 * fade * matte[source, column - (evening.W // 2 - 180)]
+    expected = evening.rgb("#4a3772") * (1 - alpha) + skin[source, column - (evening.W // 2 - 180)] * alpha
+    assert np.allclose(drawn[evening.FEET + below, column, :3], expected, atol=2e-3)
+
+
+def test_the_headline_passes_behind_the_figure_and_shows_either_side_of_it(evening):
+    drawn = evening.build().render(evening.W)
+    skin, _ = evening.figure()
+    paper = evening.rgb(evening.PAPER)
+    row = 560
+    inside = drawn[row, 600, :3]  # the body of the figure, where the type is hidden
+    assert np.allclose(inside, skin[row - (evening.FEET - 520), 600 - (evening.W // 2 - 180)], atol=1e-6)
+    assert (np.abs(drawn[row, :, :3] - paper).max(axis=-1) < 1e-3).sum() > 150  # the letters either side

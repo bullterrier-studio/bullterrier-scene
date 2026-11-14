@@ -6,8 +6,8 @@ Every picture is made here from arithmetic, so the example needs nothing but the
 by a layer on the canvas (stage 6); a mask by a picture's own map (stage 4); `invert`; `feather`; a mask layer that has
 a mask of its own.
 
-The figure is drawn twice, once as the layer in front and once as the mask that hides the type: a layer that draws
-another layer again (`Layer.of`) arrives with C4, and then the copy goes.
+The mask that hides the type is a reference to the figure (`Layer.of("figure")`): the figure is made once, and the type
+follows it wherever it goes.
 """
 
 import numpy as np
@@ -74,14 +74,11 @@ def clipped_type() -> bts.Scene:
     skin, matte = figure()
     feet = H - 30
 
-    def figure_layer() -> bts.Layer:
-        return bts.Layer.picture(skin, maps={"subject": matte}).mask("subject").place(dx=W / 2 - 180, dy=feet - 520)
-
     letters = bts.Layer.text("CLIP", font=FONT, size=400, axes={"wght": 800}, align="center").place(dx=W / 2, dy=330)
     behind = (
         bts.Layer.text("BEHIND", font=FONT, size=250, axes={"wght": 800}, align="center", color=PAPER)
         .place(dx=W / 2, dy=H - 120)
-        .mask(figure_layer(), invert=True)  # hidden where the figure is: the type passes behind it
+        .mask(bts.Layer.of("figure"), invert=True)  # hidden where the figure is: the type passes behind it
     )
     inset = bts.Layer.fill("#ffffff").fit((90, 70, W - 180, H - 140), "stretch")
     return bts.Scene(W, H).add(
@@ -100,7 +97,10 @@ def clipped_type() -> bts.Scene:
         .named("shadow")
         .opacity(0.7)
         .mask(bts.Layer.drawing(ellipse(W / 2, feet, 190, 16)), feather=12),
-        figure_layer().named("figure"),
+        bts.Layer.picture(skin, maps={"subject": matte})
+        .named("figure")
+        .mask("subject")
+        .place(dx=W / 2 - 180, dy=feet - 520),
         bts.Layer.fill("#0b0817").named("vignette").opacity(0.7).mask(inset, feather=110, invert=True),
     )
 
