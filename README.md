@@ -29,7 +29,7 @@ effects it gets. The scene then draws everything at the size you ask for, from a
 
 <table>
   <tr>
-    <td width="33%" valign="top"><b>Layers of any kind</b><br>A photo, a photo with a look applied, a drawing or text from <code>bullterrier-vector</code> (a gradient is a drawing), a flat colour, even another scene or a layer of the same scene drawn again.</td>
+    <td width="33%" valign="top"><b>Layers of any kind</b><br>A photo, a drawing or text from <code>bullterrier-vector</code> (a gradient is a drawing), a flat colour, even another scene or a layer of the same scene drawn again; any of them can have an image look applied.</td>
     <td width="33%" valign="top"><b>Placed, masked, blended</b><br>Move, turn, scale and skew a layer. Hide parts of it with a shape, the letters of a headline or a cut-out of the subject. Blend it like in a design app: multiply, screen, overlay and the rest.</td>
     <td width="33%" valign="top"><b>Effects per layer or per group</b><br>Grain on the whole poster, a halftone on one photo, a glow on the headline. The effects come from <code>bullterrier-image</code>.</td>
   </tr>
@@ -42,7 +42,7 @@ effects it gets. The scene then draws everything at the size you ask for, from a
 
 ## What it looks like
 
-The calls are in [docs/api.md](docs/api.md) and the programs in [docs/examples/](docs/examples/); `c1_first_picture.py` and `c2_prints.py` render now (`uv run poe look`), the others wait for their batches.
+The calls are in [docs/api.md](docs/api.md) and the programs in [docs/examples/](docs/examples/); the `c*` examples (C1 to C5a) render now (`uv run poe look`), the others wait for their batches.
 
 ```python
 import bullterrier_scene as bts

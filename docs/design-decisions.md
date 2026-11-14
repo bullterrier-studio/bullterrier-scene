@@ -427,7 +427,7 @@ counts its `draw` calls (`Layer.make`, arrives with C7).
   stands and nothing is classified twice. The no-extras path is the code it was.
 - **A cycle through a mask is refused although it would end.** A reference takes a body and no masks, so `a.mask(Layer.of("b"))` with
   `b.mask(Layer.of("a"))`, and a layer masked by a reference to itself, draw fine; the plan refuses them and so does `add`. *Reason:* a refusal
-  can be relaxed later and a cycle accepted cannot be refused; looks on every layer (C5) and groups (C4c) may make a mask part of what a
+  can be relaxed later and a cycle accepted cannot be refused; looks on every layer (C5a) and groups (C4c) may make a mask part of what a
   reference draws. *Cost:* a layer cannot be cut by a copy of itself through `Layer.of`; use a second layer.
 - **Depth is mask layers plus reference links, count is layers drawn.** One `Budget` (`budget.rs`: depth and layers, `beside`, `needing`,
   `through`, `checked`) stands for the rule, kept in the scene per add: C4c adds a group's inner budget to it (`Source::budget`). The count changed from C3: it
@@ -478,6 +478,29 @@ counts its `draw` calls (`Layer.make`, arrives with C7).
   walks and the cycle check run per scene).
 - **What C4c leaves hard** ("Needs from others"): C6 must rebuild a scene's `Arc` when a value under it changes, and address layers of an inner scene; C5
   must give a group a look on its finished raster; C7's cache key of a group is the scene's value, the density per axis and the phase.
+
+## C5a: looks on every layer (2026-11-14)
+
+- **A look belongs to the layer, not to its source.** Looks and the masks by a picture's own maps are a `Finish` in the layer body
+  (`finish.rs`); `Opened::draw` runs it on what the source drew, so no source repeats the rule and a reference adds to a copy of
+  the named body's. The source only draws, at the size a look runs at, and hands over the maps a look or a mask uses (`Drawn::maps`);
+  `Finish` is told by `is_looked`. *Alternative weighed:* a wrapping source that holds the looks (`Looked(inner)`): the maps and
+  the masks of the picture would then reach the wrapper through a second interface.
+- **A layer with no look keeps its path, bit for bit.** A picture with no look hands over its own pixels (masked by a map through the
+  same `Finish::masking`), so source, `fit` and `place` stay one warp; a look makes every source draw at the drawn size first. 45
+  scenes (pictures with and without looks, maps and masks, drawings, text, fills, groups, references, perspective, blends, light)
+  render bit for bit the same before the refactor, after it and after the new kinds; the benchmarks of C2a to C4c did not move.
+- **The adapter file keeps the rule.** `Look` (image's recipe and its render) stays in `source/picture.rs`, the one file that names
+  image; `finish.rs` names no sibling crate.
+- **A fill with a look is a raster of the layer's size.** A flat colour draws one pixel at any scale; a look needs the size the layer
+  has (a scanline or a weave depends on place), so the fill is made that size, bounded by the same 2^27 rule as any layer.
+- **Image sees straight colour, the alpha is the source's.** As in C1 for pictures: a drawing's clear corner stays clear, a half
+  transparent fill keeps 0.5. A look that makes colour where the source has none (a blur's bleed past an edge) shows nowhere; light
+  that spills is C5b (room).
+- **What C5b to C7 inherit.** C5b: the look runs in `Finish::run`, which has the `Request` (scale, factor, window) and the drawn
+  raster, so the design scale and room are one change there; the raster ends at the source's `covers`. C6: one list of looks and one
+  of map masks a layer, whatever the source. C7: a looked layer is drawn at the drawn size and looked again for each use (a reference
+  with an unchanged density could share the raster).
 
 ## Smaller choices of the API (2026-11-13)
 
