@@ -18,11 +18,15 @@ doctest = false
 [dependencies]
 bullterrier-image.workspace = true
 bullterrier-vector.workspace = true
+miniz_oxide.workspace = true
+moxcms.workspace = true
+pdf-writer.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 
 [dev-dependencies]
+lopdf.workspace = true
 proptest.workspace = true
 tempfile.workspace = true
 

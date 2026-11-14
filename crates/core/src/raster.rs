@@ -5,6 +5,7 @@ use std::sync::OnceLock;
 
 use crate::Error;
 use crate::files::{Fingerprint, digest_floats};
+use crate::pdf::{self, PdfOptions};
 use crate::source::picture;
 
 /// A picture of straight (not premultiplied) RGBA, 32-bit floats from 0 to 1, row after row from the top, pixel after
@@ -109,6 +110,19 @@ impl Raster {
     /// be written and a picture too large for the format.
     pub fn write(&self, path: &Path) -> Result<(), Error> {
         picture::write(self, path)
+    }
+
+    /// Writes the picture to the file `path` as a one-page PDF at a physical size: the picture is one lossless (Flate) image
+    /// on a page of `width / dpi` by `height / dpi` inches, with the bleed, crop marks, flattening and CMYK profile the
+    /// `options` ask for. The same picture and options give the same bytes. A file already there is replaced; none is made
+    /// for a refusal. The picture stays raster: nothing is kept as vectors.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `dpi` for a page past 14,400 pt (the limit of PDF readers), `bleed_mm` or `raster` for an
+    /// image (the picture and its bleed) of more than 2^27 pixels, `cmyk_profile` for a profile that is not CMYK;
+    /// [`Error::Read`] for a profile file that cannot be read; [`Error::Write`] naming `path` for a path that cannot be written.
+    pub fn write_pdf(&self, path: &Path, options: &PdfOptions) -> Result<(), Error> {
+        pdf::write(self, path, options)
     }
 
     /// The values, handed over.

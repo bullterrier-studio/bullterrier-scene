@@ -37,6 +37,18 @@ pub(crate) const FEATHER: Range = Range {
     high: 1e6,
     unit: " design pixels",
 };
+/// `dpi` of a PDF: dots per inch. 2400 is the finest imagesetter resolution; at it a pixel is 0.03 pt.
+pub(crate) const DPI: Range = Range {
+    low: 1.0,
+    high: 2400.0,
+    unit: " dots per inch",
+};
+/// `bleed_mm` of a PDF: the print shop's usual 3 mm, up to 50 mm for a large format.
+pub(crate) const BLEED_MM: Range = Range {
+    low: 0.0,
+    high: 50.0,
+    unit: " mm",
+};
 /// `anchor` and `align`: a fraction of a box.
 pub(crate) const FRACTION: Range = Range {
     low: 0.0,

@@ -22,6 +22,7 @@ mod maps;
 mod masks;
 mod output;
 mod parameters;
+mod pdf;
 mod perspective;
 mod picture;
 mod placement;

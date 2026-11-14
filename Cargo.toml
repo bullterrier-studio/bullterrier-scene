@@ -21,8 +21,12 @@ bullterrier-scene-cli = { path = "crates/cli" }
 bullterrier-image = { git = "https://github.com/bullterrier-studio/bullterrier-image", rev = "c6b58acb0cfc908478c0893c9055556f76290700" }
 bullterrier-vector = { git = "https://github.com/bullterrier-studio/bullterrier-vector", rev = "5442066f9fa5e280ffab6f3a9f85456578900c7f" }
 clap = { version = "4", default-features = false, features = ["std", "string", "derive", "help", "usage", "error-context", "suggestions"] }  # the command line (`crates/cli`)
+miniz_oxide = "0.9"  # the Flate encoder of a PDF's picture (already in the tree through png): `docs/design-decisions.md`, "PDF output"
+moxcms = "0.8"  # RGB to a caller's CMYK profile (already in the tree through image)
 numpy = "0.30"
+pdf-writer = "0.15"  # writes the PDF's objects
 proptest = "1.12"
+lopdf = { version = "0.47", default-features = false }  # reads the PDF back in the tests: an oracle independent of the writer
 tempfile = "3.27"
 # abi3-py312: one wheel per platform serves every Python from 3.12 (the oldest the package supports)
 pyo3 = { version = "0.30", features = ["abi3-py312"] }
