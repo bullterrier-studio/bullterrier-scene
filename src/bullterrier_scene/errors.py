@@ -19,9 +19,11 @@ class InvalidError(BullterrierSceneError, ValueError):
 
 
 class FormatError(BullterrierSceneError, ValueError):
-    """A document cannot be read: a look or a drawing the linked sibling crate does not read, a version it does not
-    read included. The message starts with the JSON Pointer of the value that is wrong."""
+    """A document cannot be read: a saved scene (`Scene.from_json`), or a look or a drawing the linked sibling crate
+    does not read, a version it does not read included. The message starts with the JSON Pointer of the value that is
+    wrong."""
 
 
 class ReadError(BullterrierSceneError, OSError):
-    """A file the scene names cannot be read: the message names the layer, the file and the reason."""
+    """A file the scene names cannot be read, or is not the file the scene was saved with (its SHA-256 differs): the
+    message names the layer, the file and the reason."""

@@ -533,8 +533,8 @@ is loaded and written inline by the next `to_json()`.
 **Errors.** `FormatError` (also a `ValueError`) starts with the JSON Pointer of the value that is wrong and says what is
 wrong: text that is not JSON (the pointer is empty), an object that writes a key twice (the pointer of the second), a `version`
 this release does not read (found and read), a key it does not know (the keys and the nearest), a value of the wrong kind or
-range, a layer the scene refuses (`/layers`: a name used twice, a reference to nothing or to itself, more than `MAX_LAYERS`
-layers, deeper than `MAX_DEPTH`; a scene or a mask layer nested deeper than `MAX_DEPTH` in the document is refused at the pointer of the one that is too
+range, a layer the scene refuses (a reference to nothing or that leads back to itself, at its `of`, `/layers/1/of`; a name used twice,
+more than `MAX_LAYERS` layers, deeper than `MAX_DEPTH`, at `/layers`; a scene or a mask layer nested deeper than `MAX_DEPTH` in the document is refused at the pointer of the one that is too
 deep, before the reader recurses further), a look of a `format` image does not read (`/layers/0/looks/0/format`, naming the formats read) and a
 drawing of a vector version vector does not read (`/layers/0/drawing/version`, in vector's words). A hostile document is bounded: the reader
 is the parser of `serde_json` (it stops a nest at 128 levels), a depth bound of its own, and the count of layers is checked before any is

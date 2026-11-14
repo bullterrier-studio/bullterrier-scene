@@ -7,13 +7,14 @@ own calls. The example scenes are the programs of `docs/examples`, built from sy
 """
 
 import dataclasses
+import importlib.util
 import json
 from pathlib import Path
+from types import ModuleType
 
 import numpy as np
 import pytest
 from jsonschema import Draft202012Validator
-from tests.example_scenes import LOGO, SCENES, load, matte, photo
 
 import bullterrier_scene as bts
 from bullterrier_scene import InvalidError, Layer, Parameter, Scene
@@ -21,6 +22,20 @@ from bullterrier_scene import InvalidError, Layer, Parameter, Scene
 ROOT = Path(__file__).resolve().parents[1]
 FORMAT = ROOT / "docs" / "parameter-format"
 SCHEMA = Draft202012Validator(json.loads((FORMAT / "schemas" / "parameter-3.schema.json").read_text(encoding="utf-8")))
+
+
+def _example_scenes() -> ModuleType:
+    """tests/example_scenes.py, loaded by its path (tests/ is no package, and the pytest settings are the template's)"""
+    spec = importlib.util.spec_from_file_location("example_scenes", Path(__file__).with_name("example_scenes.py"))
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+examples = _example_scenes()
+LOGO, SCENES, load, matte, photo = examples.LOGO, examples.SCENES, examples.load, examples.matte, examples.photo
 
 
 def fixtures(name: str) -> list[object]:

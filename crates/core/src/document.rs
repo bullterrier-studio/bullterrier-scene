@@ -631,7 +631,40 @@ fn read_scene(value: &Value, at: &str, base: &Path, depth: usize) -> Result<Scen
         .enumerate()
         .map(|(index, item)| read_layer(item, &escaped(&layers_at, &index.to_string()), base, depth))
         .collect::<Result<Vec<_>, _>>()?;
-    scene.add(layers).map_err(|error| refused(&layers_at, None, error))
+    scene
+        .add(layers)
+        .map_err(|error| refused_by_the_scene(&layers_at, items, error))
+}
+
+/// The refusal of `Scene::add` as the refusal of the document: an error of a layer (`photo.of`, `photo.look`: its address starts
+/// with the layer's name) is at that layer, at its `of` for a reference that finds nothing or leads back to itself; any other
+/// (a name used twice, too many layers) is at `layers`.
+fn refused_by_the_scene(layers_at: &str, items: &[Value], error: Error) -> Error {
+    let Error::Invalid { address, message } = &error else {
+        return error;
+    };
+    let head = address.split('.').next().unwrap_or_default();
+    let place = items.iter().enumerate().position(|(index, item)| {
+        item.get("name")
+            .and_then(Value::as_str)
+            .map_or_else(|| format!("layer{}", index + 1), str::to_owned)
+            == head
+    });
+    let Some(place) = place.filter(|_| address != head) else {
+        return refused(layers_at, None, error);
+    };
+    let found_at = escaped(layers_at, &place.to_string());
+    if *address == format!("{head}.of") {
+        Error::Format {
+            pointer: escaped(&found_at, "of"),
+            message: message.clone(),
+        }
+    } else {
+        Error::Format {
+            pointer: found_at,
+            message: format!("{address}: {message}"),
+        }
+    }
 }
 
 fn read_layer(value: &Value, at: &str, base: &Path, depth: usize) -> Result<Layer, Error> {

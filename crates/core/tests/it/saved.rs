@@ -167,6 +167,18 @@ fn read(text: &str) -> Result<Scene, Error> {
 }
 
 #[test]
+fn a_scene_with_no_layer_is_a_scene_and_the_key_may_be_left_out() -> Outcome {
+    let empty = Scene::new(24, 16)?;
+    assert_eq!(
+        empty.to_json()?,
+        r#"{"version":1,"canvas":{"width":24,"height":16},"layers":[]}"#
+    );
+    assert_eq!(read(&with(""))?, empty);
+    assert_eq!(read(r#"{"version":1,"canvas":{"width":24,"height":16}}"#)?, empty);
+    Ok(())
+}
+
+#[test]
 fn the_document_of_a_small_scene_is_this_text() -> Outcome {
     let small = scene(
         24,
@@ -509,6 +521,7 @@ fn a_document_the_reader_cannot_take_is_refused_at_the_pointer_of_the_value_with
         ("a negative opacity", with(r##"{"fill":"#ffffff","opacity":-0.5}"##), "/layers/0/opacity", "from 0 to 1"),
         ("an opacity that is text", with(r##"{"fill":"#ffffff","opacity":"half"}"##), "/layers/0/opacity", "a number is wanted"),
         ("a huge number", with(r##"{"fill":"#ffffff","opacity":1e300}"##), "/layers/0/opacity", "from 0 to 1"),
+        ("a NaN", with(r##"{"fill":"#ffffff","opacity":NaN}"##), "", "not JSON"),
         ("a number beyond a float", with(r##"{"fill":"#ffffff","opacity":1e999}"##), "", "not JSON"),
         ("a place that is a number", with(r##"{"fill":"#ffffff","place":3}"##), "/layers/0/place", "an object"),
         ("a place far away", with(r##"{"fill":"#ffffff","place":{"dx":1e300}}"##), "/layers/0/place/dx", "-1000000 to 1000000"),
@@ -525,8 +538,8 @@ fn a_document_the_reader_cannot_take_is_refused_at_the_pointer_of_the_value_with
         ("a name that is no name", with(r##"{"fill":"#ffffff","name":"a b"}"##), "/layers/0/name", "letters, digits"),
         ("a name twice", with(r##"{"name":"a","fill":"#ffffff"},{"name":"a","fill":"#000000"}"##), "/layers", "used once"),
         ("a default name at another place", with(r##"{"name":"layer2","fill":"#ffffff"}"##), "/layers", "default name"),
-        ("a reference to nothing", with(r#"{"of":"ghost"}"#), "/layers", "ghost"),
-        ("a reference cycle", with(r#"{"name":"a","of":"b"},{"name":"b","of":"a"}"#), "/layers", "a -> b -> a"),
+        ("a reference to nothing", with(r#"{"of":"ghost"}"#), "/layers/0/of", "ghost"),
+        ("a reference cycle", with(r#"{"name":"a","of":"b"},{"name":"b","of":"a"}"#), "/layers/1/of", "a -> b -> a"),
         ("a reference with a fit", with(r##"{"name":"a","fill":"#ffffff"},{"of":"a","fit":{"box":[0,0,1,1]}}"##), "/layers/1/fit", "no fit of its own"),
         ("a mask that is no object", with(r##"{"fill":"#ffffff","masks":[1]}"##), "/layers/0/masks/0", "a mask is"),
         ("a mask by nothing", with(r##"{"fill":"#ffffff","masks":[{}]}"##), "/layers/0/masks/0", "`layer` or by a `map`"),

@@ -17,14 +17,15 @@ pub enum Error {
         /// The rule that was broken, with the value.
         message: String,
     },
-    /// A document the call cannot read: a version of a look or a drawing this scene does not read.
+    /// A document the call cannot read: a saved scene ([`Scene::from_json`](crate::Scene::from_json)), or a look or a drawing
+    /// of a version this scene does not read.
     Format {
-        /// The JSON Pointer of the value that is wrong: `/look`, `/drawing`; empty for the whole document.
+        /// The JSON Pointer of the value that is wrong: `/layers/0/opacity`, `/look`, `/drawing`; empty for the whole document.
         pointer: String,
         /// What is wrong, naming the versions.
         message: String,
     },
-    /// A file the scene names cannot be read.
+    /// A file the scene names cannot be read, or is not the file the scene was saved with (its SHA-256 differs).
     Read {
         /// The file.
         path: String,

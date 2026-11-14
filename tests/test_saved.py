@@ -6,17 +6,38 @@ own tests (`crates/core/tests/it/saved.rs`); here a few rows show the classes th
 """
 
 import hashlib
+import importlib.util
 import json
 import struct
 import zlib
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import numpy as np
 import pytest
-from tests.example_scenes import ALL_SCENES, LOGO, load, matte, photo
 
 from bullterrier_scene import FormatError, InvalidError, Layer, ReadError, Scene
+
+
+def _example_scenes() -> ModuleType:
+    """tests/example_scenes.py, loaded by its path (tests/ is no package, and the pytest settings are the template's)"""
+    spec = importlib.util.spec_from_file_location("example_scenes", Path(__file__).with_name("example_scenes.py"))
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+examples = _example_scenes()
+ALL_SCENES, LOGO, load, matte, photo = (
+    examples.ALL_SCENES,
+    examples.LOGO,
+    examples.load,
+    examples.matte,
+    examples.photo,
+)
 
 
 def png(path: Path, pixels: np.ndarray) -> Path:
