@@ -422,3 +422,31 @@ def test_the_weave_look_texturizes_a_flat_fill_and_keeps_its_brightness(everythi
     assert plain.std(axis=(0, 1)).max() < 1e-3  # a flat fill is flat, in each channel
     assert looked.std(axis=(0, 1)).min() > 0.02  # and the weave is not
     assert np.abs(looked.mean(axis=(0, 1)) - plain.mean(axis=(0, 1))).max() < 0.05  # it keeps the average brightness
+
+
+# --- C6a: one scene, six covers --------------------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def six_covers() -> ModuleType:
+    return load("c6a_covers", ROOT / "docs" / "examples" / "c6a_covers.py")
+
+
+def test_six_covers_come_from_one_template_that_is_left_a_hole(six_covers):
+    template = six_covers.build()
+    with pytest.raises(bts.InvalidError, match=r"photo\.picture"):
+        template.render(six_covers.W)  # the template holds no photo
+    covers = six_covers.covers()
+    assert len(covers) == 6
+    assert len({cover.tobytes() for cover in covers}) == 6
+    assert template.parameters()["photo.picture"].value is None  # and is still a hole after six covers were made
+
+
+def test_a_cover_shows_its_accent_over_the_ground_where_the_photo_was_moved_away(six_covers):
+    # the first cover moves its photo 40 pixels left, so the right edge of the band lies over the ground alone: the band
+    # is its accent at 0.9 of the ground's, by the closed form of "over"
+    cover = six_covers.covers()[0]
+    accent = np.array([0xC2, 0x41, 0x0C], np.float32) / 255
+    ground = np.array([0x14, 0x11, 0x0F], np.float32) / 255
+    assert np.allclose(cover[150, 245, :3], 0.9 * accent + 0.1 * ground, atol=1e-5)
+    assert cover[150, 245, 3] == 1  # a cover is opaque
