@@ -90,7 +90,7 @@ values)` and `with_values`) would make the cache key and the saved form depend o
 
 ## Where the entire work ends (2026-11-13)
 
-A1, C1 to C7, M1, M2, M3, O1 (PNG only, through image's writer: PDF and print colour wait until the owner wants a print), P1 (a Rust
+A1, C1 to C7, M1, M2, M3, O1 (PNG through image's writer; a raster PDF), P1 (a Rust
 command line crate that the Python console script runs, as image does) and the final poster. **B1 (bands) is deferred:** it needs
 vector's V10e (not built) and image effects that take an origin and a canvas size, and the render interface does not change
 when it arrives, so the API is final without it. The peak memory of a 15-layer A3 poster is still measured whole in C7 and
@@ -652,6 +652,51 @@ the Python package's `Parameter.to_dict()`; `tests/test_cli.py` compares the two
 checks (files, digests, holes, map sizes, looks the sibling refuses), and one pixel costs a read of each file and little else. It
 writes nothing. The cost: a frame within a pixel of vector's limit, which is refused below density 1 (`api.md`, "Drawings"), is
 refused by `validate` too.
+
+## PDF output and print colour (2026-11-14)
+
+**A raster PDF, at a physical size.** `Raster::write_pdf(path, &PdfOptions)`: the picture is one image XObject (8 bits, Flate)
+on a page of `width / dpi` by `height / dpi` inches. The dpi is the caller's; the scene canvas is the trim size and there is no
+paper-size option (the canvas and `--size` already say the picture; a paper size would be a second way to say the same pair).
+*Alternative weighed:* keep vectors and text as PDF paths, which needs vector to write PDF and the layer stack (blend modes, looks,
+masks) to be expressible in PDF: not planned. The PDF is a delivery of the finished raster, the print counterpart of the PNG.
+
+**Crates.** `pdf-writer` (typst; MIT or Apache-2.0; four small dependencies: bitflags, itoa, memchr, ryu) writes the
+objects and is the only PDF code in the tree; it writes no Info, date or ID, so the same picture gives the same bytes. *Alternative
+weighed:* `printpdf`, which is a document builder with fonts, layers and an `image` dependency for decoding: more than one
+embedded image needs, and a second picture decoder. `miniz_oxide` (MIT, Zlib or Apache-2.0) is the Flate encoder: `pdf-writer` does
+not compress, and the crate was already in the tree through `png`. No predictor: the image is a few times larger than a PNG's
+filtered one, for a simpler writer. `moxcms` (BSD-3-Clause or Apache-2.0) is the CMYK transform; it was in the tree through
+`image`. The tests read the PDF with `lopdf` (MIT, no default features; a dev-dependency), independent of the writer. `pdf.rs` is the
+one file that names `pdf_writer` and `moxcms`; it needs no `image`.
+
+**Bleed.** A scene has no content beyond its canvas, so the bleed is the rendered edge pixels repeated outward, in whole pixels
+rounded up, with the image clipped to the `BleedBox` (otherwise the overhang of up to a pixel lands in the crop-mark margin). The
+`BleedBox` is exactly the requested millimetres. *Alternative weighed:* render a larger canvas for the bleed, which the caller can
+do by drawing the scene bigger than the trim and giving the page the trim's `TrimBox`: not built, since a layer fitted to the
+canvas does not extend past it anyway. The honest limit is stated in `api.md`: a detail at the edge is stretched. The count of
+pixels is rounded to a millionth of a pixel before it is rounded up, because 0.2 mm at 254 dpi is 2.0000000000000004 pixels in
+doubles and would otherwise bleed three. **Crop marks** are vector paths in `DeviceGray`: 0.25 pt wide (Adobe's default), 5 mm
+long, starting 3 mm outside the bleed (so none touches it); named constants in `pdf.rs`.
+
+**Options and ranges.** `dpi` 1 to 2400 (2400 is the finest imagesetter resolution) and `bleed_mm` 0 to 50 are checked where they
+are given, with the other limits at the write: the page may be at most 14,400 pt (PDF 1.7, Annex C), and the image with its bleed
+at most 2^27 pixels, the render's own limit (`MAX_PIXELS`, one place). No lower page limit is enforced (Annex C says 3 pt; a one
+pixel picture at 300 dpi is 0.24 pt), because a tiny page is the caller's picture. Transparency is a soft mask only when some pixel
+is not opaque; `flatten` over white is the one explicit alternative (a colour to flatten over is not offered: paper is white).
+Python has no `render_pdf` for the reason `render_png` is absent; the console script is the route.
+
+**CMYK: built, through the caller's profile.** The question was whether `moxcms` converts RGB to an arbitrary CMYK profile, many
+of which are table based. Evidence (`moxcms` 0.8.1): its `lut_transforms` has an RGB-or-Lab to CMYK branch that builds a 33-point
+table from the source and the destination's PCS-to-device (`B2A`) table, for the lut8, lut16 and `mAB` types, with 8-bit output as
+four channels; a spike converting sRGB through macOS's Generic CMYK profile (a table profile) gave white (1, 1, 0, 0), black
+(188, 180, 164, 222), red (1, 214, 240, 3), mid grey (131, 109, 100, 5), green (106, 0, 154, 0), blue (225, 173, 0, 0): plausible
+for a perceptual conversion with no black point compensation. No profile is bundled (licences, and the profile is the print
+shop's); the file is read when the PDF is written and embedded unchanged as `ICCBased` with `/N 4`. The test builds a CMYK profile
+by hand (a `mft2` B2A table affine in Lab, so interpolation reproduces it) and checks white, black and red against the lightness
+worked out from the sRGB primaries, within 2 levels. **Not done:** a rendering intent or black point choice (perceptual is
+`moxcms`'s default), an ink limit, soft proofing, CMYK for the PNG. The conversion runs before the bleed repeats the edge, so
+the bleed is the converted edge.
 
 ## Smaller choices of the API (2026-11-13)
 

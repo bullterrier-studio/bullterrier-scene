@@ -20,7 +20,7 @@ grouped (a scene used as a layer), and a group blends as one.
 | An effect chain on a layer or a group, applied at the right size | Footage, a timeline, sound, encoding → video |
 | Describing every parameter of the scene (name, unit, range, meaning) | An editor or painting tools |
 | Rendering in bands; caching per layer | |
-| Output: a picture, PNG, later PDF and print colour | |
+| Output: a picture, PNG, a raster PDF with bleed, crop marks and CMYK through a caller's profile | |
 
 ## What it is for
 
@@ -33,7 +33,7 @@ not the only goal. Every use below is the same scene with different layers, valu
 | Collage, photo grid, mockup on a tilted surface | placement with perspective, masks | C2, C3 |
 | One design, many pictures (a template run) | parameters, the scene as data, a command | C6, P1 |
 | Animation frames, kinetic type | parameters as states, cached re-render | C6, C7 (video adds the clock) |
-| Print-size piece | bands, PDF, print colour | B1, O1 |
+| Print-size piece | bands (B1, deferred); PDF and print colour are built (O1) | B1, O1 |
 | A reusable component (a badge in many scenes) | a scene as a layer source | C1, C6 |
 
 **Takes** a scene and its inputs (pictures, drawings, fonts, maps, looks, values for its parameters). **Gives** a picture of
@@ -160,6 +160,6 @@ that needs a newer one. The first batch to need each is in the roadmap table.
 1. Whether a browser build is wanted for scene, and what it asks of image's crate.
 2. ~~How a scene refers to image looks and vector drawings.~~ Settled in A1: embedded data is the default and the saved form; a
    path is read-only convenience ([api.md](api.md), "Data in").
-3. Print colour (CMYK, ICC, bleed, PDF) is output and belongs here; when to build it is open.
+3. Print colour (CMYK, ICC, bleed, PDF) is output and belongs here: built as a raster PDF (O1); a PDF that keeps vectors is not planned.
 4. ~~Command line in Rust or Python.~~ Settled in A1: a Rust command line that the Python console script runs, as image does (P1).
 5. Stamped brush marks along a path (spray, scribbles) are raster, so a layer type here, with vector giving the path.

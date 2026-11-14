@@ -105,7 +105,7 @@ This is what the design allows; the [roadmap](docs/roadmap.md) says what is buil
 - **Generative pieces.** Drawings from `bullterrier-vector` (hatching, flow lines, type) and fields from
   `bullterrier-image` (noise, light) composed with photos in one picture.
 - **Large and reusable.** Print-size canvases drawn in strips; a finished badge or logo lockup built once as a scene and used
-  inside other scenes. Print colour and PDF come later.
+  inside other scenes. A raster PDF at a physical size (dpi, bleed, crop marks, CMYK through your own ICC profile) is built; print-size bands come later.
 
 Not for: an editing app or painting tools, a 3D engine (lit relief such as chrome type is image's effects on a layer), photo retouching, or working with footage (that is video's).
 

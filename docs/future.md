@@ -26,7 +26,7 @@ drawn in the drawing: 3 s). Sources: the 71 s in `bullterrier-demos/feedback/sce
 1. ~~**Polish**~~ done below, bar the open rows.
 2. ~~**C7** the per-layer cache, with the move-only fast path~~ done.
 3. ~~**M3** the mill piece rebuilt as one scene~~ built (`docs/examples/mill.py`, demo 10 of `bullterrier-demos`).
-4. ~~**O1** PNG output~~ done: `Raster::write`.
+4. ~~**O1** PNG and PDF output~~ done: `Raster::write`, `Raster::write_pdf`. Not built: a PDF that keeps vectors and live text (the PDF is raster), bleed from content beyond the canvas (it is the edge repeated), a black point or intent choice for CMYK.
 5. ~~**P1** the Rust command line, `bt-scene render`~~ done: `docs/cli.md`.
 6. **The final poster** (`bullterrier-demos`, demo 09, built on every library): the owner judges whether it is the final one.
 7. After scene's first release: video (clock, mapping, encode), the web export, editor support (hit-test, tree edit), a
@@ -58,8 +58,8 @@ Each item has the evidence that found it. Fix by the usual rule: reproduce at th
 - Read `CLAUDE.md`, `docs/api.md` (the code API and what is built) and `docs/design-decisions.md` (why).
 - **What exists:** the whole core roadmap through C7, O1 and P1 (`roadmap.md`): layers of picture, drawing, text, fill, scene
   and plugin kinds (C8); `fit`, `place`, `perspective`; masks, maps, references, groups; looks on every layer; the sixteen
-  blends and light; parameters and `with_values`; the saved scene; the cache; PNG output; `bt-scene`. **What is missing:**
-  room for looks (C5b, image's footprint), bands (B1, deferred), PDF and print colour,
+  blends and light; parameters and `with_values`; the saved scene; the cache; PNG and raster PDF output; `bt-scene`. **What is missing:**
+  room for looks (C5b, image's footprint), bands (B1, deferred), vector PDF,
   the open polish rows 9 and 10, the look chain cache above, the web export, hit-test and tree edit for an editor.
 - **The pieces** are in `bullterrier-demos` and use scene as a library from a checkout (`BT_SCENE_SRC`, the sibling's
   `src/`): 06 the two-ink poster, 07 the composed world, 08 the Conan poster, 09 the wow poster (a loop with a value set per

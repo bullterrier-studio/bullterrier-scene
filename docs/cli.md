@@ -4,7 +4,8 @@ A thin layer over the library: it reads a saved scene (`docs/api.md`, "Saved sce
 Rust (`crates/cli`); the Python console script `bt-scene` and `python -m bullterrier_scene` run it in-process.
 
 ```
-bt-scene render SCENE OUT.png [--size PIXELS] [--set ADDRESS=VALUE]... [--base DIR]
+bt-scene render SCENE OUT.png|OUT.pdf [--size PIXELS] [--set ADDRESS=VALUE]... [--base DIR]
+                [--dpi N] [--bleed MM] [--crop-marks] [--flatten] [--cmyk-profile FILE.icc]
 bt-scene parameters SCENE [--json] [--base DIR]
 bt-scene validate SCENE [--base DIR]
 bt-scene --version | --help
@@ -19,8 +20,14 @@ bt-scene --version | --help
 
 Results go to stdout, errors to stderr.
 
-- **`render`** writes `OUT` (`Raster::write`: an 8-bit RGBA PNG; "Output" in `api.md`) and prints its path. `--size` is the long side
+- **`render`** writes `OUT` and prints its path: by the extension (`.pdf` in any case, else the picture writer's), `Raster::write`
+  (an 8-bit RGBA PNG) or `Raster::write_pdf` (a raster PDF; "Output" in `api.md`). `--size` is the long side
   in pixels, default the canvas's long side; 1 to 65,000 (the library's limit: another is exit 1 naming `size`).
+- **PDF flags** (any of them with an output that is not `.pdf` is exit 1 naming the flag): `--dpi N` pixels per inch, so the page is
+  the picture's size over N inches (1 to 2400, default 300); `--bleed MM` 0 to 50 mm of bleed, the rendered edge repeated outward
+  (default 0); `--crop-marks` marks outside the bleed; `--flatten` the picture over white instead of a soft mask; `--cmyk-profile FILE.icc`
+  CMYK through the caller's output profile, embedded (none is bundled). A canvas of A3's proportions at `--size 4961 --dpi 300` is a
+  297 by 420 mm page.
 - **`--set`** sets a parameter by address before rendering (`parameters` lists them). VALUE is read by the address's kind: a
   number (`0.5`), `true` or `false`, a colour (`#rrggbb`), a text or a choice's name, a picture's file path (relative to the
   working folder). An address the scene does not have is refused with the nearest. All values are set or none.
@@ -56,3 +63,15 @@ exit 1
 ```
 
 The second render is [gallery/p1-cli.png](gallery/p1-cli.png). In a checkout run the commands as `uv run bt-scene ...`.
+
+A print: the same scene as a PDF with 3 mm of bleed and crop marks, and its first page as a picture (macOS: `qlmanage`; elsewhere
+`pdftoppm -png -r 150`):
+
+```console
+$ bt-scene render docs/examples/cover.scene.json cover.pdf --size 640 --dpi 150 --bleed 3 --crop-marks
+cover.pdf
+$ qlmanage -t -s 1000 -o . cover.pdf        # writes cover.pdf.png
+```
+
+On the page the picture runs 3 mm past the trim on every side (the edge stretched), and the crop marks stand outside it, at the trim
+lines. (It is not a gallery piece: `poe look` writes the gallery from Python, which has no PDF reader.)
