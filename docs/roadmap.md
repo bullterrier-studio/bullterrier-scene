@@ -146,3 +146,4 @@ renders whole.
 - Stamped brush marks along a path (spray, scribbles) as a layer type.
 - Footage layers, with video.
 - Linear-light blending as an option.
+- Directions after the first release (animated posters, websites, an editor) and the polish list: [future.md](future.md).
