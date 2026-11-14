@@ -88,7 +88,7 @@ impl Landed {
 
 /// `body` drawn at the scale it will have, and put on `target`: the source asked for the part of its box that shows, then the
 /// map of the one warp worked out.
-pub(crate) fn land(body: &Body, target: &Target) -> Result<Landed, Error> {
+pub(crate) fn land(body: &Body, target: &Target, light: bool) -> Result<Landed, Error> {
     // a source with no box of its own (a fill) takes the part of the canvas the target holds, margin included, so that a mask
     // that fills the canvas goes on into the margin; but only where nothing acts on the box, for `fit` and `place` work on
     // it and a layer must be the same shape whatever its blur adds
@@ -110,7 +110,7 @@ pub(crate) fn land(body: &Body, target: &Target) -> Result<Landed, Error> {
     };
     // the one place the drawn-size limit is checked, before any source draws
     request.scale.size(request.window)?;
-    let drawn = opened.draw(request, &body.finish)?;
+    let drawn = opened.draw(request, &body.finish.clone().lit(light))?;
     let (map, clip) = layout.warp(&drawn);
     // the output starts `margin` pixels, and the offset, up and left of the canvas
     #[expect(clippy::cast_precision_loss, reason = "a margin of at most 2^27 pixels")]

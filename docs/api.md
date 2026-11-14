@@ -221,8 +221,9 @@ look draws its source at the drawn size, runs the look there, and puts the resul
   already drawn at that size (a group's raster is its finished, isolated picture); a fill is made that size, a flat raster, in
   place of its one pixel;
 - image gets the raster's straight colour (RGB, no alpha); the source's alpha is kept as it is and put back after the look, so a
-  transparent corner stays transparent and a half-transparent fill keeps its 0.5; the result is brought into 0 to 1, a value
-  that is not a number refused;
+  transparent corner stays transparent and a half-transparent fill keeps its 0.5; a light layer's look sees the colour over
+  black instead and its result is opaque, so that the light the look makes outside the shape reaches stage 7; the result is
+  brought into 0 to 1, a value that is not a number refused;
 - the raster ends where the source's did (`covers`, `ends_at_window`), so a look grows no room past the box (C5b room);
 - stage 4 follows on the same raster; a reference runs its own looks after those of the layer it names.
 

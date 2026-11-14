@@ -30,9 +30,17 @@ pub(crate) struct MapMask {
 pub(crate) struct Finish {
     looks: Vec<Look>,
     masks: Vec<MapMask>,
+    /// The layer is light (stage 7): its looks see its colour over black, and what they make of the black is light.
+    light: bool,
 }
 
 impl Finish {
+    /// This finish for a light layer (`true`) or not.
+    pub(crate) fn lit(mut self, light: bool) -> Self {
+        self.light = light;
+        self
+    }
+
     /// This finish with `look` run after the looks it has.
     pub(crate) fn add_look(&mut self, look: Look) {
         self.looks.push(look);
@@ -118,7 +126,7 @@ impl Finish {
         let side = |length: f64| u32::try_from(whole_up(length)).unwrap_or(u32::MAX);
         let canvas = (side(request.canvas.0 * density.0), side(request.canvas.1 * density.1));
         for look in &self.looks {
-            raster = Arc::new(look.apply(&raster, &maps, canvas)?);
+            raster = Arc::new(look.apply(&raster, &maps, canvas, self.light)?);
         }
         let values = maps
             .iter()

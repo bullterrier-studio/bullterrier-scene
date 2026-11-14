@@ -106,20 +106,26 @@ impl Look {
 
     /// `layer` with the look run on its colour, straight, whatever the layer is; its alpha stays. `maps` are the picture's
     /// maps at the size of `layer`; `canvas` is the scene's canvas in the output pixels this layer is drawn at (width, height), which fixes the
-    /// design scale of the look's `px`; the look sees those its recipe can be given, and image refuses the render, naming the
+    /// design scale of the look's `px`;
+    /// a `light` layer's look sees the colour over black and its result is opaque (stage 7 makes the alpha: the light a look
+    /// makes outside a shape is kept); the look sees those its recipe can be given, and image refuses the render, naming the
     /// step and the map, if the recipe needs one that is not there.
     pub(crate) fn apply(
         &self,
         layer: &Raster,
         maps: &BTreeMap<String, Vec<f32>>,
         canvas: (u32, u32),
+        light: bool,
     ) -> Result<Raster, Error> {
         let colour: Vec<f32> = layer
             .pixels()
             .as_chunks::<4>()
             .0
             .iter()
-            .flat_map(|&[red, green, blue, _]| [red, green, blue])
+            .flat_map(|&[red, green, blue, alpha]| {
+                let over_black = if light { alpha } else { 1.0 };
+                [red * over_black, green * over_black, blue * over_black]
+            })
             .collect();
         let picture =
             bullterrier_image::Picture::new(layer.height(), layer.width(), &colour).map_err(|error| refused(&error))?;
@@ -149,7 +155,7 @@ impl Look {
             .0
             .iter()
             .zip(layer.pixels().as_chunks::<4>().0)
-            .flat_map(|(&[red, green, blue], pixel)| [red, green, blue, pixel[3]])
+            .flat_map(|(&[red, green, blue], pixel)| [red, green, blue, if light { 1.0 } else { pixel[3] }])
             .collect();
         Ok(Raster::made(layer.width(), layer.height(), pixels))
     }

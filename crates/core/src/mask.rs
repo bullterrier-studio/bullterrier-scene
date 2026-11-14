@@ -215,7 +215,7 @@ impl CanvasMask {
         // would on a larger canvas
         let wide = target.grown(reach);
         let factor = product(&self.layer.join, &wide)?;
-        let landed = land(self.layer.drawable()?, &wide)?;
+        let landed = land(self.layer.drawable()?, &wide, false)?;
         let opacity = self.layer.join.opacity;
         let mut values = vec![0.0_f32; wide.size().0 * wide.size().1];
         landed.each(&mut |at, pixel| {

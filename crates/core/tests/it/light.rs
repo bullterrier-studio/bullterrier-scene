@@ -182,3 +182,24 @@ proptest! {
         }
     }
 }
+
+/// A look sees a light layer's colour over black, and what it makes of the black outside a shape is light too: a glow spills
+/// past the shape. `levels` with `output_black` 0.25 maps v to 0.25 + 0.75 v (its documented rule): a transparent pixel is
+/// 0.25 of light, and white at half alpha (0.5 over black) is 0.625.
+#[test]
+fn a_look_on_a_light_layer_sees_its_colour_over_black_and_its_light_spills_past_the_shape() -> Outcome {
+    let lifted = r#"{"steps": [{"effect": "levels", "params": {"output_black": 0.25}}]}"#;
+    for (source, expected) in [
+        ([0.0, 0.0, 0.0, 0.0], 0.25),
+        ([1.0, 1.0, 1.0, 0.5], 0.625),
+        ([1.0, 1.0, 1.0, 1.0], 1.0),
+    ] {
+        let layer = cell(source)?.look(lifted)?.as_light(true).blend(Blend::Screen);
+        let got = one([cell([0.0, 0.0, 0.0, 1.0])?, layer])?;
+        assert!(
+            close(got, [expected, expected, expected, 1.0], 1e-5),
+            "{source:?}: {got:?}"
+        );
+    }
+    Ok(())
+}

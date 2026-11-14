@@ -67,10 +67,10 @@ pub(crate) fn draw(layers: &[Layer], target: &Target) -> Result<Vec<f32>, Error>
 /// is blended at its mask's value too.
 fn lay(layer: &Layer, target: &Target, joined: &mut [f32]) -> Result<(), Error> {
     let factor = product(&layer.join, target)?;
-    let landed = land(layer.drawable()?, target)?;
     let Join {
         opacity, blend, light, ..
     } = layer.join;
+    let landed = land(layer.drawable()?, target, light)?;
     if blend != Blend::Normal || light {
         // every pixel is made light if the layer is (stage 7), scaled by the masks and the opacity (stages 6 and 8), and
         // joined where it lands by the compositing equation of its mode (stage 9)
