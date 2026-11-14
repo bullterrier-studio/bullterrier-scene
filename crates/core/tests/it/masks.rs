@@ -869,3 +869,147 @@ fn a_feathered_fill_that_is_placed_or_fitted_has_the_shape_it_has_unfeathered() 
     assert!((half.iter().map(|&value| f64::from(value)).sum::<f64>() - 2_400.0).abs() <= 1e-9);
     Ok(())
 }
+
+// --- what the review of C3 found alive -----------------------------------------------------------------------------
+
+/// A layer's own opacity and its masks multiply: opacity 0.5 under a mask of 0.5 is 0.25, in either order of the calls.
+#[test]
+fn a_layers_opacity_multiplies_what_its_mask_leaves() -> Outcome {
+    let half = || flat_mask([1.0, 1.0, 1.0, 0.5], (2, 2));
+    let masked_then_faded = alphas(Layer::fill(WHITE)?.mask(half()?)?.opacity(0.5)?, (2, 2), 2)?;
+    let faded_then_masked = alphas(Layer::fill(WHITE)?.opacity(0.5)?.mask(half()?)?, (2, 2), 2)?;
+    assert!(
+        masked_then_faded
+            .iter()
+            .chain(&faded_then_masked)
+            .all(|alpha| alpha.to_bits() == 0.25_f32.to_bits())
+    );
+    Ok(())
+}
+
+/// The Gaussian blur of `values` by `sigma` (a sum of Gaussian weights out to 6 sigma, the edge repeated): an oracle that shares
+/// nothing with the box passes.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    reason = "a test oracle over lines of a few dozen values"
+)]
+fn gaussian(values: &[f64], sigma: f64) -> Vec<f64> {
+    let reach = (6.0 * sigma).ceil() as i64;
+    let weights: Vec<f64> = (-reach..=reach)
+        .map(|at| (-(at as f64).powi(2) / (2.0 * sigma * sigma)).exp())
+        .collect();
+    let total: f64 = weights.iter().sum();
+    let last = values.len() as i64 - 1;
+    (0..values.len() as i64)
+        .map(|at| {
+            weights
+                .iter()
+                .zip(-reach..=reach)
+                .map(|(weight, step)| weight * values[(at + step).clamp(0, last) as usize])
+                .sum::<f64>()
+                / total
+        })
+        .collect()
+}
+
+/// `values` sampled at the centres of `count` pixels that stretch it: position `(i + 0.5) * length / count - 0.5`, linear
+/// between neighbours, the edge repeated.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss,
+    reason = "a test oracle over lines of a few dozen values"
+)]
+fn stretched(values: &[f64], count: usize) -> Vec<f64> {
+    let last = values.len() as f64 - 1.0;
+    (0..count)
+        .map(|i| {
+            let at = ((i as f64 + 0.5) * values.len() as f64 / count as f64 - 0.5).clamp(0.0, last);
+            let low = at.floor();
+            let high = (low + 1.0).min(last);
+            values[low as usize] * (1.0 - (at - low)) + values[high as usize] * (at - low)
+        })
+        .collect()
+}
+
+/// A map's feather is in design pixels as the layer is fitted, along each axis by that axis's own fit: an 8 by 8 map stretched to
+/// 8 by 32 (1 along x, 4 along y) with a feather of 8 is a blur of 8 pixels of the map along x and 2 along y if the picture
+/// is blurred before it is drawn (no look), and of 8 and 8 pixels of the drawn picture if a look makes it be drawn first. Each is
+/// compared with the Gaussian worked out by hand, along each axis, within the kernel's 0.0099 for each axis.
+#[test]
+fn a_map_feather_under_stretch_follows_each_axis_on_both_paths() -> Outcome {
+    let quadrant: Vec<f64> = (0..8).map(|at| f64::from(u8::from(at < 4))).collect();
+    let map: Vec<f32> = (0..64)
+        .map(|at| f32::from(u8::from(at % 8 < 4 && at / 8 < 4)))
+        .collect();
+    let nothing = r#"{"steps": [{"effect": "grade"}]}"#;
+    let layer = || -> Result<Layer, Error> {
+        Layer::picture(solid(8, 8, [0.4, 0.5, 0.6, 1.0])?)
+            .map("m", Map::new(8, 8, map.clone())?)?
+            .fit([0.0, 0.0, 8.0, 32.0], Fit::Stretch, [0.5, 0.5])?
+            .mask(Mask::new("m").feather(8.0))
+    };
+    // no look: blurred at the picture's size (sigma 8 along x, 2 along y), then drawn 4 times as tall
+    let across = gaussian(&quadrant, 8.0);
+    let down = gaussian(&quadrant, 2.0);
+    let rows = stretched(&down, 32);
+    let plain = alphas(layer()?, (8, 32), 32)?;
+    for (index, alpha) in plain.iter().enumerate() {
+        let expected = across[index % 8] * rows[index / 8];
+        assert!(
+            (f64::from(*alpha) - expected).abs() <= 0.0099 * 2.0 + 1e-3,
+            "no look, pixel {index}: {alpha} is not {expected}"
+        );
+    }
+    // a look: the picture is drawn 8 by 32 first (the map stretched), then blurred by 8 along each axis
+    let across_drawn = gaussian(&quadrant, 8.0);
+    let tall = stretched(&quadrant, 32);
+    let down_drawn = gaussian(&tall, 8.0);
+    let looked = alphas(layer()?.look(nothing)?, (8, 32), 32)?;
+    for (index, alpha) in looked.iter().enumerate() {
+        let expected = across_drawn[index % 8] * down_drawn[index / 8];
+        assert!(
+            (f64::from(*alpha) - expected).abs() <= 0.0099 * 2.0 + 1e-3,
+            "a look, pixel {index}: {alpha} is not {expected}"
+        );
+    }
+    Ok(())
+}
+
+/// Thin canvases, whose design pixel is not square (100 by 4 at size 10 is 0.1 by 0.25, and 4 by 100 the other way), have a
+/// margin of their own along each axis: a feathered fill that is not fitted or placed stays 1 to every edge.
+#[test]
+fn a_feathered_fill_stays_one_to_the_edge_on_a_thin_canvas_either_way_round() -> Outcome {
+    for canvas in [(100, 4), (4, 100)] {
+        let got = masked_white(Mask::new(Layer::fill(WHITE)?).feather(40.0), canvas, 10)?;
+        assert!(got.len() >= 10);
+        assert!(
+            got.iter().all(|alpha| alpha.to_bits() == 1.0_f32.to_bits()),
+            "{canvas:?}: {got:?}"
+        );
+    }
+    Ok(())
+}
+
+/// The blur along y of a canvas whose y scale is not its x scale (4 by 100 at size 10: 0.25 across, 0.1 down) is by the y scale:
+/// a fill that ends half way down, blurred by 30 design pixels (3 rows), is the Gaussian's share row by row (two edges inside
+/// the reach, each within 0.0099).
+#[test]
+fn a_feather_on_a_tall_thin_canvas_blurs_by_the_y_scale() -> Outcome {
+    let sigma = 30.0;
+    let shape = Layer::fill(WHITE)?.fit([-100.0, 0.0, 300.0, 50.0], Fit::Stretch, [0.5, 0.5])?;
+    let got = masked_white(Mask::new(shape).feather(sigma), (4, 100), 10)?;
+    assert_eq!(got.len(), 10);
+    for (row, value) in got.iter().enumerate() {
+        let centre = (f64::from(u8::try_from(row)?) + 0.5) / 0.1;
+        let expected = gauss(50.0 - centre, sigma) - gauss(-centre, sigma);
+        assert!(
+            (f64::from(*value) - expected).abs() <= 2.0 * WITHIN,
+            "row {row}: {value} is not {expected}"
+        );
+    }
+    Ok(())
+}

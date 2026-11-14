@@ -126,15 +126,24 @@ struct Lines {
 }
 
 impl Lines {
-    /// `line` (`length` values) through three passes of `kernel`, left in `self.now`.
+    /// `line` (`length` values) through three passes of `kernel`, left in `self.now`. The line is extended by its end values as
+    /// far as the three passes reach before the first pass and cut back after the last, so the edge is repeated once, as a
+    /// line of the input's, and not again after each pass (a pass makes the end values of the next a blend, and a kernel as
+    /// wide as the line would flatten it).
     fn pass(&mut self, line: impl Iterator<Item = f32>, length: usize, kernel: Box1) {
+        let reach = kernel.reach();
         self.now.clear();
         self.now.extend(line.map(f64::from));
         debug_assert_eq!(self.now.len(), length);
+        let (first, last) = (self.now[0], self.now[length - 1]);
+        self.now.splice(0..0, std::iter::repeat_n(first, reach));
+        self.now.extend(std::iter::repeat_n(last, reach));
         for _ in 0..3 {
             self.once(kernel);
             std::mem::swap(&mut self.now, &mut self.next);
         }
+        self.now.truncate(reach + length);
+        self.now.drain(..reach);
     }
 
     /// One pass of `kernel` over `self.now`, into `self.next`.

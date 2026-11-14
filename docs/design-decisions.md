@@ -324,7 +324,7 @@ where a window of zeros follows a window of ones, and a negative alpha is not a 
 block prefix and a block suffix of the line (both sums of non-negative numbers, accumulated in `f64`, van Herk and Gil-Werman),
 so a value of a mask never falls below 0 and a window of ones sums to exactly its length (a mask by white stays 1 to the bit).
 
-**Edge.** A line is extended by its end value (replicated) beyond its raster. A mask drawn on the canvas is drawn on a plane
+**Edge.** A line is extended by its end value (replicated) beyond its raster, once, as far as the three passes reach, before the first pass (the review of C3 found it replicated again after each pass, which blended the end values and flattened a map that was narrower than its kernel: 0.52 for 0.64). A mask drawn on the canvas is drawn on a plane
 larger than the canvas by the kernel's reach on each side (the margin), so the replicated edge is never read inside the canvas
 and a shape that crosses the canvas edge feathers as it would on a larger canvas; a layer that is a fill covers the margin
 too, so a fill stays 1 to the edge, and a shape that ends exactly at the canvas edge is 0.5 there. A map of a picture is
