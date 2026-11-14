@@ -913,19 +913,31 @@ def test_multiply_by_hand_and_the_layers_opacity_scales_what_is_blended():
     assert np.allclose(got, [0.5, 0.375, 0.5, 1], atol=1e-6)
 
 
-@pytest.mark.parametrize("word", ["Multiply", "soft_light", "SCREEN", "softlight", "colour-dodge", "bogus", ""])
-def test_a_word_that_is_no_mode_is_refused_naming_blend_the_names_and_the_nearest(word):
+@pytest.mark.parametrize(
+    ("word", "suggestion"),
+    [
+        ("Multiply", '"multiply"'),
+        ("soft_light", '"soft-light"'),
+        ("SCREEN", '"screen"'),
+        ("softlight", '"soft-light"'),
+        ("colour-dodge", '"color-dodge"'),
+        ("lumi", '"luminosity"'),
+        ("co", 'one of "color-dodge", "color-burn", "color"'),
+        ("bogus", None),
+        ("", None),
+    ],
+)
+def test_a_word_that_is_no_mode_is_refused_naming_blend_the_names_and_a_suggestion_that_means_something(
+    word, suggestion
+):
     with pytest.raises(InvalidError, match="blend") as raised:
         Layer.fill("#ffffff").blend(word)
     message = str(raised.value)
     assert all(name in message for name in BLEND_NAMES)
-    assert "did you mean" in message
-
-
-@pytest.mark.parametrize(("word", "fix"), [("Multiply", "multiply"), ("soft_light", "soft-light")])
-def test_a_slip_of_case_or_underscore_names_the_fix(word, fix):
-    with pytest.raises(InvalidError, match=f'did you mean "{fix}"'):
-        Layer.fill("#ffffff").blend(word)
+    if suggestion is None:
+        assert "did you mean" not in message
+    else:
+        assert f"(did you mean {suggestion}?)" in message
 
 
 @pytest.mark.parametrize("value", [None, 3, b"multiply", ["multiply"], True])

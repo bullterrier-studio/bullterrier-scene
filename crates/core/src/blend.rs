@@ -1,6 +1,7 @@
 //! How a layer joins what is below it: the blend modes of the W3C Compositing and Blending Level 1 specification, by their
 //! CSS names, and the compositing equation that applies them.
 
+use std::fmt;
 use std::str::FromStr;
 
 use crate::Error;
@@ -63,6 +64,14 @@ const NAMES: [(&str, Blend); 16] = [
     ("luminosity", Blend::Luminosity),
 ];
 
+impl fmt::Display for Blend {
+    /// The CSS name: what [`Blend::from_str`](std::str::FromStr::from_str) reads.
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // NAMES is in the order of the variants (every_mode_prints_its_css_name parses each name and prints it back)
+        formatter.write_str(NAMES[*self as usize].0)
+    }
+}
+
 /// The number of single-character edits (insert, delete, change) that turn `a` into `b`.
 fn distance(a: &str, b: &str) -> usize {
     let b: Vec<char> = b.chars().collect();
@@ -79,6 +88,37 @@ fn distance(a: &str, b: &str) -> usize {
     row[b.len()]
 }
 
+/// The names to suggest for `word`, which is no mode: by one rule. The names that begin with what was typed (in lower case,
+/// `_` read as `-`: an abbreviation, or a slip of case or underscore); failing that the names fewest edits away, if that is
+/// within a third of the letters typed and at least one (a typo costs one or two edits, and a longer word may have more slips);
+/// failing that none, so that a word that is nothing like a mode gets no suggestion.
+fn suggestions(word: &str) -> Vec<&'static str> {
+    let plain = word.to_ascii_lowercase().replace('_', "-");
+    if plain.is_empty() {
+        return Vec::new();
+    }
+    let begins: Vec<&str> = NAMES
+        .iter()
+        .map(|(name, _)| *name)
+        .filter(|name| name.starts_with(&plain))
+        .collect();
+    if !begins.is_empty() {
+        return begins;
+    }
+    let nearest = NAMES
+        .iter()
+        .map(|(name, _)| distance(&plain, name))
+        .fold(usize::MAX, usize::min);
+    if nearest > (plain.chars().count() / 3).max(1) {
+        return Vec::new();
+    }
+    NAMES
+        .iter()
+        .map(|(name, _)| *name)
+        .filter(|name| distance(&plain, name) == nearest)
+        .collect()
+}
+
 impl FromStr for Blend {
     type Err = Error;
 
@@ -87,27 +127,23 @@ impl FromStr for Blend {
     /// or `"luminosity"`, in lower case.
     ///
     /// # Errors
-    /// [`Error::Invalid`] naming `blend` for any other word, listing the names and the one nearest to it.
+    /// [`Error::Invalid`] naming `blend` for any other word, listing the names and suggesting the ones it may have meant: those
+    /// that begin with the word (lower case, `_` read as `-`), else those fewest edits away if within a third of its letters
+    /// (at least one), else none.
     fn from_str(word: &str) -> Result<Self, Error> {
         if let Some((_, blend)) = NAMES.iter().find(|(name, _)| *name == word) {
             return Ok(*blend);
         }
         let names: Vec<&str> = NAMES.iter().map(|(name, _)| *name).collect();
-        // case and `_` are the slips people make, so they are not counted as edits
-        let plain = word.to_ascii_lowercase().replace('_', "-");
-        let nearest = names.iter().fold(names[0], |best, name| {
-            if distance(&plain, name) < distance(&plain, best) {
-                name
-            } else {
-                best
-            }
-        });
+        let quoted: Vec<String> = suggestions(word).iter().map(|name| format!("{name:?}")).collect();
+        let hint = match quoted.as_slice() {
+            [] => String::new(),
+            [one] => format!(" (did you mean {one}?)"),
+            several => format!(" (did you mean one of {}?)", several.join(", ")),
+        };
         Err(Error::invalid(
             "blend",
-            format!(
-                "one of {} is wanted (did you mean {nearest:?}?), got {word:?}",
-                names.join(", ")
-            ),
+            format!("one of {} is wanted{hint}, got {word:?}", names.join(", ")),
         ))
     }
 }

@@ -89,27 +89,53 @@ fn every_css_name_is_a_mode_and_no_other_word_is() {
 }
 
 #[test]
-fn a_word_that_is_no_mode_is_refused_naming_blend_the_names_and_the_nearest() {
-    for (word, nearest) in [
-        ("Multiply", "multiply"),
-        ("soft_light", "soft-light"),
-        ("softlight", "soft-light"),
-        ("colour-dodge", "color-dodge"),
-        ("multipy", "multiply"),
-        ("SCREEN", "screen"),
-    ] {
+fn every_mode_prints_its_css_name() -> Outcome {
+    for word in ALL {
+        assert_eq!(mode(word)?.to_string(), word);
+    }
+    Ok(())
+}
+
+/// A word that is no mode is refused naming `blend` and the sixteen names; the suggestion is by one rule: the names that begin
+/// with what was typed (lower case, `_` read as `-`), else the names fewest edits away if that is within a third of the
+/// letters typed (at least one), else none. `(word, what it suggests)`.
+const SUGGESTIONS: [(&str, &[&str]); 13] = [
+    ("Multiply", &["multiply"]),
+    ("soft_light", &["soft-light"]),
+    ("SCREEN", &["screen"]),
+    ("softlight", &["soft-light"]),
+    ("colour-dodge", &["color-dodge"]),
+    ("multipy", &["multiply"]),
+    ("lumi", &["luminosity"]),
+    ("sat", &["saturation"]),
+    ("co", &["color-dodge", "color-burn", "color"]),
+    ("hux", &["hue"]),
+    ("bogus", &[]),
+    ("", &[]),
+    ("ho", &[]),
+];
+
+#[test]
+fn a_word_that_is_no_mode_is_refused_naming_blend_the_names_and_a_suggestion_that_means_something() {
+    for (word, suggested) in SUGGESTIONS {
         let Err(Error::Invalid { address, message }) = word.parse::<Blend>() else {
-            unreachable!("{word} was accepted")
+            unreachable!("{word:?} was accepted")
         };
-        assert_eq!(address, "blend", "{word}");
+        assert_eq!(address, "blend", "{word:?}");
         for name in ALL {
-            assert!(message.contains(name), "{word}: {message}");
+            assert!(message.contains(name), "{word:?}: {message}");
         }
+        assert!(message.ends_with(&format!("got {word:?}")), "{word:?}: {message}");
+        let quoted: Vec<String> = suggested.iter().map(|name| format!("{name:?}")).collect();
+        let wanted = match quoted.len() {
+            0 => String::new(),
+            1 => format!(" (did you mean {}?)", quoted[0]),
+            _ => format!(" (did you mean one of {}?)", quoted.join(", ")),
+        };
         assert!(
-            message.contains(&format!("did you mean {nearest:?}")),
-            "{word}: {message}"
+            message.contains(&format!("is wanted{wanted}, got")),
+            "{word:?}: {message}"
         );
-        assert!(message.contains(&format!("{word:?}")), "{word}: {message}");
     }
 }
 

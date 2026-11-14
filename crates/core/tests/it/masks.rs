@@ -503,15 +503,22 @@ fn what_a_mask_call_cannot_take_is_refused_naming_the_field() -> Outcome {
 
 #[test]
 fn a_mask_layer_with_a_blend_or_a_light_is_refused_saying_which() -> Outcome {
-    for (made, word) in [
-        (Layer::fill(WHITE)?.blend(Blend::Screen), "blend"),
-        (Layer::fill(WHITE)?.as_light(true), "light"),
-    ] {
+    let rows: [(Layer, &[&str]); 2] = [
+        (Layer::fill(WHITE)?.blend(Blend::ColorDodge), &["blend", "color-dodge"]),
+        (Layer::fill(WHITE)?.as_light(true), &["light"]),
+    ];
+    for (made, words) in rows {
         let Err(Error::Invalid { address, message }) = Layer::fill(WHITE)?.mask(made) else {
-            return Err(format!("a mask layer with a {word} was accepted").into());
+            return Err(format!("a mask layer with a {words:?} was accepted").into());
         };
         assert_eq!(address, "mask");
-        assert!(message.contains(word), "{message}");
+        for word in words {
+            assert!(message.contains(word), "{message}");
+        }
+        assert!(
+            !message.contains("ColorDodge"),
+            "a CSS name, not the variant: {message}"
+        );
     }
     Ok(())
 }

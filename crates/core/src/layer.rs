@@ -278,7 +278,7 @@ impl Layer {
                     return Err(Error::invalid(
                         "mask",
                         format!(
-                            "a mask layer has no blend (a mask is not joined to what is below), got {:?}",
+                            "a mask layer has no blend (a mask is not joined to what is below), got {}",
                             by.blend
                         ),
                     ));
