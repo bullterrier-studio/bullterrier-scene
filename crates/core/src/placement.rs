@@ -977,6 +977,40 @@ mod tests {
         assert_eq!(flips, none);
     }
 
+    /// A move after any place is that place and the move, to the bit, whatever the place does to the box: the pivot of the
+    /// extra place (the bounding rectangle of a box scaled by 0.3, turned 17 degrees: inexact numbers) adds no rounding to a
+    /// translation that is whole pixels.
+    #[test]
+    fn a_move_after_any_place_is_the_place_and_the_move_to_the_bit() {
+        // a spread of inexact pivots: the sum of a whole move and a pivot, less the pivot, is the move in most of them and a
+        // unit in the last place off in some
+        let spread = (0..200).map(|step| {
+            let step = f64::from(step);
+            placed(|place| {
+                place
+                    .scale(0.3 + 0.0137 * step)
+                    .rotate(Deg(step * 1.7))
+                    .dx(0.1 * step)
+                    .dy(0.37 * step)
+            })
+        });
+        for base in spread.chain([
+            placed(|place| place.scale(0.3).dx(1.0)),
+            placed(|place| place.skew_x(Deg(33.0)).aspect(0.7)),
+        ]) {
+            let alone = affine(&layout(Placement::Place(base), &[]));
+            let moved = affine(&layout(
+                Placement::Place(base),
+                &[placed(|place| place.dx(4.0).dy(-2.0))],
+            ));
+            assert_eq!(
+                (moved.a, moved.b, moved.d, moved.e),
+                (alone.a, alone.b, alone.d, alone.e)
+            );
+            assert_eq!((moved.c, moved.f), (alone.c + 4.0, alone.f - 2.0));
+        }
+    }
+
     /// An affine map after a perspective is one homography: the box's corners land on the quadrilateral's corners moved by
     /// the extra place, which is worked out by hand here; and after a parallelogram the map stays affine.
     #[test]
