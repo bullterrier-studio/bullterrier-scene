@@ -6,7 +6,8 @@ The command line is the Rust core's (`crates/cli`); this is the entry point that
 import signal
 import sys
 
-from . import __version__
+import bullterrier_scene
+
 from ._native import _core
 
 
@@ -14,7 +15,7 @@ def run(argv: list[str]) -> int:
     """Run `bt-scene` with `argv` (the arguments after the program's name) and return its exit code: 0 success, 1 the
     command failed (`error: <what is wrong>` on stderr), 2 wrong usage. Results go to stdout and errors to stderr, as
     the process's own."""
-    return _core.main(argv, __version__)
+    return _core.main(argv, bullterrier_scene.__version__)
 
 
 def main() -> None:

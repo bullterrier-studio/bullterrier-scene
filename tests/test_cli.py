@@ -31,6 +31,26 @@ def console_script(*args: str) -> subprocess.CompletedProcess[bytes]:
     return subprocess.run([str(CONSOLE_SCRIPT), *args], capture_output=True, check=False, timeout=120)
 
 
+def test_the_package_imports_where_no_distribution_is_installed():
+    """A source checkout on `PYTHONPATH` has no package metadata: it imports, and only asking the version fails."""
+    code = (
+        "import importlib.metadata as m\n"
+        "def gone(name):\n"
+        "    raise m.PackageNotFoundError(name)\n"
+        "m.version = gone\n"
+        "import bullterrier_scene as bts\n"
+        "print(bts.Scene(2, 2).render(2).shape)\n"
+        "try:\n"
+        "    bts.__version__\n"
+        "except m.PackageNotFoundError:\n"
+        "    print('no version')\n"
+    )
+    done = subprocess.run([sys.executable, "-c", code], capture_output=True, check=False, timeout=120)
+    assert (done.returncode, done.stdout.decode().split("\n")[:2]) == (0, ["(2, 2, 4)", "no version"]), (
+        done.stderr.decode()
+    )
+
+
 def test_version_is_the_one_in_pyproject():
     declared = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
     done = python_dash_m("--version")

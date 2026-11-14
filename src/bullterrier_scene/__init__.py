@@ -12,7 +12,14 @@ from .layer import Layer
 from .parameter import Parameter
 from .scene import Scene
 
-__version__ = metadata.version("bullterrier-scene")
+
+def __getattr__(name: str) -> str:
+    """`__version__`, the installed distribution's version, read when it is asked for: a source checkout that is not
+    installed imports and works, and only asking its version fails (`PackageNotFoundError`)."""
+    if name == "__version__":
+        return metadata.version("bullterrier-scene")
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "MAX_DEPTH",
@@ -24,5 +31,4 @@ __all__ = [
     "Parameter",
     "ReadError",
     "Scene",
-    "__version__",
 ]
