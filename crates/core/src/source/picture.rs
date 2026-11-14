@@ -371,7 +371,7 @@ impl Source for Picture {
     /// `picture` (`null` for a hole), and `maps` if there are any.
     fn document(&self, form: Form) -> Result<Vec<(&'static str, Value)>, Error> {
         let picture = match &self.pixels {
-            Pixels::Held(raster) => form.held("picture", (raster.width(), raster.height()), raster.pixels())?,
+            Pixels::Held(raster) => form.held("picture", (raster.width(), raster.height()), raster.digest())?,
             Pixels::File(file) => form.file(file)?,
             Pixels::Hole => Value::Null,
         };
@@ -380,7 +380,7 @@ impl Source for Picture {
             let mut maps = serde_json::Map::new();
             for (name, given) in &self.maps {
                 let map = match given {
-                    Given::Held(map) => form.held(&format!("map.{name}"), (map.width(), map.height()), map.values())?,
+                    Given::Held(map) => form.held(&format!("map.{name}"), (map.width(), map.height()), map.digest())?,
                     Given::File(file) => form.file(file)?,
                     Given::Hole => Value::Null,
                 };

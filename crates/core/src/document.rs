@@ -13,7 +13,7 @@ use serde_json::{Map, Number, Value, json};
 use crate::blend::Blend;
 use crate::budget::{MAX_DEPTH, MAX_LAYERS};
 use crate::error::label;
-use crate::files::{Located, sha256_floats};
+use crate::files::{Fingerprint, Located, hex_of};
 use crate::layer::Base;
 use crate::mask::{Mask, MaskBy, Use};
 use crate::placement::{Deg, Fit, Place, Placed, Placement};
@@ -91,17 +91,17 @@ impl Form {
         }
     }
 
-    /// The document of a picture or a map held in memory, `size` columns by rows, of `values`.
+    /// The document of a picture or a map held in memory, `size` columns by rows, with the digest `digest` of its values.
     ///
     /// # Errors
     /// [`Error::Invalid`] naming `what` when the document is to be saved: pixels in memory have no file.
-    pub(crate) fn held(self, what: &str, size: (usize, usize), values: &[f32]) -> Result<Value, Error> {
+    pub(crate) fn held(self, what: &str, size: (usize, usize), digest: &Fingerprint) -> Result<Value, Error> {
         match self {
             Self::Save => Err(Error::invalid(
                 what,
                 "an array has no file: save it as a picture file and give its Path, or leave a hole to fill with `with_values`",
             )),
-            Self::Compare => Ok(json!({"pixels": [size.0, size.1, sha256_floats(values)]})),
+            Self::Compare => Ok(json!({"pixels": [size.0, size.1, hex_of(digest)]})),
         }
     }
 }

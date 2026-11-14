@@ -30,17 +30,9 @@ pub(crate) struct MapMask {
 pub(crate) struct Finish {
     looks: Vec<Look>,
     masks: Vec<MapMask>,
-    /// The layer is light (stage 7): its looks see its colour over black, and what they make of the black is light.
-    light: bool,
 }
 
 impl Finish {
-    /// This finish for a light layer (`true`) or not.
-    pub(crate) fn lit(mut self, light: bool) -> Self {
-        self.light = light;
-        self
-    }
-
     /// The masks by a map, in call order.
     pub(crate) fn masks(&self) -> &[MapMask] {
         &self.masks
@@ -121,11 +113,12 @@ impl Finish {
 
     /// `drawn` with each look run on it, in order, then each mask by a map multiplied into its alpha. A layer with no look
     /// is as drawn: its source did the masks on its own pixels. The look sees the raster at the size the layer draws it, keeps
-    /// its alpha, and ends where the raster ends.
+    /// its alpha, and ends where the raster ends. A `light` layer (stage 7) is looked at over black, and what the look makes
+    /// of the black is light.
     ///
     /// # Errors
     /// What image refuses of a look at this size or of a map it misses, and a blur that does not fit.
-    pub(crate) fn run(&self, drawn: Drawn, request: &Request) -> Result<Drawn, Error> {
+    pub(crate) fn run(&self, drawn: Drawn, request: &Request, light: bool) -> Result<Drawn, Error> {
         if !self.is_looked() {
             return Ok(drawn);
         }
@@ -145,7 +138,7 @@ impl Finish {
         let side = |length: f64| u32::try_from(whole_up(length)).unwrap_or(u32::MAX);
         let canvas = (side(request.canvas.0 * density.0), side(request.canvas.1 * density.1));
         for look in &self.looks {
-            raster = Arc::new(look.apply(&raster, &maps, canvas, self.light)?);
+            raster = Arc::new(look.apply(&raster, &maps, canvas, light)?);
         }
         let values = maps
             .iter()

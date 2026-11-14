@@ -1,17 +1,27 @@
 //! The picture a scene takes in and gives out.
 
 use std::path::Path;
+use std::sync::OnceLock;
 
 use crate::Error;
+use crate::files::{Fingerprint, digest_floats};
 use crate::source::picture;
 
 /// A picture of straight (not premultiplied) RGBA, 32-bit floats from 0 to 1, row after row from the top, pixel after
 /// pixel from the left, four values a pixel. Colours are sRGB values.
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 pub struct Raster {
     width: usize,
     height: usize,
     pixels: Vec<f32>,
+    /// The digest of the pixels, made when first asked for (a picture is hashed once, however many scenes hold it).
+    digest: OnceLock<Fingerprint>,
+}
+
+impl PartialEq for Raster {
+    fn eq(&self, other: &Self) -> bool {
+        (self.width, self.height) == (other.width, other.height) && self.pixels == other.pixels
+    }
 }
 
 impl std::fmt::Debug for Raster {
@@ -52,12 +62,22 @@ impl Raster {
                 ),
             ));
         }
-        Ok(Self { width, height, pixels })
+        Ok(Self::made(width, height, pixels))
     }
 
     /// A picture the core made itself: `pixels` holds exactly `width * height * 4` values from 0 to 1.
     pub(crate) fn made(width: usize, height: usize, pixels: Vec<f32>) -> Self {
-        Self { width, height, pixels }
+        Self {
+            width,
+            height,
+            pixels,
+            digest: OnceLock::new(),
+        }
+    }
+
+    /// The SHA-256 of the pixels: made the first time it is asked for, then kept with the picture.
+    pub(crate) fn digest(&self) -> &Fingerprint {
+        self.digest.get_or_init(|| digest_floats(&self.pixels))
     }
 
     /// The number of columns.

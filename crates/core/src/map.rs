@@ -1,15 +1,26 @@
 //! A map: one value from 0 to 1 for each pixel of a picture, the matte of a cut-out or the depth of a scene.
 
+use std::sync::OnceLock;
+
 use crate::Error;
+use crate::files::{Fingerprint, digest_floats};
 
 /// A picture-sized grid of values from 0 to 1, row after row from the top, pixel after pixel from the left: what a
 /// picture layer holds beside its pixels (`Layer::map`), a look reads (`subject`, `depth`, a `given` region) and a
 /// mask (`Layer::mask("subject")`) multiplies.
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 pub struct Map {
     width: usize,
     height: usize,
     values: Vec<f32>,
+    /// The digest of the values, made when first asked for.
+    digest: OnceLock<Fingerprint>,
+}
+
+impl PartialEq for Map {
+    fn eq(&self, other: &Self) -> bool {
+        (self.width, self.height) == (other.width, other.height) && self.values == other.values
+    }
 }
 
 impl std::fmt::Debug for Map {
@@ -43,12 +54,22 @@ impl Map {
                 ),
             ));
         }
-        Ok(Self { width, height, values })
+        Ok(Self::made(width, height, values))
     }
 
     /// A map the core made itself: `values` holds exactly `width * height` values from 0 to 1.
     pub(crate) fn made(width: usize, height: usize, values: Vec<f32>) -> Self {
-        Self { width, height, values }
+        Self {
+            width,
+            height,
+            values,
+            digest: OnceLock::new(),
+        }
+    }
+
+    /// The SHA-256 of the values: made the first time it is asked for, then kept with the map.
+    pub(crate) fn digest(&self) -> &Fingerprint {
+        self.digest.get_or_init(|| digest_floats(&self.values))
     }
 
     /// The number of columns.

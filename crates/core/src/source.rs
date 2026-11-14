@@ -130,9 +130,9 @@ impl<'a> Opened<'a> {
     ///
     /// # Errors
     /// What the source cannot draw, and a look the sibling refuses at this size.
-    pub(crate) fn draw(self, request: Request, finish: &Finish) -> Result<Drawn, Error> {
+    pub(crate) fn draw(self, request: Request, finish: &Finish, light: bool) -> Result<Drawn, Error> {
         let drawn = (self.draw)(request, finish)?;
-        finish.run(drawn, &request)
+        finish.run(drawn, &request, light)
     }
 }
 

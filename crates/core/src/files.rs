@@ -22,15 +22,26 @@ pub(crate) fn sha256(bytes: &[u8]) -> String {
     hex(&Sha256::digest(bytes))
 }
 
+/// A SHA-256 digest.
+pub(crate) type Fingerprint = [u8; 32];
+
 /// The SHA-256 of the 32-bit floats `values`, as their little-endian bytes (a picture held in memory has no file: this is its
-/// identity when two scenes are compared).
-pub(crate) fn sha256_floats(values: &[f32]) -> String {
+/// identity when two scenes are compared, and when the cache keys what it drew).
+pub(crate) fn digest_floats(values: &[f32]) -> Fingerprint {
     let mut hash = Sha256::new();
-    for chunk in values.chunks(8192) {
-        let bytes: Vec<u8> = chunk.iter().flat_map(|value| value.to_le_bytes()).collect();
-        hash.update(&bytes);
+    let mut bytes = [[0_u8; 4]; 2048];
+    for chunk in values.chunks(2048) {
+        for (slot, value) in bytes.iter_mut().zip(chunk) {
+            *slot = value.to_le_bytes();
+        }
+        hash.update(bytes[..chunk.len()].as_flattened());
     }
-    hex(&hash.finalize())
+    hash.finalize().into()
+}
+
+/// `digest` as 64 lower-case hexadecimal digits.
+pub(crate) fn hex_of(digest: &Fingerprint) -> String {
+    hex(digest)
 }
 
 /// A file as the scene names it.
