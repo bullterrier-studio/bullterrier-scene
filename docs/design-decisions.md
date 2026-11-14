@@ -90,7 +90,7 @@ values)` and `with_values`) would make the cache key and the saved form depend o
 
 ## Where the entire work ends (2026-11-13)
 
-A1, C1 to C7, M1, M2, M3, O1 (PNG only, through image's save: PDF and print colour wait until the owner wants a print), P1 (a Rust
+A1, C1 to C7, M1, M2, M3, O1 (PNG only, through image's writer: PDF and print colour wait until the owner wants a print), P1 (a Rust
 command line crate that the Python console script runs, as image does) and the final poster. **B1 (bands) is deferred:** it needs
 vector's V10e (not built) and image effects that take an origin and a canvas size, and the render interface does not change
 when it arrives, so the API is final without it. The peak memory of a 15-layer A3 poster is still measured whole in C7 and
@@ -567,6 +567,27 @@ counts its `draw` calls (`Layer.make`, arrives with C7).
 - **What C7 inherits.** A layer's document under `Form::Compare` is a value a cache key can be made of (a file is its path:
   the cache keys a file by path, size and time as `api.md` says, and the digest is checked at the read). Hashing a held
   picture at each key would be wasteful: C7 hashes once, where the layer is made. The pixels are hashed at `==` only.
+
+## O1 and P1: a PNG through image's writer, and a thin Rust command line (2026-11-14)
+
+**PNG.** `Raster::write(path)` goes through image's `write`, from `source/picture.rs` (the one file that names image). Image's
+writer is path-only, picks the format by the extension, rounds a level as `level * 255 + 0.5` cut to a whole number (a level read
+from an 8-bit file comes back as it was) and embeds a small sRGB profile with a fixed date, so the same picture gives the same
+bytes. *Deviation from the batch's "no ICC":* the profile stays, because the only other way is to change image, a pin bump for no
+gain: the values are sRGB either way. *Alternative weighed:* `to_png() -> Vec<u8>`, which image's writer cannot give without a
+temporary file. A file the call cannot write is `Error::Write`, a new variant because `Read` says the opposite; it has no Python
+class, since no Python call writes (the mapping's last arm turns a variant without one into a `RuntimeError` a test would see).
+
+**The command line** is a library crate (`crates/cli`, `bullterrier-scene-cli`) whose `main(args, version, out, err)` the Python
+binding exports, as image's does: tests run it in-process and read the streams, the console script is `sys.exit(run(argv))`.
+`clap` is its one dependency (image's own line, which `cargo deny` already passes). The CLI holds no logic of the core: `--set`
+looks the address up in `Scene::parameters` only to read VALUE as that kind (a number, a bool, text, a path); an address the
+scene does not have goes to `with_values` as text, whose refusal lists the nearest. `parameters --json` is written in the CLI as
+the Python package's `Parameter.to_dict()`; `tests/test_cli.py` compares the two, so a second definition cannot drift unseen.
+*`validate` renders at size 1* instead of a new walk of every file a scene names: the walk would be a second copy of what a render
+checks (files, digests, holes, map sizes, looks the sibling refuses), and one pixel costs a read of each file and little else. It
+writes nothing. The cost: a frame within a pixel of vector's limit, which is refused below density 1 (`api.md`, "Drawings"), is
+refused by `validate` too.
 
 ## Smaller choices of the API (2026-11-13)
 

@@ -27,8 +27,8 @@ their later changes cannot break it; a bump of the pin is a reviewed commit, and
 | M2 | C2 to C5 are merged (placement, masks, references, per-layer looks); vector has gradients and subtract |
 | M3 | C2 to C5 and C7 are merged (the piece needs placement, masks, per-layer effects and the cache) |
 | B1 | image has a banded render (done) and `Options::with_canvas`; vector has V10e (window render); the owner has decided the storage precision (decision 2). Until then a layer with a whole-picture effect renders whole |
-| O1 | PNG: with C1. PDF and print colour: when the owner wants a print, after C5 |
-| P1 | C6 is merged (a scene is data); the command line is Rust (decision 3) |
+| O1 | PNG: **done** (`Raster::write`). PDF and print colour: when the owner wants a print, after C5 |
+| P1 | **Done.** C6 is merged (a scene is data); the command line is Rust (decision 3) |
 | R1 | image and vector are released, B1 is done or the owner defers it, and the owner decides to open the repository |
 
 **Before starting any batch:** the previous batch is merged with the gate green; its row above is met; the pin of image and
@@ -114,8 +114,8 @@ Real objects over mocks: the sibling crates are real, used through their public 
 | M2 | A composed-world piece: a cut-out subject standing in a generated world (vector sky, sun and receding grid floor), moved and scaled, with a contact shadow, a floor reflection and a glow on one layer only | M | image: `rim_light` and `bloom` as looks (the shadow and the reflection are references in scene, no image effect); vector: gradients, subtract |
 | M3 | The mill piece rebuilt as one scene (see "What the demos and the experiment asked"): a night-graded photo with windows and a sign glowing as separate layers, a logo drawn on, a title landing, a 9:16 delivery crop, every moving value set per frame; replaces the demos' hand-written frame function | M | image: `bloom`, `gradient_map`, `halftone`, `rgb_split`, regions; vector: `from_svg`, `slice`, text with words |
 | B1 | **Deferred** ([design-decisions.md](design-decisions.md), "Where the entire work ends"). Bands: compose band by band, finished layers compact, a 15-layer A3 poster measured whole and banded | L | image: footprint, banded render, storage precision, position-hashed noise, and an origin plus canvas size handed to effects, so that seeded and position-aware effects can band; vector: V10e window render |
-| O1 | Output: PNG only, through image's save; PDF and print colour (CMYK, ICC, bleed) wait until the owner wants a print | M | |
-| P1 | Command line `bt-scene render`, a Rust crate that the Python console script runs; templates and presets | S | |
+| O1 | **PNG done 2026-11-14** (`Raster::write`, through image's writer: [api.md](api.md), "Output"). PDF and print colour (CMYK, ICC, bleed) stay deferred until the owner wants a print | M | |
+| P1 | **Done 2026-11-14.** `bt-scene render`, `parameters` and `validate`: a Rust crate (`crates/cli`) that the Python console script runs ([cli.md](cli.md)). Templates and presets are not built | S | |
 | R1 | First release | S | image and vector published first; the repository opens up |
 
 ## What each batch shows
@@ -134,7 +134,7 @@ Real objects over mocks: the sibling crates are real, used through their public 
 | M2 | a composed-world piece: a bull terrier standing on a neon grid floor under a striped sun, with its shadow and reflection on the floor and glow on the sun only; the same layers as a prototype that had to fake each of them with a hand-made frame loop |
 | M3 | the mill piece: `bt-scene render` of one scene at 24 chosen moments as a contact sheet next to the demo's frames, with the glow on the logo only and the windows pulsing on their own; a timing table of the first frame against the next |
 | B1 | numbers: peak memory of a 15-layer A3 poster, whole against banded, and a check that the pixels match |
-| O1, P1 | a PNG and a PDF to print; `bt-scene render scene.json out.png` |
+| O1, P1 | a PNG (the PDF to print waits) and `bt-scene render scene.json out.png`: [cli.md](cli.md), `docs/gallery/p1-cli.png` |
 
 Order: C1 is the first batch that uses image and vector. M1 is the milestone that shows whether the layer model is right and
 can start once C4 and vector's V10d exist. B1 waits for image's banded render and vector's window render; until then a scene

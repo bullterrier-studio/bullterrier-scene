@@ -67,6 +67,14 @@ poster = bts.Scene(W, H).add(
 imageio.save(poster.render(1200), "poster.png")
 ```
 
+The same from a shell, for a scene saved as JSON ([docs/cli.md](docs/cli.md)):
+
+```bash
+bt-scene render cover.scene.json cover.png --size 1280 --set title.text="Pilot" --set band.color="#2b0a3d"
+bt-scene parameters cover.scene.json   # every address, its kind, unit, range and value
+bt-scene validate cover.scene.json     # the files are there, the digests match, every layer draws
+```
+
 Change `dancer.jpg` and the headline, run it again: a second poster, same design. Two more sketches, to show where else the
 same idea goes:
 

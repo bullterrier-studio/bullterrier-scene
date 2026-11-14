@@ -39,6 +39,9 @@ names), `Layer::blend(Blend::Multiply)` and `Layer::as_light(true)`, both return
 **C4c** adds `Layer.scene(inner)` (Python) and `Layer::scene(inner: Scene)` (Rust: it returns the layer, no `Result`; what it can be refused for is found by `Scene::add` and `Layer::mask`).
 **C6a** adds `Scene.parameters()` and `Scene.with_values(mapping)` (Python; `Parameter`, a frozen dataclass; `Layer.picture(None)`, a hole), and in Rust `Scene::{parameters, with_values}`, `Parameter`, `Kind`, `Value`, `Values` (`scene.with_values(&Values::new().set("title.text", "Pilot"))?`) and `Layer::picture_hole`. "Values" says what is listed; the rows below say where it differs from that.
 **C6b** adds `Scene.to_json()` and `Scene.from_json(text, *, base=None)` (Python) and `Scene::to_json()` and `Scene::from_json(text, base)` (Rust, `base: &Path`, empty for the working folder), and `==` on `Scene` and `Layer` (`PartialEq`). "Saved scene" is the document.
+**O1** adds `Raster::write(path)` (Rust only), `Error::Write`: "Output" says the rounding and the formats.
+**P1** adds the command line `bt-scene` (`crates/cli`, `bullterrier_scene_cli::main(args, version, out, err)`; the Python console script and `python -m bullterrier_scene` run it in-process through `_core.main`): `render SCENE OUT [--size N] [--set ADDRESS=VALUE]... [--base DIR]`, `parameters SCENE [--json]`, `validate SCENE`; exit 0 success, 1 the command failed (`error: <message>` on stderr, the library's own message), 2 wrong usage. [cli.md](cli.md) is a session. `--set` reads VALUE by the kind of the address (a number, `true` or `false`, text, a picture path); an address the scene does not have goes to `with_values`, which lists the nearest. `--size` defaults to the canvas's long side. `--base` defaults to the scene file's folder. `parameters --json` is `[Parameter.to_dict(), ...]`. `validate` renders at size 1 and writes nothing: it reads every file, checks its digest and draws every layer, so a hole, a map of another size and a look the sibling refuses fail too.
+
 Nothing else below exists yet (no cache: C7). Each call is as written below, except:
 
 | Where | Built | Changes with |
@@ -463,7 +466,7 @@ spelling for both (`meaning`, `min`, `max`; `deg` is `degrees`, `cycle` is `cycl
 ## Output
 
 `render(size)`: `size` is the long side in output pixels (image's convention), a whole number from 1 to 65,000 with at most
-2^27 pixels in all (a float32 RGBA array that size is 2 GiB; larger prints wait for bands and O1); another is `InvalidError`
+2^27 pixels in all (a float32 RGBA array that size is 2 GiB; larger prints wait for bands and print output); another is `InvalidError`
 naming `size`. The canvas keeps its aspect: a canvas of 720 by 1280 at `size=1280` is 720 by 1280 pixels; each design pixel
 is `size / max(width, height)` output pixels along the long axis; along the short axis the side is rounded up to whole
 pixels and the picture stretched onto them, so a design pixel there is `rows / height` output pixels, which differs from
@@ -584,7 +587,8 @@ The same names in each language's case: `snake_case` in Python and Rust.
 | Options | keyword arguments | a value named after the call, built with `new` and setters: `Place::new().dx(100.0).rotate(Deg(-4.0))`, `Mask::new(by).using(Use::Luminance).feather(8.0).invert()` (`use` is a keyword); the required argument alone converts into it: `layer.mask(by)`. Text: `Text::new("bricolage_grotesque").color("#ffffff").option("size", 84.0)` and `Layer::text(content, &text)?`, each option plain data (`Into<serde_json::Value>`) |
 | Modes | strings: `"cover"`, `"screen"`, `"light"` | enums: `Fit::Cover`, `Blend::Screen`, `Use::Luminance` |
 | Values | `scene.with_values({"title.text": "Pilot"})` | `scene.with_values(&Values::new().set("title.text", "Pilot"))?` |
-| Output | a numpy array | a `Raster` of the output size; a caller encodes it (PNG is O1) |
+| Output | a numpy array; `imageio.save` writes it | a `Raster` of the output size; `raster.write(path)` writes a PNG |
+| Command line | `bt-scene` (the Rust command line, run in-process) | `bullterrier_scene_cli::main(args, version, out, err)` |
 | Errors | exceptions | `Result<_, bullterrier_scene::Error>`. One rule: a call that can be refused returns `Result` (`add`, `named`, `fit`, `place`, `perspective`, `opacity`, `look`, `mask`, `with_values`, `render`, the constructors that parse); a call that cannot (`blend`, `as_light`, `Layer::of`, `Layer::scene`) returns the value. A scene never defers an error. `Error` is `#[non_exhaustive]`: `Invalid { address, message }`, `Format { pointer, message }`, `Read { path, message }` |
 | Plugin kinds | an entry point; `bts.register_layer` | a `Source` trait with the one question "draw this rectangle at this scale", registered in a `Registry` |
 

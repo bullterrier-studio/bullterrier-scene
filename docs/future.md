@@ -23,8 +23,8 @@ drawn in the drawing: 3 s). Sources: the 71 s in `bullterrier-demos/feedback/sce
 1. **Polish** the list below.
 2. **C7** the per-layer cache, with the move-only fast path.
 3. **M3** the mill piece rebuilt as one scene.
-4. **O1** PNG output.
-5. **P1** the Rust command line, `bt-scene render`.
+4. ~~**O1** PNG output.~~ Done: `Raster::write`.
+5. ~~**P1** the Rust command line, `bt-scene render`.~~ Done: `docs/cli.md`.
 6. **The final poster** in `bullterrier-demos`, using every library (the owner wants it to be properly impressive).
 7. After scene's first release: video (clock, mapping, encode), the web export, editor support (hit-test, tree edit), a
    frontend.
