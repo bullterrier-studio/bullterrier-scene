@@ -642,6 +642,86 @@ proptest! {
     }
 }
 
+/// Inputs where the sum of the compositing equation, in 32-bit floats, comes out an ulp above the result's alpha (found by
+/// a sweep of a million random pixels a mode, with alpha now and then tiny and channels now and then exactly 0 or 1; 1 in 600
+/// pixels with a channel of 1 on both sides did it). In real numbers a premultiplied colour never passes its alpha, and the
+/// straight colour that the picture is given back as would pass 1 (1.0000001) if `join` held only the lower bound.
+/// `(mode, backdrop, backdrop alpha, source, source alpha)`.
+type Overshoot = (&'static str, [f32; 3], f32, [f32; 3], f32);
+const ABOVE_ITS_ALPHA: [Overshoot; 8] = [
+    (
+        "multiply",
+        [1.0, 0.0, 1.0],
+        0.546_368,
+        [0.694_240_03, 1.0, 1.0],
+        0.920_240_6,
+    ),
+    (
+        "screen",
+        [1.0, 0.0, 1.0],
+        0.546_368,
+        [0.694_240_03, 1.0, 1.0],
+        0.920_240_6,
+    ),
+    (
+        "soft-light",
+        [1.0, 0.0, 1.0],
+        0.546_368,
+        [0.694_240_03, 1.0, 1.0],
+        0.920_240_6,
+    ),
+    (
+        "luminosity",
+        [1.0, 0.0, 1.0],
+        0.546_368,
+        [0.694_240_03, 1.0, 1.0],
+        0.920_240_6,
+    ),
+    (
+        "multiply",
+        [0.178_403_68, 1.0, 1.0],
+        0.000_187_303_84,
+        [0.381_968_5, 0.0, 1.0],
+        0.231_551_89,
+    ),
+    (
+        "hue",
+        [0.0, 1.0, 0.184_612_81],
+        0.000_492_172_84,
+        [0.168_625_89, 1.0, 0.137_281_48],
+        0.473_317_1,
+    ),
+    (
+        "saturation",
+        [1.0, 0.510_409_5, 0.799_907_2],
+        0.000_144_150_27,
+        [1.0, 0.112_703_5, 1.0],
+        0.000_810_740_1,
+    ),
+    (
+        "color",
+        [0.0, 1.0, 1.0],
+        0.000_139_186_7,
+        [0.397_947, 0.696_802_7, 1.0],
+        0.000_208_006_11,
+    ),
+];
+
+#[test]
+fn rounding_never_lifts_a_colour_above_its_alpha() -> Outcome {
+    for (word, cb, ab, cs, a_s) in ABOVE_ITS_ALPHA {
+        let got = one([
+            cell([cb[0], cb[1], cb[2], ab])?,
+            cell([cs[0], cs[1], cs[2], a_s])?.blend(mode(word)?),
+        ])?;
+        assert!(
+            got.iter().all(|value| (0.0..=1.0).contains(value)),
+            "{word} {cb:?} at {ab} under {cs:?} at {a_s}: {got:?}"
+        );
+    }
+    Ok(())
+}
+
 // --- the value ---
 
 #[test]
