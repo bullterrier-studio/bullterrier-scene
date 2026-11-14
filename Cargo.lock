@@ -105,7 +105,7 @@ dependencies = [
 [[package]]
 name = "bullterrier-image"
 version = "0.1.0"
-source = "git+https://github.com/bullterrier-studio/bullterrier-image?rev=3b90e7d910f2bd0c62721f1c8452af3c7fd52d39#3b90e7d910f2bd0c62721f1c8452af3c7fd52d39"
+source = "git+https://github.com/bullterrier-studio/bullterrier-image?rev=c6b58acb0cfc908478c0893c9055556f76290700#c6b58acb0cfc908478c0893c9055556f76290700"
 dependencies = [
  "bullterrier-image-derive",
  "delaunator",
@@ -131,7 +131,7 @@ dependencies = [
 [[package]]
 name = "bullterrier-image-derive"
 version = "0.1.0"
-source = "git+https://github.com/bullterrier-studio/bullterrier-image?rev=3b90e7d910f2bd0c62721f1c8452af3c7fd52d39#3b90e7d910f2bd0c62721f1c8452af3c7fd52d39"
+source = "git+https://github.com/bullterrier-studio/bullterrier-image?rev=c6b58acb0cfc908478c0893c9055556f76290700#c6b58acb0cfc908478c0893c9055556f76290700"
 dependencies = [
  "proc-macro2",
  "quote",
