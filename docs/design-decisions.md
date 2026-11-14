@@ -382,16 +382,24 @@ counts its `draw` calls (`Layer.make`, arrives with C7).
   clip of the non-separable modes lands on 0 or 1 exactly in real numbers and an `f32` misses by ulps. The straight backdrop of the
   next layer is that colour over its alpha, so the invariant "a premultiplied colour never passes its alpha" is made where the
   colour is made, once, not defended in the readers.
+- **The brightness is valid by construction, not guarded where it is divided (review of C4a).** `color` and `luminosity` gave NaN for 14
+  greys: `Lum` summed in 32 bits is an ulp off a grey's level, `SetLum` moved a colour below 0 by an ulp, and `ClipColor`, which
+  measured the brightness again, divided 0 by 0. `Lum` is summed in 64 bits and rounded once (0 to 1, a grey's level), and `ClipColor`
+  takes the brightness `SetLum` aimed at, so `brightness - least` and `most - brightness` are positive whenever their branch runs. *Alternative
+  weighed:* a guard at the division (the invalid colour stays and a branch copes). Every grey over every grey is the test: the state space is
+  finite, so it is swept whole.
 - **Light is linear, so its order among the masks and the opacity is not observable.** `lit` turns the landed pixel into its colour
   over black, with alpha the largest of the three, and the masks and the opacity scale that alpha; a mask before or after the
   light gives the same pixel, and the code does it in the order of the stages. *Consequence:* a look that makes room past the box
   (C5) is what makes light spill; until then a light layer only counts the colour it has by its brightness.
-- **The nearest name is by edit distance, after lower case and `_` read as `-`.** One rule covers `"Multiply"`, `"soft_light"`,
-  `"softlight"` and a typo, so no list of known slips. *Alternative:* a refusal that lists the names only.
+- **A suggestion is made only for a word that is near a name.** One rule: the names the word begins (lower case, `_` read as `-`),
+  else those fewest edits away if within a third of its letters (at least one), else none. It covers `"lumi"`, `"Multiply"`,
+  `"soft_light"` and a typo, and gives `"bogus"` and `""` nothing (the nearest by distance alone had said `"hue"`). `Blend` prints its CSS name
+  from the table `FromStr` reads, which C6 writes `<layer>.blend` with.
 - **Vector is the differential oracle of the separable modes, and its tolerance is its own.** Vector holds a translucent source
   premultiplied in 8 bits, which `color-burn` and `color-dodge` turn into up to 2.1 levels at alpha 0.5 where the W3C formula
-  and scene agree; the bound is 1.5 levels (the largest seen is 1.498; translucent sources in the other ten modes reach 1.44), 2.5 for those two, and the translucent equation is
-  also checked by hand cases whose numbers are exact.
+  and scene agree; the bounds are 2 levels for an opaque source and 2.5 for a translucent one (the largest seen are 1.86 and 2.16), too loose to see a boundary that
+  moves by a level, so soft-light's boundaries, `ClipColor`'s thresholds and the translucent equation are also checked by hand-worked rows.
 - **Mask-layer refusals are at the `mask` call**, as the name already was: a non-normal blend and `as_light(true)` are
   `InvalidError` naming `mask`; the calls that say nothing (`blend("normal")`, `as_light(False)`) are accepted.
 - **What C4b meets** ("Needs from others" in `api.md`): `lay` draws into the one joined buffer and knows no layer by name; a group
