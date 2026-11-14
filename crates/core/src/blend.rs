@@ -5,6 +5,7 @@ use std::fmt;
 use std::str::FromStr;
 
 use crate::Error;
+use crate::suggest::nearest;
 
 /// How a layer joins the layers below it: the W3C compositing modes, by their CSS names. Colours are blended as sRGB values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -72,51 +73,11 @@ impl fmt::Display for Blend {
     }
 }
 
-/// The number of single-character edits (insert, delete, change) that turn `a` into `b`.
-fn distance(a: &str, b: &str) -> usize {
-    let b: Vec<char> = b.chars().collect();
-    let mut row: Vec<usize> = (0..=b.len()).collect();
-    for (i, x) in a.chars().enumerate() {
-        let mut diagonal = row[0];
-        row[0] = i + 1;
-        for (j, y) in b.iter().enumerate() {
-            let above = row[j + 1];
-            row[j + 1] = (diagonal + usize::from(x != *y)).min(above + 1).min(row[j] + 1);
-            diagonal = above;
-        }
-    }
-    row[b.len()]
-}
-
-/// The names to suggest for `word`, which is no mode: by one rule. The names that begin with what was typed (in lower case,
-/// `_` read as `-`: an abbreviation, or a slip of case or underscore); failing that the names fewest edits away, if that is
-/// within a third of the letters typed and at least one (a typo costs one or two edits, and a longer word may have more slips);
-/// failing that none, so that a word that is nothing like a mode gets no suggestion.
+/// The names to suggest for `word`, which is no mode: by the one rule of [`crate::suggest`], after lower-casing it and reading `_` as
+/// `-` (a slip of case or underscore).
 fn suggestions(word: &str) -> Vec<&'static str> {
     let plain = word.to_ascii_lowercase().replace('_', "-");
-    if plain.is_empty() {
-        return Vec::new();
-    }
-    let begins: Vec<&str> = NAMES
-        .iter()
-        .map(|(name, _)| *name)
-        .filter(|name| name.starts_with(&plain))
-        .collect();
-    if !begins.is_empty() {
-        return begins;
-    }
-    let nearest = NAMES
-        .iter()
-        .map(|(name, _)| distance(&plain, name))
-        .fold(usize::MAX, usize::min);
-    if nearest > (plain.chars().count() / 3).max(1) {
-        return Vec::new();
-    }
-    NAMES
-        .iter()
-        .map(|(name, _)| *name)
-        .filter(|name| distance(&plain, name) == nearest)
-        .collect()
+    nearest(&plain, NAMES.iter().map(|(name, _)| *name))
 }
 
 impl FromStr for Blend {

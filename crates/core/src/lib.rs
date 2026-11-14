@@ -25,6 +25,7 @@ mod reference;
 mod render;
 mod scene;
 mod source;
+mod suggest;
 mod text;
 mod warp;
 
