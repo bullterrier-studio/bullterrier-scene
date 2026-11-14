@@ -258,6 +258,11 @@ fn a_look_that_overshoots_image_s_nominal_range_by_rounding_still_gives_a_pictur
 /// 48 of them are 4 pixels of a canvas drawn at 40.
 const BLUR_4_PIXELS_AT_40: &str = r#"{"steps": [{"effect": "gaussian_blur", "params": {"radius": 48.0}}]}"#;
 
+/// Dark lines every 2 pixels at 40: a look that depends on where a pixel is, which a flat colour cannot show unless the
+/// look runs on a raster of the size the layer has.
+const SCANLINES_2_PIXELS_AT_40: &str =
+    r#"{"steps": [{"effect": "scanlines", "params": {"spacing": 24, "thickness": 0.5, "darkness": 0.8}}]}"#;
+
 const SEPIA: &str = r#"{"steps": [{"effect": "gradient_map", "preset": "sepia"}]}"#;
 
 /// The same blur at half that: 2 pixels at 40.
@@ -346,10 +351,10 @@ fn a_look_on_a_fill_a_drawing_a_text_or_a_group_is_images_render_of_what_it_drew
     for (what, plain) in kinds()? {
         let drawn = scene(40, 30, [plain.clone()])?.render(40)?;
         // a text's box is its glyphs', not the canvas: only a look that sees one pixel at a time is the same on both
-        // (a blur of a flat fill is the fill: the look that changes it is a gradient map)
+        // (a blur of a flat fill is the fill: the looks that change it are a gradient map and one that depends on the place)
         let recipes: &[&str] = match what {
             "a text" => &[PLUS_ONE_STOP],
-            "a fill" => &[PLUS_ONE_STOP, SEPIA],
+            "a fill" => &[PLUS_ONE_STOP, SEPIA, SCANLINES_2_PIXELS_AT_40],
             _ => &[PLUS_ONE_STOP, BLUR_4_PIXELS_AT_40],
         };
         for recipe in recipes {
