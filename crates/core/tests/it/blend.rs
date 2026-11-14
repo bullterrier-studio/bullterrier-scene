@@ -633,6 +633,64 @@ fn every_grey_over_every_grey_gives_numbers_in_every_mode() -> Outcome {
     Ok(())
 }
 
+/// Every near-grey (a level, each channel left or an ulp up or down: 27 colours a level) over every grey, and every grey over
+/// every near-grey, opaque, in the four modes that mix channels: numbers from 0 to 1. A near-grey is where the brightness of a
+/// colour and its least or largest channel can come out equal and `ClipColor` could divide 0 by 0 if it measured the
+/// brightness again instead of being given the one `SetLum` aimed at.
+#[test]
+fn every_near_grey_over_every_grey_and_back_gives_numbers_in_the_modes_that_mix_channels() -> Outcome {
+    // the plane is 256 greys along x and 256 levels times 27 steps along y
+    let one = |level: u8, step: i8| {
+        let level = f32::from(level) / 255.0;
+        match step {
+            1 => level.next_up().min(1.0),
+            -1 => level.next_down().max(0.0),
+            _ => level,
+        }
+    };
+    let mut nearly: Vec<[f32; 3]> = Vec::new();
+    for level in 0..=255_u8 {
+        for (a, b, c) in (-1..=1_i8).flat_map(|a| (-1..=1_i8).flat_map(move |b| (-1..=1_i8).map(move |c| (a, b, c)))) {
+            nearly.push([one(level, a), one(level, b), one(level, c)]);
+        }
+    }
+    let plane = |near_source: bool| -> Result<[Layer; 2], Error> {
+        let (mut grey_values, mut near_values) = (Vec::new(), Vec::new());
+        for near in &nearly {
+            for x in 0..=255_u8 {
+                let level = f32::from(x) / 255.0;
+                grey_values.extend([level, level, level, 1.0]);
+                near_values.extend([near[0], near[1], near[2], 1.0]);
+            }
+        }
+        let (below, above) = if near_source {
+            (grey_values, near_values)
+        } else {
+            (near_values, grey_values)
+        };
+        Ok([
+            Layer::picture(Raster::rgba(256, nearly.len(), below)?),
+            Layer::picture(Raster::rgba(256, nearly.len(), above)?),
+        ])
+    };
+    for near_source in [true, false] {
+        for word in ["hue", "saturation", "color", "luminosity"] {
+            let [below, above] = plane(near_source)?;
+            let picture = scene(256, 256 * 27, [below, above.blend(mode(word)?)])?.render(6912)?;
+            for (index, got) in crate::common::pixels(&picture).enumerate() {
+                assert!(
+                    got.iter().all(|value| (0.0..=1.0).contains(value)),
+                    "{word}, near-grey {} {}: backdrop level {}: {got:?}",
+                    if near_source { "source" } else { "backdrop" },
+                    index / 256,
+                    index % 256
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The four modes that mix channels, on greys: no hue and no saturation to take, so over an opaque grey backdrop `hue`,
 /// `saturation` and `color` give the backdrop (`SetSat` of a grey is black, and `SetLum` to the backdrop's brightness, a
 /// grey's own level, gives the backdrop back), and `luminosity` gives the source (`SetLum(Cb, Lum(Cs))` with `Lum` of a grey

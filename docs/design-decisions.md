@@ -383,11 +383,12 @@ counts its `draw` calls (`Layer.make`, arrives with C7).
   next layer is that colour over its alpha, so the invariant "a premultiplied colour never passes its alpha" is made where the
   colour is made, once, not defended in the readers.
 - **The brightness is valid by construction, not guarded where it is divided (review of C4a).** `color` and `luminosity` gave NaN for 14
-  greys: `Lum` summed in 32 bits is an ulp off a grey's level, `SetLum` moved a colour below 0 by an ulp, and `ClipColor`, which
-  measured the brightness again, divided 0 by 0. `Lum` is summed in 64 bits and rounded once (0 to 1, a grey's level), and `ClipColor`
-  takes the brightness `SetLum` aimed at, so `brightness - least` and `most - brightness` are positive whenever their branch runs. *Alternative
-  weighed:* a guard at the division (the invalid colour stays and a branch copes). Every grey over every grey is the test: the state space is
-  finite, so it is swept whole.
+  greys: `SetLum` moved a colour to a brightness, an ulp off for a grey in 32 bits, the colour fell below 0 by an ulp, and `ClipColor`,
+  which measured the brightness again, found it equal to the least channel and divided 0 by 0. `ClipColor` takes the brightness `SetLum`
+  aimed at, so `brightness - least` and `most - brightness` are positive whenever their branch runs (the aim is from 0 to 1: monotone
+  rounding, white's `Lum` is exactly 1). *Alternatives weighed:* a guard at the division (the invalid colour stays and a branch copes);
+  summing `Lum` in 64 bits (a first fix: it made a grey's brightness its level, which nothing needs once the clip is given its brightness; a
+  mutant that took it back survived every test, so it was removed). The state space of greys and near-greys is finite, so it is swept whole.
 - **Light is linear, so its order among the masks and the opacity is not observable.** `lit` turns the landed pixel into its colour
   over black, with alpha the largest of the three, and the masks and the opacity scale that alpha; a mask before or after the
   light gives the same pixel, and the code does it in the order of the stages. *Consequence:* a look that makes room past the box
