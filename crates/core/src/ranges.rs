@@ -44,6 +44,16 @@ pub(crate) const FRACTION: Range = Range {
     unit: "",
 };
 
+/// `value` as a message shows it: as it is, or in scientific form where its decimal expansion would be hundreds of characters
+/// (1e300, -1e-300).
+fn shown(value: f64) -> String {
+    if value != 0.0 && !(1e-6..1e15).contains(&value.abs()) {
+        format!("{value:e}")
+    } else {
+        value.to_string()
+    }
+}
+
 impl Range {
     /// `value` if it is a number within the range.
     pub(crate) fn check(self, field: &str, value: f64) -> Result<f64, Error> {
@@ -53,8 +63,11 @@ impl Range {
             Err(Error::invalid(
                 field,
                 format!(
-                    "a number from {} to {}{} is wanted, got {value}",
-                    self.low, self.high, self.unit
+                    "a number from {} to {}{} is wanted, got {}",
+                    self.low,
+                    self.high,
+                    self.unit,
+                    shown(value)
                 ),
             ))
         }
@@ -68,8 +81,12 @@ impl Range {
             Err(Error::invalid(
                 field,
                 format!(
-                    "two numbers from {} to {}{} are wanted, got ({x}, {y})",
-                    self.low, self.high, self.unit
+                    "two numbers from {} to {}{} are wanted, got ({}, {})",
+                    self.low,
+                    self.high,
+                    self.unit,
+                    shown(x),
+                    shown(y)
                 ),
             ))
         }

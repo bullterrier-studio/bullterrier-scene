@@ -109,8 +109,15 @@ class Layer:
         """
         if isinstance(source, str):
             raise TypeError(f"a picture is an array or a Path, got the text {source!r}: pass Path({source!r})")
+        if maps is not None and not isinstance(maps, Mapping):
+            raise TypeError(
+                "maps: a mapping from names to arrays, Paths or None is wanted, "
+                f"got {type(maps).__name__} {_shown(maps)}"
+            )
         made = cls(_core.Layer.picture_file(source) if isinstance(source, Path) else _core.Layer.picture(source))
         for name, given in (maps or {}).items():
+            if not isinstance(name, str):
+                raise TypeError(f"maps: a name is text, got {type(name).__name__} {_shown(name)}")
             if isinstance(given, str):
                 raise TypeError(f"map {name!r} is an array or a Path, got the text {given!r}: pass Path({given!r})")
             if given is None:
@@ -160,6 +167,12 @@ class Layer:
             raise TypeError(f"content: text is wanted, got {type(content).__name__} {_shown(content)}")
         if not isinstance(color, str):
             raise TypeError(f'color: a text like "#rrggbb" is wanted, got {type(color).__name__} {_shown(color)}')
+        try:
+            content.encode("utf-8")
+        except UnicodeEncodeError as error:
+            raise InvalidError(
+                f"content: text that UTF-8 can hold is wanted ({error.reason} at {error.start})"
+            ) from error
         options = _document("text", text_options)
         if isinstance(font, Path):
             return cls(_core.Layer.text_file(content, font, color, options))
@@ -267,7 +280,7 @@ class Layer:
 
     def opacity(self, value: float) -> Self:
         """This layer at `value` of its own alpha, from 0 (hidden) to 1 (the default); `InvalidError` outside it."""
-        return type(self)(self._core.opacity(value))
+        return type(self)(self._core.opacity(_number("opacity", value)))
 
     def look(self, recipe: Any) -> Self:
         """This layer with an image look run on it, after the looks it has.

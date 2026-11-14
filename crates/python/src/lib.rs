@@ -130,8 +130,13 @@ fn unsupported(array: &Bound<'_, PyAny>, what: &str, shaped: &str) -> PyErr {
         || "something that is no numpy array".to_owned(),
         |name| format!("dtype {name}"),
     );
+    let hint = if text("name").is_some_and(|name| name == "bool") {
+        ": a bool array is converted with array.astype(np.float32)"
+    } else {
+        ""
+    };
     pyo3::exceptions::PyTypeError::new_err(format!(
-        "{what} holds uint8, uint16, float32 or float64 values, shaped {shaped}, got {got}"
+        "{what} holds uint8, uint16, float32 or float64 values, shaped {shaped}, got {got}{hint}"
     ))
 }
 

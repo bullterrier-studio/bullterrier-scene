@@ -818,3 +818,46 @@ def test_options_that_are_not_plain_data_are_an_invalid_error_and_a_text_masks()
     letters = typeset("Hi", size=60).place(dx=20, dy=70)
     clipped = Scene(200, 100).add(Layer.fill("#ff0000").mask(letters)).render(200)
     assert np.array_equal(clipped[..., 3], Scene(200, 100).add(letters).render(200)[..., 3])
+
+
+# --- the Python surface the review of C3 found loose -----------------------------------------------------------------
+
+
+@pytest.mark.parametrize("maps", [[("m", LEVELS)], (("m", LEVELS),), "m", 3, [LEVELS]])
+def test_maps_that_are_no_mapping_are_a_type_error_naming_maps_and_what_is_wanted(maps):
+    with pytest.raises(TypeError, match=r"maps.*mapping"):
+        Layer.picture(np.zeros((2, 4, 3), np.float32), maps=maps)
+
+
+def test_a_map_name_that_is_no_text_is_a_type_error_naming_maps():
+    with pytest.raises(TypeError, match=r"maps.*name"):
+        Layer.picture(np.zeros((2, 4, 3), np.float32), maps={3: LEVELS})  # type: ignore[dict-item]  # on purpose
+
+
+def test_the_text_option_refusal_names_the_python_call_not_rusts():
+    with pytest.raises(InvalidError, match=r"Layer\.drawing") as raised:
+        typeset(inside="M0 0 L9 0 L9 9 Z")
+    assert "::" not in str(raised.value)
+
+
+def test_a_lone_surrogate_in_the_content_is_an_invalid_error_naming_content():
+    with pytest.raises(InvalidError, match="content"):
+        typeset("\ud800")
+
+
+@pytest.mark.parametrize("value", [-1e-300, 1e300, -1e-9])
+def test_a_number_the_core_refuses_is_shown_short(value):
+    with pytest.raises(InvalidError, match="feather") as raised:
+        photo(m=LEVELS).mask("m", feather=value)
+    assert len(str(raised.value)) < 160
+
+
+def test_a_boolean_map_is_refused_naming_the_dtype_and_the_fix():
+    with pytest.raises(TypeError, match=r"bool.*astype"):
+        photo(m=LEVELS > 0.3)
+
+
+@pytest.mark.parametrize("value", [True, np.True_])
+def test_a_bool_is_no_opacity(value):
+    with pytest.raises(TypeError, match="opacity"):
+        Layer.fill("#ffffff").opacity(value)

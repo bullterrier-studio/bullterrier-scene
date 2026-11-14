@@ -149,9 +149,9 @@ fn check_option(name: &str, value: &Value) -> Result<(), Error> {
     let refusal = match name {
         "content" | "font" => Some("scene owns the content and the font: they are arguments of the layer"),
         "anchor" => Some("scene places the text: its origin is its anchor, and `place` moves it"),
-        "inside" | "runs" => {
-            Some("a text in a shape or in runs is a drawing: build it with vector and use `Layer::drawing`")
-        }
+        "inside" | "runs" => Some(
+            "a text in a shape or in runs is a drawing: build it with vector and use a drawing layer (`Layer.drawing`)",
+        ),
         _ => None,
     };
     if let Some(reason) = refusal {
