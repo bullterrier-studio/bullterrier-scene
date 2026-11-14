@@ -5,22 +5,13 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use bullterrier_image::{Options, Photo, Presets, Recipe};
+use bullterrier_image::{Options, Photo, Presets, RECIPE_FORMATS, Recipe};
 use serde_json::Value;
 
 use super::{Drawn, Given, Opened, Source};
 use crate::geometry::Rect;
 use crate::warp::resize;
 use crate::{Error, Map, Raster};
-
-/// The formats of a recipe the linked image crate reads. A recipe document written by a recipe file carries one; image
-/// reads a recipe without it, and refuses a top-level `format`, so a recipe given here has the key checked against this list
-/// and removed.
-///
-/// shortcut: image keeps its list private (`recipe/file.rs`), so this copy can drift at a bump of the pin; the
-/// `data_boundary` test reads formats 0 to 4 through image's public `Recipe::from_toml` and fails when they differ. Lift
-/// it when image publishes the list (api.md, "Needs from others").
-const READ_FORMATS: [i64; 3] = [1, 2, 3];
 
 /// A picture the layer holds, or a file it reads when it is drawn. Its box is its pixels, one design pixel each, at the
 /// canvas origin.
@@ -64,7 +55,8 @@ fn refused(error: &bullterrier_image::Error) -> Error {
 }
 
 impl Look {
-    /// The look the recipe document `document` is: an object image reads, with a `format` it reads or none.
+    /// The look the recipe document `document` is: an object image reads, with a `format` it reads or none (a refused one is
+    /// an [`Error::Format`] naming the versions read).
     pub(crate) fn new(document: &Value) -> Result<Self, Error> {
         let Value::Object(members) = document else {
             return Err(Error::Format {
@@ -72,11 +64,10 @@ impl Look {
                 message: format!("a look is a JSON object, got {document}"),
             });
         };
-        let mut members = members.clone();
-        if let Some(found) = members.remove("format")
-            && !found.as_i64().is_some_and(|number| READ_FORMATS.contains(&number))
+        if let Some(found) = members.get("format")
+            && Recipe::read_format(found).is_err()
         {
-            let read: Vec<String> = READ_FORMATS.iter().map(ToString::to_string).collect();
+            let read: Vec<String> = RECIPE_FORMATS.iter().map(ToString::to_string).collect();
             return Err(Error::Format {
                 pointer: "/look/format".to_owned(),
                 message: format!(
@@ -85,7 +76,7 @@ impl Look {
                 ),
             });
         }
-        let recipe = Recipe::from_json(&Value::Object(members).to_string()).map_err(|error| refused(&error))?;
+        let recipe = Recipe::from_json(&document.to_string()).map_err(|error| refused(&error))?;
         let presets = Presets::shipped().map_err(|error| refused(&error))?;
         let recipe = recipe
             .checked_from("recipe", &presets)

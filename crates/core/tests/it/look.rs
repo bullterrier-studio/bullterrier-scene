@@ -2,7 +2,7 @@
 //! from the documented rule of the effect (exposure +1 stop doubles a value), never from the code's own arithmetic. The
 //! equality with image's own render is in `data_boundary`.
 
-use bullterrier_image::{Options, Photo, Presets, Recipe};
+use bullterrier_image::{Options, Photo, Presets, RECIPE_FORMATS, Recipe};
 use bullterrier_scene::{Deg, Error, Fit, Layer, Place, Raster, Scene, Text};
 
 use crate::common::{Outcome, close, made, pixel, pixels, rectangle, scene, solid, varied};
@@ -143,12 +143,12 @@ fn text_that_is_not_a_json_object_is_a_format_error_under_look() -> Outcome {
     Ok(())
 }
 
-/// A `format` is a version of a recipe file, which image's reader reads 1 to 3 of. A recipe written with one is taken if the
+/// A `format` is a version of a recipe, of which image's reader reads those it publishes (`RECIPE_FORMATS`). A recipe written with one is taken if the
 /// linked crate reads it, and refused naming the version found and the versions read if not.
 #[test]
 fn a_format_the_linked_image_crate_reads_is_taken_and_one_it_does_not_is_refused_naming_both() -> Outcome {
     let picture = solid(2, 2, [0.25, 0.25, 0.25, 1.0])?;
-    for format in [1, 2, 3] {
+    for format in RECIPE_FORMATS {
         let recipe =
             format!(r#"{{"format": {format}, "steps": [{{"effect": "grade", "params": {{"exposure": 1.0}}}}]}}"#);
         let drawn = scene(2, 2, [Layer::picture(picture.clone()).look(&recipe)?])?.render(2)?;

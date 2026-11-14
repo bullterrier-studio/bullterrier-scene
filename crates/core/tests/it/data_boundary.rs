@@ -2,7 +2,7 @@
 //! writes, the drawing `to_json()` writes, and what each renders. A bump of a pin runs these first; a change in a
 //! sibling's form fails here, naming it, before it fails in a layer.
 
-use bullterrier_image::{Options, Photo, Picture, Presets, Recipe};
+use bullterrier_image::{Options, Photo, Picture, Presets, RECIPE_FORMATS, Recipe};
 use bullterrier_scene::{Layer, Map, Raster};
 use bullterrier_vector::{Drawing, Inputs, Size, Values};
 
@@ -12,8 +12,8 @@ type Outcome = Result<(), Box<dyn std::error::Error>>;
 
 /// The three recipes as `bullterrier_image.Recipe.to_dict()` writes them at the pinned revision (the dicts printed by
 /// the pinned package itself): a step has its parameters, its `opacity` and its `blend_mode`, a mask after them; a preset
-/// is already expanded into the parameters; a region is a table with its `kind`; there is no `format` (a recipe file has
-/// one, a recipe does not).
+/// is already expanded into the parameters; a region is a table with its `kind`. The `format` key `to_dict()` writes is
+/// added by the test below.
 ///
 /// `Recipe([fx.grade(exposure=1.0)])`
 const PLAIN_STEP: &str =
@@ -64,11 +64,24 @@ fn the_pinned_image_reader_reads_every_form_to_dict_writes_and_renders_it() -> O
     Ok(())
 }
 
+/// A recipe that carries a `format` (as `Recipe.to_dict()` now writes) reads and renders as the same recipe without one, and
+/// every format image publishes at or above the lowest the recipe needs is read.
 #[test]
-fn a_recipe_that_carries_a_format_is_refused_by_the_pinned_reader() {
-    let text = r#"{"format": 3, "steps": []}"#;
-    let refused = Recipe::from_json(text).map_err(|error| error.to_string());
-    assert!(refused.is_err_and(|message| message.contains("format")));
+fn a_recipe_with_a_format_reads_and_renders_as_the_same_recipe_without_one() -> Outcome {
+    let values = synthetic(12, 20);
+    for (what, recipe) in RECIPES {
+        let plain = rendered(recipe, 12, 20, &values)?;
+        let lowest = Recipe::from_json(recipe)?.format();
+        for format in RECIPE_FORMATS.into_iter().filter(|format| *format >= lowest) {
+            let written = recipe.replacen('{', &format!("{{\"format\": {format}, "), 1);
+            same_bits(
+                &rendered(&written, 12, 20, &values)?,
+                &plain,
+                &format!("{what}, format {format}"),
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Hand computation, from `grade`'s documented rule: exposure +1 stop doubles every value, and with contrast 1 and no
@@ -203,16 +216,6 @@ fn a_drawing_layer_equals_the_vector_crates_own_render_at_the_same_size() -> Out
         }
     }
     Ok(())
-}
-
-/// The recipe file formats image reads, as `Recipe::from_toml` tells (scene keeps a copy of the list, which image keeps
-/// private): a bump of the pin that adds or drops one fails here.
-#[test]
-fn the_formats_scene_reads_are_the_ones_the_pinned_image_reader_reads() {
-    for format in 0..=4 {
-        let read = Recipe::from_toml(&format!("format = {format}\n[[step]]\neffect = \"grade\"\n")).is_ok();
-        assert_eq!(read, (1..=3).contains(&format), "format {format}");
-    }
 }
 
 /// A recipe that works only where the given map `here` says (`grade` +1 stop, masked by a region of kind `given`), as

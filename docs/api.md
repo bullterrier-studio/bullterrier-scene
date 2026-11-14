@@ -46,7 +46,7 @@ Nothing else below exists yet (no parameters or addresses of an inner scene: C6)
 | `fit`, `place` | `anchor` outside 0 to 1, and `dx` or `dy` outside -1e6 to 1e6 (the range of the parameters), are `InvalidError` naming the field. A call that sets a number the call refuses leaves the layer as it was. `fit` is resolved when the scene renders | |
 | `perspective` | Corners beyond -1e6 to 1e6 or not finite, and corners that are no strictly convex quadrilateral, are `InvalidError` naming `corners`; a mirrored (counter-clockwise) one is accepted. A layer under one is drawn at the largest scale the quadrilateral gives any corner of its window along each axis, cut down by one factor to the 2^27 pixels of a layer where it would pass them (not refused: the near side loses sharpness, which window drawing, B1, lifts). A parallelogram is affine and takes the exact path: an axis-aligned one is what `place` makes, bit for bit where its numbers are exact (whole, or fractions of a power of two) and within the blend's rounding (1e-5) where they are decimals | |
 | A look | Every layer takes one (C5a). It runs on the raster the source drew at the size the layer has: `output scale x fit factor x scale` (see "How a layer is drawn"), on its straight colour with the alpha left as it is (it is the source's, put back after the look). A look's `px` are image's own, a pixel of the layer's drawn raster whose long side is 480, not yet pixels of the canvas (C5b); the tests keep to canvas-sized layers. Image refuses a look on a raster of more than 2^26 pixels, in its words | C5b |
-| `format` of a look | `Recipe.to_dict()` writes none, and image's reader refuses a top-level `format`. A document that carries one is checked against a copy of image's list (1, 2, 3; image keeps it private, a test fails when a bump of the pin changes it) and the key is removed. The refusal names the version found and the versions read, not the crate's version, which neither crate publishes | image: a public list and version |
+| `format` of a look | `Recipe.to_dict()` writes the lowest `format` the recipe needs, and image's reader takes it with the others it publishes (`RECIPE_FORMATS`). A `format` it does not read is a `FormatError` under `/look/format` naming the version found and the versions read, not the crate's version, which neither crate publishes | |
 | A drawing | `inputs` (font bytes) is not built: no layer needs a font yet. A document vector cannot read is `FormatError` under `/drawing` in vector's words, a version skew included, without the crate's version. Vector draws the whole frame, not a part (B1) | C6, text layers |
 | Errors | The address of an error of a layer in a scene starts with its name (`photo.look`), a layer without one `layer1`; at the call that made it, before the layer has a place, it is the field (`look`) | |
 | Python paths | `Layer.picture(Path)` is read at `render`; `Layer.drawing(Path)` and `Layer.look(Path)` at the call | |
@@ -394,8 +394,8 @@ when it is given, by the crate scene links, so a typo fails at the call naming t
 once, there, and embedded: a saved scene is self-contained. A picture, a font file or a map file is not embedded; it is read
 at `render`.
 
-**Version skew.** A saved vector document carries `"version": 1`; an image recipe carries a `format` in a recipe file
-(`Recipe.to_dict()` writes none, so scene stamps the format of the crate it links). A reader refuses what the linked crate
+**Version skew.** A saved vector document carries `"version": 1`; an image recipe carries a `format`
+(`Recipe.to_dict()` writes it, and scene keeps it). A reader refuses what the linked crate
 does not read, naming where it is, the version found, the versions read and the sibling crate's version:
 
 ```
