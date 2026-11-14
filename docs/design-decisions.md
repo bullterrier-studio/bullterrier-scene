@@ -535,6 +535,39 @@ counts its `draw` calls (`Layer.make`, arrives with C7).
   nothing was set on shares its source, so a cache key by layer value sees what did not change; looks are cloned with their
   recipe at each draw (`Finish::clone`), which a cache would avoid.
 
+## C6b: the scene as JSON, and `==` (2026-11-14)
+
+- **One module owns the document.** `document.rs` writes, reads and compares it; a source says only its own keys
+  (`Source::document`: `picture` and `maps`, `drawing` and `values`, `text` and its font and options, `fill`, `scene`), so the two
+  adapter files still hold all that is known of image's recipe and vector's document (a look is `{"format", "recipe"}`, a
+  drawing vector's canonical text). Reader and writer are one file because they are one grammar: the table of keys, the
+  defaults and the order are written once.
+- **The reader builds a scene by the public calls.** `from_json` calls `Layer::fill`, `fit`, `place`, `mask`, `look`, `add`...
+  in the order a person would, so every rule a document must meet is the rule of the call, in its words; the reader adds
+  only the shape (a key, a kind, a pointer). A refusal of a call is the `FormatError` at the pointer of the member the error's
+  address names (`/layers/0/place/dx`), else of the object. Reason: a second set of rules for documents would drift; none can.
+- **Equality is the same document.** `==` is `layer_document(.., Form::Compare)` equal: the document that is saved, with a
+  held picture or map as the digest of its pixels (it cannot be saved: it has no file) and a file as where it is. One
+  definition for "saved" and "equal" (what is saved is what is compared), no walk of a second tree, no render. The cost is
+  that a held picture is hashed at each `==`. A scene is equal to its reading back, which is the property the batch needs.
+- **A file is one value.** `Located` is the path as written, the folder it is relative to and the digest it was saved with:
+  `to_json` writes the path as written and the digest of the file now, `from_json` keeps path, folder and digest, the render
+  resolves the path and checks the digest. So a scene read with a base writes the same relative path again, and a scene
+  made by calls writes the path it was given. `to_json` takes no folder: the writer does not know where the text goes.
+- **Holes save.** A template is a scene (`cover_template`), so a hole is `null`; a drawing's set Params are `values` because
+  vector keeps them outside its document (C6a); the masks are one list in call order because `mask#2` names the second call,
+  of either kind.
+- **A hostile document is refused at the cheapest place.** The parser is `serde_json` through a visitor that refuses a key
+  written twice (an object read as a map keeps the last one silently), at its depth bound of 128; the count of layers
+  is checked before one is built; a scene or a mask layer nested deeper than `MAX_DEPTH` is refused when entered, before the
+  reader's own recursion could grow (a nest of 40 scenes overflowed 256 KB before this bound, then reads in a fraction of it).
+- **New dependencies.** `sha2` (the digest of a file; the SHA-256 the ecosystem's formats use; already in the tree through
+  vector), `serde` (the visitor), and `serde_json`'s `float_roundtrip` (without it a placement reads back one ulp away
+  from the number written: a property test found `905.1321946557415` read as `...416`).
+- **What C7 inherits.** A layer's document under `Form::Compare` is a value a cache key can be made of (a file is its path:
+  the cache keys a file by path, size and time as `api.md` says, and the digest is checked at the read). Hashing a held
+  picture at each key would be wasteful: C7 hashes once, where the layer is made. The pixels are hashed at `==` only.
+
 ## Smaller choices of the API (2026-11-13)
 
 - **A group is a scene, a mask is a layer.** No group type and no mask type; one `Layer` does both.
@@ -542,8 +575,7 @@ counts its `draw` calls (`Layer.make`, arrives with C7).
 - **Gradients are vector's.** A rectangle filled with `btvec.linear_gradient`; scene has no second gradient.
 - **`Path` is a file, `str` is text or a name.** A mistaken `str` is a `TypeError` naming the fix, not a guess.
 - **A look that sets `size` or `frame` is refused.** Scene owns a layer's size and fit; regions are fine.
-- **Equality is structural.** Two scenes are equal when they hold the same data; equal scenes with equal values render equal
-  pictures.
+- **Equality is the same document** (C6b, above). Equal scenes with equal values render equal pictures.
 
 ## Needs from the template: two template-owned edits (2026-11-13)
 

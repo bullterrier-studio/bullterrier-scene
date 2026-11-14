@@ -93,6 +93,13 @@ def test_a_drawing_keeps_the_params_that_were_set_on_it(tmp_path):
     assert json.loads(set_.to_json())["layers"][0]["values"] == {"ring_on": 0.5}
 
 
+def test_the_saved_scene_example_is_equal_after_the_trip_and_draws_the_same_bits(tmp_path):
+    scene, loaded = load("c6b_saved_scene").saved_and_loaded(tmp_path, lambda pixels, path: png(path, pixels))
+    assert loaded == scene
+    assert loaded.render(96).tobytes() == scene.render(96).tobytes()
+    assert (tmp_path / "scene.json").is_file()
+
+
 # --- equality ---------------------------------------------------------------------------------------------------------
 
 

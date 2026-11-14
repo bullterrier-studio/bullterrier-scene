@@ -8,7 +8,7 @@ Set 2026-11-14. The ecosystem view (three directions, order, library changes in 
 | Direction | What scene must provide | Status |
 |---|---|---|
 | Animated posters | `scene.with_values({...}).render(size)` per frame (built with C6a); the per-layer cache C7; a fast path for layers that only move; bands B1 for large frames. Video owns the clock, the signal mapping and the encode | cache, fast path and bands not built |
-| Websites | A web export target that reads the scene JSON (C6b): each layer an image or a vector, placed with CSS transforms, masks as CSS masks, blends as CSS `mix-blend-mode` (the W3C set by CSS names, on purpose), links as hit areas. Effects are baked into the layer images. Also a render worker (design README, "As a paid web app") | JSON not built; export not planned |
+| Websites | A web export target that reads the scene JSON (C6b, built): each layer an image or a vector, placed with CSS transforms, masks as CSS masks, blends as CSS `mix-blend-mode` (the W3C set by CSS names, on purpose), links as hit areas. Effects are baked into the layer images. Also a render worker (design README, "As a paid web app") | JSON built (C6b); export not planned |
 | Drag-and-drop editor | `scene.parameters()` for controls (unit, range, meaning per address); a hit-test call ("which layer is under this point"); an edit API for the layer tree (add, remove, reorder, regroup); a draft at a smaller size (built: `render(size)`); undo as immutable values (built) | parameters in progress; hit-test and tree edit not planned |
 
 **The move-only fast path.** `dx`, `dy`, `rotate`, `skew` and `flip` only re-warp a cached raster of the layer. `scale` redraws
@@ -20,15 +20,13 @@ drawn in the drawing: 3 s). Sources: the 71 s in `bullterrier-demos/feedback/sce
 
 ## Batches still to do, in order
 
-1. **C6a** parameters in the shared description format (in progress on branch `feat/parameters`).
-2. **C6b** the scene as JSON.
-3. **Polish** the list below.
-4. **C7** the per-layer cache, with the move-only fast path.
-5. **M3** the mill piece rebuilt as one scene.
-6. **O1** PNG output.
-7. **P1** the Rust command line, `bt-scene render`.
-8. **The final poster** in `bullterrier-demos`, using every library (the owner wants it to be properly impressive).
-9. After scene's first release: video (clock, mapping, encode), the web export, editor support (hit-test, tree edit), a
+1. **Polish** the list below.
+2. **C7** the per-layer cache, with the move-only fast path.
+3. **M3** the mill piece rebuilt as one scene.
+4. **O1** PNG output.
+5. **P1** the Rust command line, `bt-scene render`.
+6. **The final poster** in `bullterrier-demos`, using every library (the owner wants it to be properly impressive).
+7. After scene's first release: video (clock, mapping, encode), the web export, editor support (hit-test, tree edit), a
    frontend.
 
 C5b room (a halo or light spill past a layer's box) waits for image's sideways footprint ("Needs from others" in

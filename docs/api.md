@@ -1,8 +1,8 @@
 # The code API
 
 Status: A1, designed from the example programs in [examples/](examples/); C1 (the walking skeleton), C2a (`fit` and the
-affine `place`), C2b (`perspective`), C3 (masks, maps and text), C4a (blend modes and light), C4b (references), C4c (scenes as layers), C5a and C5b-lite (looks on every layer, design pixels) and C6a (parameters) are built, the rest is not. What they make real, and where they differ from the contract below, is "What is
-built". Every other signature is what batches C5 to C7 make real, and each example is the acceptance material of the batch
+affine `place`), C2b (`perspective`), C3 (masks, maps and text), C4a (blend modes and light), C4b (references), C4c (scenes as layers), C5a and C5b-lite (looks on every layer, design pixels), C6a (parameters) and C6b (the scene as JSON, `==`) are built, the rest is not. What they make real, and where they differ from the contract below, is "What is
+built". Every other signature is what batches C5b room and C7 make real, and each example is the acceptance material of the batch
 that makes it run. Reasons:
 [design-decisions.md](design-decisions.md). The JSON form of a scene is "Saved scene" below.
 
@@ -38,7 +38,8 @@ names), `Layer::blend(Blend::Multiply)` and `Layer::as_light(true)`, both return
 
 **C4c** adds `Layer.scene(inner)` (Python) and `Layer::scene(inner: Scene)` (Rust: it returns the layer, no `Result`; what it can be refused for is found by `Scene::add` and `Layer::mask`).
 **C6a** adds `Scene.parameters()` and `Scene.with_values(mapping)` (Python; `Parameter`, a frozen dataclass; `Layer.picture(None)`, a hole), and in Rust `Scene::{parameters, with_values}`, `Parameter`, `Kind`, `Value`, `Values` (`scene.with_values(&Values::new().set("title.text", "Pilot"))?`) and `Layer::picture_hole`. "Values" says what is listed; the rows below say where it differs from that.
-Nothing else below exists yet (no JSON: C6b; no cache: C7). Each call is as written below, except:
+**C6b** adds `Scene.to_json()` and `Scene.from_json(text, *, base=None)` (Python) and `Scene::to_json()` and `Scene::from_json(text, base)` (Rust, `base: &Path`, empty for the working folder), and `==` on `Scene` and `Layer` (`PartialEq`). "Saved scene" is the document.
+Nothing else below exists yet (no cache: C7). Each call is as written below, except:
 
 | Where | Built | Changes with |
 |---|---|---|
@@ -52,7 +53,7 @@ Nothing else below exists yet (no JSON: C6b; no cache: C7). Each call is as writ
 | A drawing | `inputs` (font bytes) is not built: no layer needs a font yet. A document vector cannot read is `FormatError` under `/drawing` in vector's words, a version skew included, without the crate's version. Vector draws the whole frame, not a part (B1) | text layers |
 | Errors | The address of an error of a layer in a scene starts with its name (`photo.look`), a layer without one `layer1`; at the call that made it, before the layer has a place, it is the field (`look`) | |
 | Python paths | `Layer.picture(Path)` is read at `render`; `Layer.drawing(Path)` and `Layer.look(Path)` at the call | |
-| Equality | Not built: `==` on a scene or layer is identity in Python, and the Rust types have no `PartialEq`. Two scenes are compared by `parameters()` and their renders | C6b |
+| Equality (C6b) | `==` on a `Scene` or a `Layer` is **the same document** (`Form::Compare` of `document.rs`: the document `to_json` writes, with a picture or a map held in memory by the SHA-256 of its pixels, a file by where it is, and no digest). It never renders and never reads a file. A look and a drawing are equal by what their crates write of them (image's `Recipe` as JSON, vector's canonical document), so a colour's case, a look's `format` number a recipe does not need and a look built from a dict or a file do not matter. Equal scenes list equal `parameters()` and render equal pictures; the converse is false (two documents may draw alike). **Limit:** the pixels of a held picture are hashed at each `==` (a 12 megapixel picture: a fraction of a second); a scene with a drawing that vector cannot write (past its document limits) is equal only to a scene that fails alike. In Python a `Scene` and a `Layer` are unhashable |
 | Maps | A map is a float32 (height, width) array of 0 to 1 (`uint8`, `uint16` and `float64` too; a `bool` array is `TypeError`, naming the dtype: `array.astype(np.float32)`), a `Path` to a grey picture read at `render`, or `None`, a hole. Maps are given with the picture (`maps=`; Rust `Layer::map` and `map_file` after the constructor) and are parameters of kind `picture`, `<layer>.map.<name>`. A hole is `InvalidError` at `render` naming `<layer>.map.<name>` until `with_values` fills it; a map of another size than its picture is `InvalidError` there, with both sizes. A name is letters, digits and `_` starting with a letter. A look is handed the maps its recipe can be given (`subject`, `depth`, a `given` region) through image's `Photo::with_map`, resampled to the size the look runs at; a map the recipe does not know (`matte`) is kept for masks and not given | |
 | Masks | Stages 4 and 6 as "How a layer is drawn" says. A mask by a map name is checked at the call (`mask` is `InvalidError` for a name the layer does not have yet: give the map first) | |
 | Mask layers | A mask layer is drawn as any layer is, on the canvas grid, and only its alpha, or its brightness times its alpha, is kept. Its opacity multiplies the mask. A name (`named`), a non-normal blend and `as_light(true)` on a mask layer are each `InvalidError` naming `mask` at the `mask` call: a name would collide with the lookup of a reference (C4b), and a blend and a light have no meaning in a mask (`blend("normal")` and `as_light(False)` say nothing and are accepted). Its own masks and looks apply; `Layer.of` as a mask layer is a reference ("References"), whose own place and looks apply | |
@@ -68,6 +69,7 @@ Nothing else below exists yet (no JSON: C6b; no cache: C7). Each call is as writ
 | Drawings | A drawing is drawn to the pixel: vector draws a frame at one scale, centred, in a raster whose short side is rounded up, which left a quarter to a half pixel of slack (a translucent border: alpha 0.749 at 1,920 by 1,080 drawn at 1,000) and could not draw a frame at two scales (`stretch` letterboxed). The adapter instead scales the drawing's shapes to the density the layer is drawn at along each axis (a factor of about 1.00x; the two densities of `stretch`), moves them by the fraction of a pixel the box starts at, and gives vector a frame that is exactly the raster at one scale. The warp then copies the raster onto whole pixels (a move or a zoom with nothing turned, skewed or flipped) and does not cut the drawing's own antialiased edge again. A full-frame drawing is opaque to the edge at any size, `stretch` stretches, and a text is where vector puts it at fractional anchors and scales. **Limits:** a stroke's width, a shadow's offset and a halftone's pitch are in design pixels at the mean of the two densities, so under `stretch` they are not stretched (exact scale, up to the rounding ratio, otherwise); a gradient, a clip or a mask of the drawing is in the drawing's own frame and is not scaled with its shapes, so under `stretch` it does not stretch; a frame within a pixel of vector's 100,000 limit is refused when the layer is drawn at a density below 1 |  |
 | Parameters (C6a) | One list per layer, written in `parameters.rs` (the address grammar: its table) and read by `with_values` beside it. **A value is set only at an address the layer lists**: any other address is refused, with the addresses of the layer (or the layers) and the nearest by the blend rule's own search (`suggest.rs`; a word of over 200 characters gets no search, a list of over 40 addresses is cut). The settings of one layer are given to it together; those of one look go to image's `Recipe::with_values` as a set (its cross-field rules hold for the set, its words are the message), those of one mask layer to that layer, those under a group to the inner scene's `with_values`. `with_values` sets the values on the layers **as they were added** and builds the scene again through `add`, so references are found again and the depth and the layer count are checked again; a layer nothing was set on shares its source with the old scene. Nothing is set unless every value is accepted (the original scene is never touched). Measured (release build, arm64 Mac): 1,000 fills, one value 0.24 to 0.34 ms, a value for each layer 1.7 ms (building the same scene with `add` 0.42 ms); `parameters()` of them 2.1 ms; a ten-value frame (two looks, a drawing's two Params, a scale, four opacities) of a mill-sized scene (a 1,920 by 1,080 photo with two maps, three looked references, a drawing, four words; 209 parameters) 72 microseconds, against 156 ms for the render of that frame at 720 | |
 | Parameter limits (C6a) | **(1)** `default` of a `text`, a `color` and a look's number is the value the scene holds: image's `Number` has no default and the value a layer was built with is not kept. **(2)** A layer under `perspective` lists no placement field (its corners are not a parameter, and `dx` would replace them). **(3)** A mask by one of the layer's maps has no mask layer, so no field (its `feather` and `invert` are not parameters); it still counts in the numbering (`mask`, `mask#2`...). **(4)** A mask layer lists no `blend` and no `light` (a mask is not joined to what is below). **(5)** A vector Param is a number; a list of numbers (one per shape) is not a value. Vector's plain-number unit (`""`) is written `count`, because a `float` of the format needs a unit. **(6)** Image lists the numbers of a frame for any recipe; a look has no frame, so `frame.*` is not listed. **(7)** A colour is written in lower case; a colour with an alpha (`#rrggbbaa`) is accepted and listed, but the format's `color` pattern is six digits, so such a parameter does not validate against the schema (a Need). **(8)** `rotate` is stored wrapped into 0 to 360 (`place` wraps it too), so its value reads back as the turn, never 370. **(9)** `value` of a held picture or map is a handle (`Held`) that shares the pixels; `numpy.asarray` makes the array | |
+| Saved scene (C6b) | **Where it differs from the contract written first:** (1) a picture or a map that is a hole is `null` (a template saves); (2) a drawing's set Params are `values` beside it (vector keeps them outside its document, so the document alone would lose them); (3) a mask is an object of `layer` or `map` and its options, in call order; (4) `to_json()` takes no folder: a path is written as the scene holds it (a scene read with `base` keeps the relative path it was read with, one made by calls the path it was given), so to move a project give relative paths and read with `base`; (5) a font file is read at load, not at `render` (`Layer::text` needs its box), and a look file or a drawing file named by a path is read at load; (6) `layers` may be left out of a scene (none). **Limits:** a document nests at most 128 levels (`serde_json`'s bound), so a vector document that nests deeper than 125 inside a layer is refused on reading (vector writes up to 128); a file name that is not UTF-8 is `InvalidError` at `to_json`; equality hashes the pixels of a held picture (above); no limit on the size of the text (`MAX_LAYERS` bounds what is built). `float_roundtrip` is on for `serde_json` (its default parse of a decimal is within 1 ulp, and a placement must read back as the number written: a proptest found it). **Measured** (release test build, arm64 Mac, 1,000 fills each at its own place, 50 KB of text): `to_json` 0.87 ms, `from_json` 1.5 ms, `==` 1.3 ms; a mill-style scene (three files, six looks, two drawings, 4 KB; the extension in a development build) `to_json` 0.13 ms and `from_json` 29 ms, as long as building the scene by calls (28 ms: image checks each look) |
 
 **Looks live on the layer** (C5a; what the C1 review found): looks and the masks by a picture's own maps are a `Finish` of the layer body
 (`finish.rs`), run by `Opened::draw` on whatever the source drew, so a source only draws, at the size a look runs at, and hands
@@ -142,7 +144,8 @@ Each program is a `build(...)` function that returns a `Scene` from its inputs (
 | [c5a_looks_on_everything.py](examples/c5a_looks_on_everything.py) | C5a (runs now: `uv run poe look`): a headline, a flat fill and a badge scene, each plain and with an image look (gradient map and grain, a canvas weave, a duotone applied to the badge as one) |
 | [poster_two_ink.py](examples/poster_two_ink.py) | M1: a photo in two inks clipped into a polygon, type behind a cut-out subject, flat shapes, grain, three sizes |
 | [c6a_covers.py](examples/c6a_covers.py) | C6a (runs now: `uv run poe look`): one cover template (a hole for the photo, an accent band, a title) set six times by `with_values` and drawn on a contact sheet |
-| [cover_template.py](examples/cover_template.py), [.rs](examples/cover_template.rs) | C6a (`build()` and `frame` run from synthetic inputs, the Python one; JSON is C6b): one scene, a photo, a title and a colour set by `with_values`; six covers |
+| [cover_template.py](examples/cover_template.py), [.rs](examples/cover_template.rs) | C6a (`build()` and `frame` run from synthetic inputs, the Python one) and C6b (the Rust one is compiled and run by `crates/core/tests/it/saved.rs`: saved, read back, filled): one scene, a photo, a title and a colour set by `with_values`; six covers |
+| [c6b_saved_scene.py](examples/c6b_saved_scene.py) | C6b (`saved_and_loaded` runs from synthetic inputs; `python docs/examples/c6b_saved_scene.py` with image installed writes the picture): a scene saved, its picture path made relative to the scene file's folder, read back with `base`, drawn: the same bits, the scenes equal |
 | [frame_sequence.py](examples/frame_sequence.py) | C6a (runs from `build()` and `frame`; the cache is C7): a headline sliding in over 24 frames, one value set per frame |
 | [cache_probe.py](examples/cache_probe.py) | C7: a layer that did not change is not drawn again, observed through a counting plugin layer |
 | [composed_world.py](examples/composed_world.py) | M2: a cut-out dog on a grid floor under a striped sun; shadow and reflection by reference, a glow on the sun only |
@@ -187,7 +190,7 @@ accepts. Bands, caches, resampling and premultiplication are behind that call.
 | `with_values` | `with_values(values)` | the scene with `values` (a mapping from address to value) set | `InvalidError`: an address the scene lacks (the message lists the valid ones and the nearest), a value outside its range or of the wrong kind (the address, the rule and the value) |
 | `render` | `render(size)` | the picture ("Output") | `InvalidError`, `ReadError` |
 | `to_json` | `to_json()` | the scene as JSON text, self-contained ("Saved scene") | `InvalidError`: a picture or a map that is an array (it has no file). `ReadError`: a file whose digest is to be written cannot be read |
-| `Scene.from_json` | `Scene.from_json(text, *, base=None)` | the scene back; a relative path in it resolves against folder `base` (a `Path`; default: the working folder). Reads no picture, font or map: those are read at `render` | `FormatError` |
+| `Scene.from_json` | `Scene.from_json(text, *, base=None)` | the scene back; a relative path in it resolves against folder `base` (a `Path`; default: the working folder). Reads no picture or map: those are read at `render` (a font file, a look file and a drawing file named by a path are read now) | `FormatError`; `ReadError` for a font, a look file or a drawing file that cannot be read |
 
 Scenes and layers are equal when they hold the same data (a picture by its content digest, a drawing and a look by their
 serialised form). Equal scenes with equal values render equal pictures.
@@ -485,7 +488,9 @@ PNG is image's: `imageio.save(scene.render(1080), "poster.png")`. Scene has no `
 ## Saved scene
 
 `to_json()` writes one self-contained document; `Scene.from_json(text, base=folder)` reads it back and the two give the same
-pictures. Keys, in this order:
+pictures: `from_json(to_json(s)) == s`, the same bits at every size, the same `parameters()`. The text is compact and the
+same on every call (keys in the order below; an object that is data, a text option or a look, keeps the order it was given).
+`"version": 1`; a release that writes a new version keeps reading this one.
 
 ```json
 {
@@ -501,13 +506,39 @@ pictures. Keys, in this order:
 }
 ```
 
-A layer holds its source (`picture` with its `maps`, `drawing`, `text`, `fill`, `scene`, `of` or `kind` and `options`), `fit`, `place`,
-`opacity`, `blend`, `light`, `masks` (each a layer, or `{"map": "subject"}`) and `looks` (each `{"format": <n>, "recipe":
-{...}}`), a key only where it differs from its default. A drawing is the vector document inline, a scene layer the inner
-document inline. A raster, a font file or a map (`"maps": {"subject": {...}}`, next to `picture`) is `{"path": ..., "sha256": ...}`, relative to the scene file's folder
-when it can be (a mismatch is `ReadError` at `render`); a bundled font is its name. A path where a look or drawing belongs
-(`"looks": ["looks/night.toml"]`) is read when the scene is loaded and written inline by the next `to_json()`. `FormatError`
-carries the JSON Pointer of the value and what is wrong; it is also a `ValueError`.
+**A layer** holds, in this order, a key only where it differs from its default (a key with its default value is accepted on
+reading): `name`; one source: `picture` (a file, or `null`, a hole) with its `maps` (name to file or `null`), `drawing`
+(vector's document inline, with `values`: the Params that were set, name to number), `text` with `font` (a bundled font's
+name, or a file) and `color` and `options` (vector's text options as given), `fill` (a colour), `scene` (the inner document
+inline: its own `version`, `canvas` and `layers`) or `of` (a reference: the name; it takes `place`, `masks`, `looks` and the join
+fields, and no other); then `fit` (`{"box": [x, y, width, height], "how": "cover"|"contain"|"stretch", "align": [x, y]}`,
+`how` and `align` only when they are not `cover` and the centre), `place` (the fields `dx`, `dy`, `scale`, `aspect`, `rotate`,
+`skew_x`, `skew_y`, `flip_x`, `flip_y`, `anchor`: those that differ) or `perspective` (four `[x, y]` corners), `opacity`,
+`blend` (a CSS name), `light`, `masks` and `looks`. **A mask** is `{"layer": {...}, "use": "luminance", "feather": 8, "invert": true}` (the mask layer
+is a layer document with no name) or `{"map": "subject", ...}`, in the order of the `mask` calls, whichever kind (`mask`,
+`mask#2`... are numbered by that order). **A look** is `{"format": 3, "recipe": {...}}`: image's own document, `format` the
+lowest image format the recipe needs.
+
+**Files.** A picture, a map or a font file is `{"path": ..., "sha256": ...}`. `to_json` writes the path as the scene holds it
+(relative to the working folder if it was given so, absolute if it was) and the digest of the file as it is now (so a path set
+by `with_values` is digested at that call; `ReadError` if the file cannot be read; `InvalidError` naming
+`<layer>.picture` for a picture or a map held in memory: it has no file). `from_json` resolves a relative path against `base`
+(the folder of the scene file; default the working folder) and keeps the digest: a picture and a map are read, and the digest
+checked, when the scene renders (`ReadError` naming both digests; a missing file is `ReadError` at `render`, never at load). A
+scene read with `base` keeps its paths relative, and `parameters()` lists a picture's value as the path it is read from (`base`
+joined). A font file is read at load (the box of a text needs the font), digest checked. The digest may be left out of a hand-written document.
+**A path where a look or a drawing belongs** (`"looks": ["looks/night.toml"]`, `"drawing": "logo.json"`) is read when the scene
+is loaded and written inline by the next `to_json()`.
+
+**Errors.** `FormatError` (also a `ValueError`) starts with the JSON Pointer of the value that is wrong and says what is
+wrong: text that is not JSON (the pointer is empty), an object that writes a key twice (the pointer of the second), a `version`
+this release does not read (found and read), a key it does not know (the keys and the nearest), a value of the wrong kind or
+range, a layer the scene refuses (`/layers`: a name used twice, a reference to nothing or to itself, more than `MAX_LAYERS`
+layers, deeper than `MAX_DEPTH`; a scene or a mask layer nested deeper than `MAX_DEPTH` in the document is refused at the pointer of the one that is too
+deep, before the reader recurses further), a look of a `format` image does not read (`/layers/0/looks/0/format`, naming the formats read) and a
+drawing of a vector version vector does not read (`/layers/0/drawing/version`, in vector's words). A hostile document is bounded: the reader
+is the parser of `serde_json` (it stops a nest at 128 levels), a depth bound of its own, and the count of layers is checked before any is
+built; a document is read in a thread of 256 KB.
 
 ## Errors
 
