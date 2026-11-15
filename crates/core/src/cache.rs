@@ -19,9 +19,9 @@ use crate::files::Fingerprint;
 
 /// The most bytes of pixels, planes and decoded files the cache of one scene keeps: 2 GiB. Measured on a 15-layer A3 poster at
 /// 300 dpi (`docs/design-decisions.md`, "The cache"): what its render can reuse is about 1.2 GiB, and a bound below that keeps
-/// nothing useful (a render takes the layers in turn, so the least recently used is always the next one wanted: 5.2 s again),
-/// at 1.25 GiB the second render of the same poster takes 0.39 s. An entry larger than the bound is not kept, and that is never
-/// an error.
+/// nothing useful (a render takes the layers in turn, so the least recently used is always the next one wanted: 5.2 s again;
+/// `keep` now spares what the render has used, so a scan keeps all it can), at 1.25 GiB the second render of the same poster
+/// takes 0.39 s. An entry larger than the bound is not kept, and that is never an error.
 pub(crate) const MAX_BYTES: usize = 1 << 31;
 
 /// What a cached value is found by: a SHA-256 of everything that reaches it.
@@ -78,6 +78,8 @@ struct Entry {
     used: u64,
     /// Whether this entry is the first to go: a stage of a look chain, which a finished raster can be made from again.
     expendable: bool,
+    /// The render that last used this entry (`Cache::begin_render`).
+    render: u64,
 }
 
 #[derive(Default)]
@@ -86,10 +88,12 @@ struct Kept {
     bytes: usize,
     /// A count of uses: the least recently used entry is the one with the least `used`.
     clock: u64,
+    /// How many renders have begun: what a render has used is not pushed out by what it makes after (`keep`).
+    render: u64,
 }
 
 /// A bounded store of what renders drew, by [`Key`], shared by the scenes made from one another and by their threads. When it
-/// is full, the least recently used entries go.
+/// is full, the least recently used entries go, those a render has not used first of all (see `keep`).
 pub(crate) struct Cache {
     capacity: usize,
     kept: Mutex<Kept>,
@@ -156,19 +160,28 @@ impl Cache {
         Ok(self.put(*key, value, bytes, true))
     }
 
+    /// A render begins: what it uses from here on is kept over what it makes after, where the cache is full (`put`). A render and
+    /// a band of one are a render; a scene drawn as a group inside it is not another. Renders at once on one cache share the
+    /// count, which only makes each spare what the others use too: the picture never depends on it.
+    pub(crate) fn begin_render(&self) {
+        self.kept.lock().unwrap_or_else(PoisonError::into_inner).render += 1;
+    }
+
     /// The value kept under `key`, made the most recently used.
     pub(crate) fn get<T: Send + Sync + 'static>(&self, key: &Key) -> Option<Arc<T>> {
         let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
         kept.clock += 1;
-        let clock = kept.clock;
+        let (clock, render) = (kept.clock, kept.render);
         let entry = kept.entries.get_mut(key)?;
         entry.used = clock;
+        entry.render = render;
         Arc::clone(&entry.value).downcast().ok()
     }
 
     /// Keeps `value` of `bytes` bytes under `key` if it fits (see `keep`), and hands it back. An `expendable` value (a stage a
     /// finished value can be made from again) is kept only where it fits by making other expendable values leave, and is the
-    /// first to leave when a value that is not expendable needs room: it never costs the cache a finished value.
+    /// first to leave when a value that is not expendable needs room: it never costs the cache a finished value. A finished
+    /// value never pushes out one the render has used, which a later band or layer of it reads again: it is not kept then.
     pub(crate) fn put<T: Send + Sync + 'static>(&self, key: Key, value: T, bytes: usize, expendable: bool) -> Arc<T> {
         let value = Arc::new(value);
         let shared: Arc<dyn Any + Send + Sync> = Arc::clone(&value) as Arc<dyn Any + Send + Sync>;
@@ -177,15 +190,20 @@ impl Cache {
     }
 
     /// Keeps `value` of `bytes` bytes under `key`, after making room: expendable entries go first, then the least recently
-    /// used. A value larger than the whole cache is not kept.
+    /// used of those this render has not used. A value larger than the whole cache, or that would need a value this render has
+    /// used to go, is not kept: a render that holds more than the cache keeps scans it in turn, and the least recently used
+    /// would be the next one wanted each time (nothing kept is read again, where sparing the used ones keeps all but the last).
     fn keep(&self, key: Key, value: Arc<dyn Any + Send + Sync>, bytes: usize, expendable: bool) {
         if bytes > self.capacity {
             return;
         }
         let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
+        let render = kept.render;
         if let Some(replaced) = kept.entries.remove(&key) {
             kept.bytes -= replaced.bytes;
         }
+        // what may go for this value: a stage, and (not for a stage) what the render has not used
+        let may_go = |entry: &Entry| entry.expendable || (!expendable && entry.render != render);
         if expendable {
             let others: usize = kept
                 .entries
@@ -197,11 +215,20 @@ impl Cache {
                 return;
             }
         }
+        let room: usize = kept
+            .entries
+            .values()
+            .filter(|entry| may_go(entry))
+            .map(|entry| entry.bytes)
+            .sum();
+        if kept.bytes - room + bytes > self.capacity {
+            return;
+        }
         while kept.bytes + bytes > self.capacity {
             let Some(oldest) = kept
                 .entries
                 .iter()
-                .filter(|(_, entry)| entry.expendable || !expendable)
+                .filter(|(_, entry)| may_go(entry))
                 .min_by_key(|(_, entry)| (!entry.expendable, entry.used))
                 .map(|(key, _)| *key)
             else {
@@ -221,6 +248,7 @@ impl Cache {
                 bytes,
                 used,
                 expendable,
+                render,
             },
         );
     }
@@ -260,12 +288,40 @@ mod tests {
             made(&cache, name, 40, &mut makes)?;
         }
         assert_eq!(makes, 2, "`a` is kept");
+        cache.begin_render(); // `a` and `b` were used by an earlier render
         made(&cache, "c", 40, &mut makes)?; // 120 > 100: `b`, not `a`, goes
         assert_eq!(makes, 3);
         made(&cache, "a", 40, &mut makes)?;
         assert_eq!(makes, 3, "`a` was used after `b`, so it stayed");
         made(&cache, "b", 40, &mut makes)?;
         assert_eq!(makes, 4, "`b` went");
+        Ok(())
+    }
+
+    #[test]
+    fn a_render_that_holds_more_than_the_cache_keeps_what_it_has_used_and_not_what_it_makes_after() -> Result<(), Error>
+    {
+        let cache = Cache::with_capacity(100);
+        let mut makes = 0;
+        cache.begin_render();
+        // a scan of four values of 40 with room for two, each read again by the next band
+        for _ in 0..3 {
+            for name in ["a", "b", "c", "d"] {
+                made(&cache, name, 40, &mut makes)?;
+            }
+        }
+        assert_eq!(
+            makes,
+            4 + 2 * 2,
+            "`a` and `b` are made once, `c` and `d` for each of the three bands"
+        );
+        // the next render finds `a` and `b`: they were not used by it yet, so a value it makes may take their room, the oldest first
+        cache.begin_render();
+        made(&cache, "a", 40, &mut makes)?;
+        made(&cache, "c", 40, &mut makes)?; // `b` is the oldest of the two not used by this render
+        assert_eq!(makes, 9, "`a` was found, `c` was made");
+        made(&cache, "b", 40, &mut makes)?;
+        assert_eq!(makes, 10, "`b` went for `c`");
         Ok(())
     }
 

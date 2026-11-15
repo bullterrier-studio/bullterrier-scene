@@ -516,6 +516,52 @@ mod tests {
         Ok(())
     }
 
+    /// A banded render reads each layer it holds once per band, so a render that holds more than the cache keeps scans it in turn,
+    /// and the least recently used layer is the next one wanted: with four whole-looked layers and room for three, each band
+    /// drew all four again (40 looks over ten bands). What a render has used is kept over what it makes after: three stay, and
+    /// only the fourth is looked for each band.
+    #[test]
+    fn a_banded_render_that_holds_more_than_the_cache_keeps_what_it_has_used_and_redoes_only_the_rest()
+    -> Result<(), Error> {
+        let blur =
+            |radius: f64| format!(r#"{{"steps": [{{"effect": "gaussian_blur", "params": {{"radius": {radius}}}}}]}}"#);
+        // a blur of 16 pixels or more is summed by a Fourier transform, which image cannot band to the bit: each layer is looked whole
+        let layers = [("l0", 24.0), ("l1", 25.0), ("l2", 26.0), ("l3", 27.0)]
+            .map(|(name, radius)| -> Result<Layer, Error> {
+                picture()?
+                    .fit([0.0, 0.0, 100.0, 100.0], Fit::Cover, [0.5, 0.5])?
+                    .look(&blur(radius))?
+                    .named(name)
+            })
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()?;
+        // a finished raster is 100 x 100 x 16 bytes: room for three
+        let scene = Scene::new(100, 100)?
+            .with_cache_capacity(3 * 160_000 + 1_000)
+            .add(layers)?;
+        assert_eq!(
+            looks_run_by_bands(&scene, 100, 10)?,
+            4 + 9,
+            "four at the first band, the one that did not fit at each of nine more"
+        );
+        assert_eq!(
+            looks_run_by_bands(&scene, 100, 10)?,
+            10,
+            "the three kept are found again, the fourth is looked for each band"
+        );
+        // another render of the same cache with other values takes the room of what the first kept
+        let mut other = Values::new();
+        for (name, radius) in [("l0", 28.0), ("l1", 29.0), ("l2", 30.0), ("l3", 31.0)] {
+            other = other.set(format!("{name}.look.gaussian_blur.radius"), radius);
+        }
+        assert_eq!(
+            looks_run_by_bands(&scene.with_values(&other)?, 100, 10)?,
+            4 + 9,
+            "what the first render kept is not spared by the next"
+        );
+        Ok(())
+    }
+
     #[test]
     fn references_that_add_looks_to_one_chain_run_its_looks_once() -> Result<(), Error> {
         let scene = Scene::new(24, 16)?.add([

@@ -55,6 +55,7 @@ pub(crate) fn render(width: u32, height: u32, layers: &[Layer], size: i128, cach
             ),
         ));
     }
+    cache.begin_render();
     band(width, height, layers, (columns, rows), 0..rows, cache)
 }
 
@@ -78,6 +79,7 @@ pub(crate) fn render_bands(
             ),
         ));
     }
+    cache.begin_render();
     for first in (0..rows).step_by(band_rows) {
         let rows_of = first..(first + band_rows).min(rows);
         let drawn = band(width, height, layers, (columns, rows), rows_of.clone(), cache)?;
