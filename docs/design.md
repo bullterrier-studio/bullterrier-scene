@@ -119,7 +119,7 @@ A stack of full-size float pictures is the wrong way to render a poster: one 12-
    layer with a look is drawn for the rows a band reads and the margin its looks reach (image's `Recipe::band_margin`, run with
    `Options::with_window`: a window of the whole raster, so each pixel is the whole render's) when its source can draw rows, the layer
    is not light, and image can band the recipe; else **whole** once and cut (image's whole-picture effects, a layer whose raster is not
-   the canvas's size, looks whose margins reach 16 pixels: a Fourier-summed blur is banded within 1e-4, not to the bit). A drawing is drawn for the rows a band reads (vector's window render is the crop of its
+   the canvas's size, looks of a recipe image does not clear to the bit: a blur summed by a Fourier transform, `grain` clumped past about 8 working pixels). A drawing is drawn for the rows a band reads (vector's window render is the crop of its
    whole render, byte for byte). A plugin kind is drawn whole once, unless it says its pixels depend on their place alone
    (`LayerKind::by_position`): then it is asked for the rows a band reads. These are the memory floor of a banded render.
 3. **Finished layers are held as float32.** Decision 2 of the roadmap, settled at B1 with the peak measurements.

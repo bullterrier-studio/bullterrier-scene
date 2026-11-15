@@ -797,12 +797,12 @@ tests passed in a scratch environment with the two packages installed at the pin
   position are the whole raster's. The window's canvas is the raster, and the canvas also sets a look's design scale, so the layer is
   banded only where the raster's longest side is the scene canvas's (a layer fitted to the canvas; a smaller or a zoomed one is drawn
   whole). Run whole too: a `light` layer (its looks run on a raster grown by room), a mask by a map, a recipe image cannot band
-  (whole-picture statistics, `each`, driven steps, maps, a `frame` or `size`), and looks whose margins add up to 16 pixels or more:
-  image sums a blur of that reach by a Fourier transform whose rounding depends on the rows it is given, so a band differs from the
-  whole in the last bits (measured: the bit-exact oracle fails with the limit lifted). Revisit with image's exact-only
-  `band_margin` (its roadmap). `grain` is the case this guard cannot see: its footprint is a pixel (margin 0) but its noise is blurred by
-  a Fourier transform from a clump of about 8 working pixels (a long side of about 3,800 pixels at the default size), so a banded A3
-  differs from the whole by at most one float step, 1.2e-7 (measured 2026-11-15); the oracle's pictures are too small to reach it. A looked picture is resized to the drawn size for the rows wanted
+  (whole-picture statistics, `each`, driven steps, maps, a `frame` or `size`) or does not clear to the bit: image's `band_margin` is
+  exact-only (`4997d954`), so a blur summed by a Fourier transform (a reach of 16 working pixels or more, a kernel of more than 128 taps, `grain`
+  clumped past about 8 working pixels: a long side of about 3,800 pixels at the default size) and a shift by a fraction of a pixel from a window
+  are answered none and run whole. Scene had guarded by margins of 16 pixels or more, a guess at image's switch that missed `grain`
+  (margin 0): a banded A3 differed from the whole by one float step, 1.2e-7 (found 2026-11-15, lesson L21); the guard is gone and the oracle
+  runs a canvas of 3,900 pixels and a fractional shift far from the top (`tests/it/bands.rs`; ignoring image's answer fails it). A looked picture is resized to the drawn size for the rows wanted
   (`warp::resize_rows`: the same warp with an output of some rows, each pixel the whole resize's), then looked; a picture shrunk past
   2x is averaged whole for each band until the reduced raster is kept (`future.md`). A look or a mask that reads a map the source
   holds runs whole.
@@ -865,9 +865,12 @@ tests passed in a scratch environment with the two packages installed at the pin
   rows **3.25 GB, 14.9 s before, 2.96 GB, 14.8 s after** (the vignette and grain of the one banded look; the bloom layers are whole).
   An A0 print at 300 dpi of eight layers to a PNG: 31.7 s, 1.66 GB before, 31.9 s, 1.68 GB after (nothing there is looked). The
   stand-in is heavier than the earlier one (a bloom at the canvas's size), so the figures above are not comparable with it.
-- **Release build, one thread, 2026-11-15 (a lighter 15-layer A3 stand-in; one run each, the machine's other load unknown), image `11eedda9` then
-  `72865bfd`, then `with_threads(0)` set for the probe only:** whole render 4.4 s and 2.05 GB at both pins, 2.2 s with threads; banded in
-  1,000 rows 4.5 s and 1.58 GB, 4.4 s with the new pin, 2.3 s with threads; peak memory the same with threads on. Threads stay off in scene:
-  image starts a pool for each look it runs and callers can render scenes in parallel (`future.md`, polish row 9). Fat LTO with one codegen
+- **Threads, release build, 2026-11-15 (a 15-layer A3 stand-in of looked drawings and pictures, a light bloom and large pictures; one run each, load unknown), image `4997d954`:**
+  whole render 15.4 s on one thread, 6.4 s on every core; banded in 1,000 rows 70.5 s and 27.4 s; peak memory 4.9 to 5.4 GB whole and 5.2 to 5.5 GB banded either way (the
+  spread between runs is larger than any difference), the same pixels. Scene sets `with_threads(0)` where it runs a look: image keeps one pool per
+  thread count for the process (`110130ff`), so scenes rendered at once share it. Banded is slower than whole here because
+  a looked layer whose recipe image cannot band (the grain past its switch at this size) is drawn whole once and held; eight of them at 278 MB each
+  pass the cache's 2 GiB, so a layer is drawn again for the bands (probable cause: the same stand-in with the grain swapped for a grade takes 4.3 s banded and 4.2 s whole; the cache was not
+  measured). Earlier at one thread (image `11eedda9`, `72865bfd`, a lighter stand-in): whole 4.4 s and 2.05 GB at both pins, banded 4.5 s and 1.58 GB. Fat LTO with one codegen
   unit on the same stand-in: whole 4.4 to 4.1 s, banded 4.5 to 4.1 s, a perspective drawing with no look 2.27 to 2.4 s (slower), the same
   pixels, a longer build: not adopted (no `[profile.release]`).
