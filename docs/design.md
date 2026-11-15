@@ -120,8 +120,8 @@ A stack of full-size float pictures is the wrong way to render a poster: one 12-
    `Options::with_window`: a window of the whole raster, so each pixel is the whole render's) when its source can draw rows, the layer
    is not light, and image can band the recipe; else **whole** once and cut (image's whole-picture effects, a layer whose raster is not
    the canvas's size, looks whose margins reach 16 pixels: a Fourier-summed blur is banded within 1e-4, not to the bit). A drawing is drawn for the rows a band reads (vector's window render is the crop of its
-   whole render, byte for byte). A plugin kind is drawn whole once (its pixels are
-   promised by rectangle and scale, not by position). These are the memory floor of a banded render.
+   whole render, byte for byte). A plugin kind is drawn whole once, unless it says its pixels depend on their place alone
+   (`LayerKind::by_position`): then it is asked for the rows a band reads. These are the memory floor of a banded render.
 3. **Finished layers are held as float32.** Decision 2 of the roadmap, settled at B1 with the peak measurements.
 4. **Vector draws a window**, exact to the byte, so a drawing is drawn by band. A window vector refuses (a side past 65,000 pixels, 2^27 in all) is a raster its whole render refuses too: there is no whole fallback.
 5. **Design pixels belong to the whole canvas,** not the band, so a banded render equals a whole one.

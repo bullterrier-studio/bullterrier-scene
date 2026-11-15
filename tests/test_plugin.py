@@ -281,3 +281,47 @@ def test_several_renders_of_a_python_kind_at_once_give_what_one_render_gives():
     with ThreadPoolExecutor(max_workers=8) as pool:
         found = list(pool.map(lambda scene: scene.render(160).tobytes(), scenes * 4))
     assert found == expected * 4
+
+
+def by_place(x, y, width, height, scale_x, scale_y):
+    """Pixels at the rectangle's even division: a function of the pixel's place, so any rows are a crop of the whole."""
+    columns, rows = cells(width, scale_x), cells(height, scale_y)
+    across = ((x + np.arange(columns) * width / columns) * 0.01) % 1.0
+    down = ((y + np.arange(rows) * height / rows) * 0.01) % 1.0
+    pixels = np.empty((rows, columns, 4), dtype=np.float32)
+    pixels[..., 0] = 0.5
+    pixels[..., 1] = across[None, :]
+    pixels[..., 2] = down[:, None]
+    pixels[..., 3] = 1.0
+    return pixels
+
+
+@pytest.mark.parametrize("size", [40, 37])
+def test_a_kind_that_draws_by_position_is_asked_for_the_rows_a_band_reads_and_the_bands_make_the_picture(size):
+    asked = []
+
+    def recording(x, y, width, height, scale_x, scale_y):
+        asked.append(height)
+        return by_place(x, y, width, height, scale_x, scale_y)
+
+    bts.register_layer("plugin-by-position", recording, by_position=True)
+    scene = bts.Scene(40, 30).add(bts.Layer.make("plugin-by-position"))
+    whole = scene.render(size)
+    asked.clear()
+    bands = []
+    scene.render_bands(size, 3, lambda first, band: bands.append(band.copy()))
+    assert np.concatenate(bands).tobytes() == whole.tobytes()
+    assert len(asked) >= 10
+    assert max(asked) < 30
+
+
+def test_a_kind_that_does_not_say_so_is_asked_once_for_its_rectangle_whatever_the_bands():
+    asked = []
+
+    def recording(x, y, width, height, scale_x, scale_y):
+        asked.append(height)
+        return by_place(x, y, width, height, scale_x, scale_y)
+
+    bts.register_layer("plugin-whole", recording)
+    bts.Scene(40, 30).add(bts.Layer.make("plugin-whole")).render_bands(40, 3, lambda first, band: None)
+    assert asked == [30.0]

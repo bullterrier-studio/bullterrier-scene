@@ -780,10 +780,13 @@ tests passed in a scratch environment with the two packages installed at the pin
   picture's own pixels), a flat colour (one pixel), a group with no look (drawn for the rows of its raster the band reads:
   `warp::rows_read` takes the four corners of the band through the map back, with the room the kernels read, and `View` lets the warp
   read a part of a raster as some rows of a taller one), a mask plane (the band and the reach of its blur). Whole, once, kept in the
-  cache and cut per band: **a layer with a look that cannot be banded** (below), and **a plugin kind**. *A drawing is windowed
+  cache and cut per band: **a layer with a look that cannot be banded** (below), and **a plugin kind that does not say it draws by position**. *A drawing is windowed
   (2026-11-15):* vector's window render is the crop of its whole render byte for byte, so a drawing is drawn for the rows a band reads,
-  and a refused window (a side past 65,000 pixels, 2^27 in all) is a raster the whole render refuses too: no whole fallback. *A kind is not asked for a band's rectangle:* its pixels are promised by rectangle and
-  scale, not by position (a kind with a seeded stream draws other pixels for another rectangle). A group's inner looked layers are whole
+  and a refused window (a side past 65,000 pixels, 2^27 in all) is a raster the whole render refuses too: no whole fallback. *A kind is asked for a band's rows only if it says so (2026-11-15):* its pixels are promised by rectangle and
+  scale, not by position (a kind with a seeded stream draws other pixels for another rectangle), so `LayerKind::by_position` is false
+  by default. A kind that returns true is asked for the rectangle the rows divide its window into (`rows_area`: the same pitch, the
+  rows' share of the height), and `check_by_position` (public, for the kind's own tests) holds it to "the rows of the whole are what
+  it draws for those rows" bit for bit. Python: `register_layer(kind, draw, by_position=True)`. A group's inner looked layers are whole
   at the group's scale and kept, so each band of a group finds them. State of the floor: the looked layers' rasters
   stay resident (the cache holds up to 2 GiB of them).
 - **Banded looks (2026-11-15).** A looked layer whose source draws rows (a drawing, a group) is drawn for the rows a band reads and

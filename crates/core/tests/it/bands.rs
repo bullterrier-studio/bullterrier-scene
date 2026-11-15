@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use bullterrier_scene::{
     BAND_PIXELS, Blend, Deg, Error, Fit, Layer, LayerKind, Mask, Place, Raster, Scene, Text, Use, Values,
+    check_by_position,
 };
 use serde_json::{Value, json};
 
@@ -249,6 +250,54 @@ fn a_plugin_layer_is_drawn_once_however_many_bands_there_are() -> Outcome {
     let planted = scene(40, 30, [Layer::make(kind.clone())])?;
     planted.render_bands(40, 3, |_, _| Ok(()))?;
     assert_eq!(kind.draws(), 1);
+    Ok(())
+}
+
+/// A kind that says its pixels depend on their place alone is asked for the rows a band reads, not the whole rectangle: each band
+/// is made of a part of it, and the bands put together are the picture drawn whole, at a scale that is whole and at ones that are not
+/// (where the pixels do not divide the canvas into whole design pixels).
+#[test]
+fn a_kind_that_draws_by_position_is_asked_for_the_rows_a_band_reads() -> Outcome {
+    let kind = Counting::positional(0.5);
+    let planted = scene(40, 30, [Layer::make(kind.clone())])?;
+    planted.render_bands(40, 3, |_, _| Ok(()))?;
+    let questions = kind.questions();
+    assert!(questions.len() >= 10, "a question for each band: {}", questions.len());
+    assert!(
+        questions.iter().all(|(area, _)| area[3] < 30.0),
+        "no question is for the whole rectangle: {questions:?}"
+    );
+    for size in [40, 37, 33] {
+        bands_make_the_whole(&scene(40, 30, [Layer::make(Counting::positional(0.5))])?, size)?;
+    }
+    Ok(())
+}
+
+/// A looked layer of such a kind is drawn by band and margin like a drawing.
+#[test]
+fn a_looked_kind_that_draws_by_position_is_drawn_by_band() -> Outcome {
+    let vignette = r#"{"steps": [{"effect": "vignette", "params": {"amount": 0.9}}]}"#;
+    let kind = Counting::positional(0.5);
+    let planted = scene(40, 30, [Layer::make(kind.clone()).look(vignette)?])?;
+    bands_make_the_whole(&planted, 40)?;
+    let fresh = Counting::positional(0.5);
+    scene(40, 30, [Layer::make(fresh.clone()).look(vignette)?])?.render_bands(40, 3, |_, _| Ok(()))?;
+    assert!(fresh.draws() >= 10 && fresh.questions().iter().all(|(area, _)| area[3] < 30.0));
+    Ok(())
+}
+
+/// The check a kind's tests run before it says it draws by position: it passes a kind whose pixels are where they are, and names one
+/// whose pixels depend on the rectangle asked.
+#[test]
+fn the_check_of_a_kind_that_draws_by_position_passes_one_that_does_and_names_one_that_does_not() -> Outcome {
+    let (area, scale) = ([3.0, 2.0, 40.0, 30.0], [0.925, 0.925]);
+    check_by_position(&*Counting::positional(0.5), area, scale)?;
+    // pixels at a pitch of one over the scale, not the rectangle's even division: a rectangle of part of the rows is another place
+    let refused = check_by_position(&*Counting::new(0.5), area, scale);
+    assert!(
+        matches!(refused, Err(Error::Invalid { ref address, .. }) if address == "by_position"),
+        "{refused:?}"
+    );
     Ok(())
 }
 

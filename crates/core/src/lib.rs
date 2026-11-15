@@ -42,7 +42,7 @@ pub use budget::{MAX_DEPTH, MAX_LAYERS};
 pub use error::Error;
 pub use geometry::MAX_PIXELS;
 pub use layer::Layer;
-pub use layer_kind::LayerKind;
+pub use layer_kind::{LayerKind, check_by_position};
 pub use layer_kinds::{LayerKindFactory, LayerKinds};
 pub use map::Map;
 pub use mask::{Mask, MaskBy, Use};

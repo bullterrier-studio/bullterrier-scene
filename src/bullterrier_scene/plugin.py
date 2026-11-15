@@ -107,8 +107,14 @@ def _identity(function: Callable[..., object]) -> str:
     return f"{identity}@{id(function):x}" if "<" in function.__qualname__ else identity
 
 
-def register_layer[F: Callable[..., Any]](kind: str, draw: F) -> F:
+def register_layer[F: Callable[..., Any]](kind: str, draw: F, *, by_position: bool = False) -> F:
     """Register `draw` as the layer kind `kind` (see the module's docstring) and return it unchanged.
+
+    `by_position=True` says each pixel `draw` makes depends on its place on the canvas, the scale and the options alone,
+    not on the rectangle asked: the rows of what it draws for a rectangle are what it draws for the rectangle of those
+    rows (the part of the rectangle that the rows divide it into). A render in bands then asks for the rows a band reads
+    instead of the whole rectangle. Leave it off for a seeded stream that starts at the rectangle's corner, or a
+    statistic of what is drawn.
 
     Raises `InvalidError` naming the kind for a bad name, a scene key, a function that cannot be named, or a name
     another
@@ -120,11 +126,11 @@ def register_layer[F: Callable[..., Any]](kind: str, draw: F) -> F:
         identity = _identity(draw)
     except AttributeError as error:
         raise InvalidError(f"layer kind '{kind}': cannot name {draw!r}: {error}") from error
-    _register(draw, kind, identity)
+    _register(draw, kind, identity, by_position)
     _registered_modules.append(draw.__module__)
     return draw
 
 
-def layer_kind(kind: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+def layer_kind(kind: str, *, by_position: bool = False) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """The decorator form of `register_layer`: `@layer_kind("noise")`."""
-    return lambda draw: register_layer(kind, draw)
+    return lambda draw: register_layer(kind, draw, by_position=by_position)

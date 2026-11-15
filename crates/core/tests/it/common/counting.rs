@@ -12,6 +12,7 @@ pub(crate) type Question = ([f64; 4], [f64; 2]);
 /// ramp with the design position of the pixel. It remembers every question.
 pub(crate) struct Counting {
     tone: f64,
+    positional: bool,
     asked: Mutex<Vec<Question>>,
 }
 
@@ -19,6 +20,17 @@ impl Counting {
     pub(crate) fn new(tone: f64) -> Arc<Self> {
         Arc::new(Self {
             tone,
+            positional: false,
+            asked: Mutex::new(Vec::new()),
+        })
+    }
+
+    /// A kind that says its pixels depend on their place alone: the ramps go by the rectangle's even division into pixels (the
+    /// contract of `LayerKind::draw`), so a part of the rectangle is the same crop of the whole.
+    pub(crate) fn positional(tone: f64) -> Arc<Self> {
+        Arc::new(Self {
+            tone,
+            positional: true,
             asked: Mutex::new(Vec::new()),
         })
     }
@@ -51,26 +63,41 @@ impl LayerKind for Counting {
         json!({ "tone": self.tone })
     }
 
+    fn by_position(&self) -> bool {
+        self.positional
+    }
+
     fn draw(&self, area: [f64; 4], scale: [f64; 2]) -> Result<Raster, Error> {
         if let Ok(mut asked) = self.asked.lock() {
             asked.push((area, scale));
         }
         let (columns, rows) = (pixels(area[2], scale[0]), pixels(area[3], scale[1]));
-        let ramp = |origin: f64, step: usize, scale: f64| {
+        let ramp = |origin: f64, step: usize, scale: f64, length: f64, count: usize| {
             #[expect(
                 clippy::cast_precision_loss,
                 clippy::cast_possible_truncation,
                 reason = "a test size"
             )]
             {
-                ((origin + step as f64 / scale) * 0.01).rem_euclid(1.0) as f32
+                let at = if self.positional {
+                    origin + step as f64 * length / count as f64
+                } else {
+                    origin + step as f64 / scale
+                };
+                (at * 0.01).rem_euclid(1.0) as f32
             }
         };
         #[expect(clippy::cast_possible_truncation, reason = "a tone from 0 to 1")]
         let tone = self.tone as f32;
         let values = (0..rows).flat_map(|row| {
-            (0..columns)
-                .flat_map(move |column| [tone, ramp(area[0], column, scale[0]), ramp(area[1], row, scale[1]), 1.0])
+            (0..columns).flat_map(move |column| {
+                [
+                    tone,
+                    ramp(area[0], column, scale[0], area[2], columns),
+                    ramp(area[1], row, scale[1], area[3], rows),
+                    1.0,
+                ]
+            })
         });
         Raster::rgba(columns, rows, values.collect())
     }

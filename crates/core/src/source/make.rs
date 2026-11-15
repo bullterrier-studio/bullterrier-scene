@@ -9,6 +9,7 @@ use super::{Drawn, Opened, Source};
 use crate::cache::{Cache, Keyed};
 use crate::document::Form;
 use crate::geometry::Rect;
+use crate::layer_kind::rows_area;
 use crate::{Error, LayerKind};
 
 /// A kind as the source of a layer. Its box is the canvas, as a fill's is.
@@ -68,13 +69,21 @@ impl Source for Make {
 
     /// The part of the canvas the layer shows, at the asked scale.
     fn open(&self, canvas: Rect, _cache: &Cache) -> Result<Opened<'_>, Error> {
-        Ok(Opened::new(canvas, move |request, _| {
+        let opened = Opened::new(canvas, move |request, _| {
             let window = request.window;
-            let (columns, rows) = request.scale.size(window)?;
-            let raster = self.kind.draw(
-                [window.x, window.y, window.width, window.height],
-                [request.scale.x.pixels(1.0), request.scale.y.pixels(1.0)],
-            )?;
+            let shape = request.window_shape();
+            let (first, end) = request.rows_within_limit(shape)?;
+            let (columns, rows) = (shape.size.0, end - first);
+            let whole = [window.x, window.y, window.width, window.height];
+            // the rows asked for, as the rectangle they divide the window's into (a kind that says it draws by position)
+            let area = if request.rows.is_some() {
+                rows_area(whole, shape.size.1, first, end)
+            } else {
+                whole
+            };
+            let raster = self
+                .kind
+                .draw(area, [request.scale.x.pixels(1.0), request.scale.y.pixels(1.0)])?;
             if (raster.width(), raster.height()) != (columns, rows) {
                 return Err(Error::invalid(
                     "make",
@@ -93,6 +102,11 @@ impl Source for Make {
                 room: [0; 4],
                 maps: std::collections::BTreeMap::new(),
             })
-        }))
+        });
+        Ok(if self.kind.by_position() {
+            opened.by_window()
+        } else {
+            opened
+        })
     }
 }

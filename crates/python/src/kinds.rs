@@ -39,6 +39,7 @@ struct PythonFactory {
     name: String,
     identity: String,
     function: Py<PyAny>,
+    by_position: bool,
 }
 
 impl LayerKindFactory for PythonFactory {
@@ -61,6 +62,7 @@ impl LayerKindFactory for PythonFactory {
             name: self.name.clone(),
             options: options.clone(),
             function: Python::attach(|py| self.function.clone_ref(py)),
+            by_position: self.by_position,
         }))
     }
 }
@@ -70,6 +72,7 @@ struct PythonKind {
     name: String,
     options: Json,
     function: Py<PyAny>,
+    by_position: bool,
 }
 
 impl LayerKind for PythonKind {
@@ -79,6 +82,10 @@ impl LayerKind for PythonKind {
 
     fn options(&self) -> Json {
         self.options.clone()
+    }
+
+    fn by_position(&self) -> bool {
+        self.by_position
     }
 
     fn draw(&self, area: [f64; 4], scale: [f64; 2]) -> Result<Raster, Error> {
@@ -124,14 +131,21 @@ impl LayerKind for PythonKind {
     }
 }
 
-/// Registers `function` as the kind `name`. `identity` says which function it is (a module loaded again replaces itself).
-/// Refusals as `LayerKinds::register`.
+/// Registers `function` as the kind `name`. `identity` says which function it is (a module loaded again replaces itself);
+/// `by_position` is `LayerKind::by_position`. Refusals as `LayerKinds::register`.
 #[pyfunction]
-pub(crate) fn register_layer(py: Python<'_>, function: Py<PyAny>, name: String, identity: String) -> PyResult<()> {
+pub(crate) fn register_layer(
+    py: Python<'_>,
+    function: Py<PyAny>,
+    name: String,
+    identity: String,
+    by_position: bool,
+) -> PyResult<()> {
     let factory = PythonFactory {
         name,
         identity,
         function,
+        by_position,
     };
     locked()
         .register(Arc::new(factory))
