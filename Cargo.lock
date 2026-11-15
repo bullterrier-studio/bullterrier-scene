@@ -141,7 +141,7 @@ dependencies = [
 [[package]]
 name = "bullterrier-image"
 version = "0.1.0"
-source = "git+https://github.com/bullterrier-studio/bullterrier-image?rev=7f91eefbc4695ae20d01dc2da3de1eaadc13a274#7f91eefbc4695ae20d01dc2da3de1eaadc13a274"
+source = "git+https://github.com/bullterrier-studio/bullterrier-image?rev=11eedda92cb2be39c6fccf0d9a5959a5e679f89f#11eedda92cb2be39c6fccf0d9a5959a5e679f89f"
 dependencies = [
  "bullterrier-image-derive",
  "delaunator",
@@ -167,7 +167,7 @@ dependencies = [
 [[package]]
 name = "bullterrier-image-derive"
 version = "0.1.0"
-source = "git+https://github.com/bullterrier-studio/bullterrier-image?rev=7f91eefbc4695ae20d01dc2da3de1eaadc13a274#7f91eefbc4695ae20d01dc2da3de1eaadc13a274"
+source = "git+https://github.com/bullterrier-studio/bullterrier-image?rev=11eedda92cb2be39c6fccf0d9a5959a5e679f89f#11eedda92cb2be39c6fccf0d9a5959a5e679f89f"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -217,7 +217,7 @@ dependencies = [
 [[package]]
 name = "bullterrier-vector"
 version = "0.0.0"
-source = "git+https://github.com/bullterrier-studio/bullterrier-vector?rev=5442066f9fa5e280ffab6f3a9f85456578900c7f#5442066f9fa5e280ffab6f3a9f85456578900c7f"
+source = "git+https://github.com/bullterrier-studio/bullterrier-vector?rev=ec87b308d87cc4cca88d791065414e67b9f76241#ec87b308d87cc4cca88d791065414e67b9f76241"
 dependencies = [
  "harfrust",
  "i_overlay",
