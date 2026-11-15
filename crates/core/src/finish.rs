@@ -13,11 +13,6 @@ use crate::source::picture::Look;
 use crate::source::{Drawn, Request};
 use crate::{Error, Raster};
 
-/// The reach, in pixels, from which image sums a blur by a Fourier transform (`FFT_FROM_REACH` in its `ops/blur.rs`). A band of
-/// that blur differs from the whole one in the last bits, and a banded render equals the whole one bit for bit: looks whose
-/// margins add up to this are run whole. Revisit when image offers an exact-only `Recipe::band_margin`.
-const FOURIER_REACH: usize = 16;
-
 /// A mask by one of a picture's maps, as the layer's `mask` call gave it.
 #[derive(Debug, Clone)]
 pub(crate) struct MapMask {
@@ -108,9 +103,8 @@ impl Finish {
     /// The rows of margin each side of a band of a raster of `size` (columns, rows) that this finish's looks need to run on the band
     /// as image runs them on the whole raster, or `None` where they run on the whole raster: a `light` layer (its looks run on a raster
     /// grown by room), a look or a mask that reads one of the maps `held` by the source, a recipe image cannot band (`Recipe::band_margin`), a raster whose longest side is not the
-    /// canvas's (the window's canvas is the raster, and sets the look's design scale: a band of it would look at another scale), and
-    /// margins that reach `FOURIER_REACH` (a blur of that reach is summed by a Fourier transform whose rounding depends on the rows
-    /// it is given: banded within 1e-4, not to the bit).
+    /// canvas's (the window's canvas is the raster, and sets the look's design scale: a band of it would look at another scale).
+    /// Image answers only for recipes whose band is the whole render's rows to the bit, so no margin of this is too large to trust.
     ///
     /// # Errors
     /// What image refuses of a recipe.
@@ -134,7 +128,7 @@ impl Finish {
                 None => return Ok(None),
             }
         }
-        Ok((total < FOURIER_REACH).then_some(total))
+        Ok(Some(total))
     }
 
     /// `raster` with its alpha multiplied by each mask: the map's `values` (of `raster`'s size), blurred by the mask's

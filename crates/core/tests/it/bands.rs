@@ -588,3 +588,32 @@ fn looked_layers_drawn_by_bands_make_the_picture_they_make_whole() -> Outcome {
     }
     Ok(())
 }
+
+/// A looked layer on a canvas past the size where image sums a blur by a Fourier transform (a long side of about 3,800 pixels
+/// for a grain of a pixel), or whose rows are shifted by a fraction of a pixel from a row far from the top, is the whole
+/// render's rows to the bit when it is drawn by bands: image says which recipes it can band exactly. The canvases are thin so
+/// that the size is cheap.
+#[test]
+fn a_looked_layer_whose_recipe_image_cannot_band_exactly_is_drawn_whole_and_the_bands_equal_the_whole_render() -> Outcome
+{
+    let cases = [
+        (
+            "grain summed by a Fourier transform on a canvas of 3,900 pixels",
+            (3900_u32, 48_u32),
+            one_step("grain", r#"{"amount": 0.6, "size": 1.0}"#),
+        ),
+        (
+            "a split of the channels by a fraction of a pixel, far from the top",
+            (64, 480),
+            one_step("rgb_split", r#"{"amount": 40.0}"#),
+        ),
+    ];
+    for (name, (width, height), look) in cases {
+        let covered = Layer::picture(varied(width as usize, height as usize)?)
+            .fit([0.0, 0.0, f64::from(width), f64::from(height)], Fit::Cover, [0.5, 0.5])?
+            .look(&look)?;
+        let looked = scene(width, height, [Layer::fill("#204080")?, covered])?;
+        bands_make_the_whole(&looked, width.max(height)).map_err(|error| format!("{name}: {error}"))?;
+    }
+    Ok(())
+}
