@@ -114,11 +114,12 @@ A stack of full-size float pictures is the wrong way to render a poster: one 12-
    rows on the one plane every layer is drawn for (`Target::window`): the output, a group's inner scene and a mask's plane all take
    one, and a pixel is what it is whatever rows are drawn with it, so the bands put together are the whole.
 2. **What is drawn by band and what whole.** A picture with no look hands its own pixels to the warp, which reads the rows a band
-   needs; a flat colour is one pixel; a group is drawn for the rows of its raster the band reads (`warp::rows_read`); a mask plane
+   needs (with a look, it is resized for those rows); a flat colour is one pixel; a group is drawn for the rows of its raster the band reads (`warp::rows_read`); a mask plane
    is drawn for its band and the reach of its blur (the box passes of the blur are aligned so its sums add in the same order). A
-   layer with a look is drawn **whole** once and cut per band: image's effects are 22 of 62 less than whole-picture and 40 whole
-   (measured in image on 2026-11-08), and image's frame has no first-row setter, so a look cannot run on a band until effects take
-   a row origin and the canvas size (`future.md`). A drawing is drawn for the rows a band reads (vector's window render is the crop of its
+   layer with a look is drawn for the rows a band reads and the margin its looks reach (image's `Recipe::band_margin`, run with
+   `Options::with_window`: a window of the whole raster, so each pixel is the whole render's) when its source can draw rows, the layer
+   is not light, and image can band the recipe; else **whole** once and cut (image's whole-picture effects, a layer whose raster is not
+   the canvas's size, looks whose margins reach 16 pixels: a Fourier-summed blur is banded within 1e-4, not to the bit). A drawing is drawn for the rows a band reads (vector's window render is the crop of its
    whole render, byte for byte). A plugin kind is drawn whole once (its pixels are
    promised by rectangle and scale, not by position). These are the memory floor of a banded render.
 3. **Finished layers are held as float32.** Decision 2 of the roadmap, settled at B1 with the peak measurements.

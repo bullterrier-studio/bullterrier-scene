@@ -8,10 +8,15 @@ use std::sync::Arc;
 use crate::cache::{Cache, Key, Keyed};
 use crate::error::label;
 use crate::feather;
-use crate::geometry::{MAX_LOOKED_PIXELS, Rect, whole_up};
+use crate::geometry::{MAX_LOOKED_PIXELS, Rect};
 use crate::source::picture::Look;
 use crate::source::{Drawn, Request};
 use crate::{Error, Raster};
+
+/// The reach, in pixels, from which image sums a blur by a Fourier transform (`FFT_FROM_REACH` in its `ops/blur.rs`). A band of
+/// that blur differs from the whole one in the last bits, and a banded render equals the whole one bit for bit: looks whose
+/// margins add up to this are run whole. Revisit when image offers an exact-only `Recipe::band_margin`.
+const FOURIER_REACH: usize = 16;
 
 /// A mask by one of a picture's maps, as the layer's `mask` call gave it.
 #[derive(Debug, Clone)]
@@ -100,6 +105,38 @@ impl Finish {
             || self.looks.iter().any(|look| look.known_maps().contains(&name))
     }
 
+    /// The rows of margin each side of a band of a raster of `size` (columns, rows) that this finish's looks need to run on the band
+    /// as image runs them on the whole raster, or `None` where they run on the whole raster: a `light` layer (its looks run on a raster
+    /// grown by room), a look or a mask that reads one of the maps `held` by the source, a recipe image cannot band (`Recipe::band_margin`), a raster whose longest side is not the
+    /// canvas's (the window's canvas is the raster, and sets the look's design scale: a band of it would look at another scale), and
+    /// margins that reach `FOURIER_REACH` (a blur of that reach is summed by a Fourier transform whose rounding depends on the rows
+    /// it is given: banded within 1e-4, not to the bit).
+    ///
+    /// # Errors
+    /// What image refuses of a recipe.
+    pub(crate) fn band_margin(
+        &self,
+        request: &Request,
+        size: (usize, usize),
+        held: &[&str],
+        light: bool,
+    ) -> Result<Option<usize>, Error> {
+        let canvas = request.looks_canvas();
+        // a map is the picture's, not the band's: a look or a mask that reads one runs whole
+        if light || held.iter().any(|name| self.uses_map(name)) || size.0.max(size.1) != canvas.0.max(canvas.1) as usize
+        {
+            return Ok(None);
+        }
+        let mut total = 0_usize;
+        for look in &self.looks {
+            match look.band_margin(canvas.0.max(canvas.1))? {
+                Some(margin) => total = total.saturating_add(margin),
+                None => return Ok(None),
+            }
+        }
+        Ok((total < FOURIER_REACH).then_some(total))
+    }
+
     /// `raster` with its alpha multiplied by each mask: the map's `values` (of `raster`'s size), blurred by the mask's
     /// `feather` design pixels of the fitted layer, `density` raster pixels each along x and y, then inverted if it says so.
     ///
@@ -160,15 +197,8 @@ impl Finish {
         if !self.is_looked() {
             return draw();
         }
-        // drawn pixels per design pixel of the fitted layer: what the layer is drawn at, less the fit
-        let density = (
-            request.scale.x.pixels(1.0) / request.factor.0,
-            request.scale.y.pixels(1.0) / request.factor.1,
-        );
-        // the scene's canvas as this layer's `place` scale draws it: what a look's `px` count in, whatever the layer's size
-        // (a side beyond u32 is as large as image can be told)
-        let side = |length: f64| u32::try_from(whole_up(length)).unwrap_or(u32::MAX);
-        let canvas = (side(request.canvas.0 * density.0), side(request.canvas.1 * density.1));
+        let density = request.density();
+        let canvas = request.looks_canvas();
         // only light shows the room: a layer that is not light keeps its source's alpha, so the halo would be cut, and a look
         // that blurs its edge would mix black in where image's own edge rule would have kept the picture's colour
         let reach = if light { Look::room(&self.looks, canvas)? } else { None };
@@ -238,7 +268,7 @@ impl Finish {
         for (at, look) in self.looks.iter().enumerate().skip(first) {
             #[cfg(test)]
             RAN.with(|ran| ran.set(ran.get() + 1));
-            looked = Arc::new(look.apply(&looked, &maps, canvas, light)?);
+            looked = Arc::new(look.apply(&looked, &maps, canvas, light, request.rows)?);
             if let Some(key) = kept.as_ref().and_then(|stages| stages.get(at)) {
                 let bytes =
                     size_of_val(looked.pixels()) + maps.values().map(|values| size_of_val(&values[..])).sum::<usize>();
@@ -362,7 +392,7 @@ fn replicated(values: &[f32], (columns, rows): (usize, usize), [top, right, bott
 mod tests {
     use super::{RAN, fits};
     use crate::geometry::MAX_LOOKED_PIXELS;
-    use crate::{Error, Layer, Raster, Scene, Values};
+    use crate::{Error, Fit, Layer, Raster, Scene, Values};
 
     #[test]
     fn room_is_given_only_where_the_grown_raster_stays_within_what_a_look_runs_on() {
@@ -414,6 +444,58 @@ mod tests {
             "a finished raster seen before comes back"
         );
         assert_eq!(looks_run(&chain, &[("photo.look#2.grade.exposure", 0.8)])?, 0);
+        Ok(())
+    }
+
+    /// How many looks ran while `scene` was rendered in bands of `band_rows` rows at `size`.
+    fn looks_run_by_bands(scene: &Scene, size: u32, band_rows: usize) -> Result<usize, Error> {
+        let before = RAN.with(std::cell::Cell::get);
+        scene.render_bands(size, band_rows, |_, _| Ok(()))?;
+        Ok(RAN.with(std::cell::Cell::get) - before)
+    }
+
+    fn looked_drawing(recipe: &str) -> Result<Scene, Error> {
+        let frame = r##"{"root":[{"stack":{"items":[[{"path":"M12 22 L71 22 L71 93 L12 93 Z"}]],"size":[100,100]}},{"fill":{"color":"#c04020"}}],"version":1}"##;
+        Scene::new(100, 100)?.add([Layer::drawing(frame)?.look(recipe)?])
+    }
+
+    fn looked_picture(recipe: &str) -> Result<Scene, Error> {
+        Scene::new(100, 100)?.add([picture()?
+            .fit([0.0, 0.0, 100.0, 100.0], Fit::Cover, [0.5, 0.5])?
+            .look(recipe)?])
+    }
+
+    #[test]
+    fn a_looked_drawing_is_looked_for_each_band_where_image_can_band_it_and_once_where_it_cannot() -> Result<(), Error>
+    {
+        let step =
+            |effect: &str, params: &str| format!(r#"{{"steps": [{{"effect": "{effect}", "params": {params}}}]}}"#);
+        // ten bands of ten rows: a look for each; a look that cannot be banded runs on the whole once and is cut
+        let bandable = [
+            step("vignette", r#"{"amount": 0.9}"#),
+            step("gaussian_blur", r#"{"radius": 8.0}"#),
+        ];
+        for recipe in &bandable {
+            assert_eq!(looks_run_by_bands(&looked_drawing(recipe)?, 100, 10)?, 10, "{recipe}");
+            assert_eq!(
+                looks_run_by_bands(&looked_picture(recipe)?, 100, 10)?,
+                10,
+                "{recipe} on a picture"
+            );
+        }
+        let whole = [
+            step("gaussian_blur", r#"{"radius": 300.0}"#),
+            step("gaussian_blur", r#"{"radius": 24.0}"#),
+            step("auto_levels", "{}"),
+        ];
+        for recipe in &whole {
+            assert_eq!(looks_run_by_bands(&looked_drawing(recipe)?, 100, 10)?, 1, "{recipe}");
+            assert_eq!(
+                looks_run_by_bands(&looked_picture(recipe)?, 100, 10)?,
+                1,
+                "{recipe} on a picture"
+            );
+        }
         Ok(())
     }
 

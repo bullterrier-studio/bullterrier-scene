@@ -204,18 +204,52 @@ pub(crate) fn warp(source: &Arc<Raster>, map: Affine, clip: Rect, columns: usize
 /// The part `window` (design pixels of the picture, one to a pixel) of `source` as a raster of `columns` by `rows` pixels that
 /// divide it evenly: the rule of `geometry` for a rectangle drawn at a scale, made by the warp.
 pub(crate) fn resize(source: &Arc<Raster>, window: Rect, (columns, rows): (usize, usize)) -> Arc<Raster> {
+    warp(source, resizing(window, (columns, rows)), window, columns, rows)
+}
+
+/// The rows `first..end` of what [`resize`] makes of `source` for `window` and `size`, as a raster of those rows: each pixel is the
+/// one the whole raster has, so a picture is made for the rows a band reads without holding all of it.
+pub(crate) fn resize_rows(
+    source: &Arc<Raster>,
+    window: Rect,
+    (columns, rows): (usize, usize),
+    (first, end): (usize, usize),
+) -> Arc<Raster> {
+    let map = resizing(window, (columns, rows));
+    let mut output = vec![0.0_f32; columns * (end - first) * 4];
+    if is_identity(source, map, window, columns, rows) {
+        output.copy_from_slice(&source.pixels()[first * columns * 4..end * columns * 4]);
+    } else {
+        warp_through(
+            View::whole(source),
+            map,
+            window,
+            Output {
+                columns,
+                rows,
+                first,
+                count: end - first,
+            },
+            keeps_axes(map),
+            &mut |at, pixel| output[at * 4..at * 4 + 4].copy_from_slice(&pixel),
+        );
+    }
+    Arc::new(Raster::made(columns, end - first, output))
+}
+
+/// The map that puts `window` of a picture on a raster of `columns` by `rows` pixels.
+fn resizing(window: Rect, (columns, rows): (usize, usize)) -> Affine {
     // a side of at most 2^27 pixels
     #[expect(clippy::cast_precision_loss, reason = "a side of at most 2^27 pixels")]
     let (to_columns, to_rows) = (columns as f64 / window.width, rows as f64 / window.height);
-    let map = Affine {
+    Affine {
         a: to_columns,
         b: 0.0,
         c: -window.x * to_columns,
         d: 0.0,
         e: to_rows,
         f: -window.y * to_rows,
-    };
-    warp(source, map, window, columns, rows)
+    }
 }
 
 /// Whether `map` keeps the axes of the raster: a move, a scale, a flip or a quarter turn about x and y alone.

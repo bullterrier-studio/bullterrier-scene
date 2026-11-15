@@ -54,7 +54,16 @@ pub(crate) struct Request {
     /// The rows `first..end` of what the source would draw of its whole box (see [`Request::whole`]) that are wanted, for a source
     /// that can draw them alone (`Opened::by_window`); `None` for all of it. The renderer sets it when it knows which rows the
     /// output reads.
-    pub(crate) rows: Option<(usize, usize)>,
+    pub(crate) rows: Option<Rows>,
+}
+
+/// The rows `first..end` of a source's whole raster that are wanted, of `total` rows in all: what a looked layer needs to run
+/// its looks on part of the picture as the rows of the whole one (`Look::apply`).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Rows {
+    pub(crate) first: usize,
+    pub(crate) end: usize,
+    pub(crate) total: usize,
 }
 
 /// What a source that draws its whole box answers with, before it draws: where the raster lies on the box and how big it is.
@@ -71,6 +80,22 @@ pub(crate) struct Shape {
 }
 
 impl Request {
+    /// Drawn pixels per design pixel of the fitted layer, along x and y: what the layer is drawn at, less the fit.
+    pub(crate) fn density(&self) -> (f64, f64) {
+        (
+            self.scale.x.pixels(1.0) / self.factor.0,
+            self.scale.y.pixels(1.0) / self.factor.1,
+        )
+    }
+
+    /// The scene's canvas as this layer's `place` scale draws it, in output pixels: what a look's `px` count in, whatever the
+    /// layer's size (a side beyond u32 is as large as image can be told).
+    pub(crate) fn looks_canvas(&self) -> (u32, u32) {
+        let density = self.density();
+        let side = |length: f64| u32::try_from(whole_up(length)).unwrap_or(u32::MAX);
+        (side(self.canvas.0 * density.0), side(self.canvas.1 * density.1))
+    }
+
     /// The shape of the whole box of `own` at this request, whatever its size.
     pub(crate) fn drawn_shape(&self, own: Rect) -> Shape {
         let covers = self.whole(own);
@@ -89,12 +114,30 @@ impl Request {
     /// [`Error::Invalid`] naming `size` for a part (or the whole) of more than 2^27 pixels.
     pub(crate) fn drawn_rows(&self, own: Rect) -> Result<(Shape, (usize, usize)), Error> {
         let shape = self.drawn_shape(own);
+        Ok((shape, self.rows_within_limit(shape)?))
+    }
+
+    /// The shape of the window of a source that draws only the window (a picture), whatever its size.
+    pub(crate) fn window_shape(&self) -> Shape {
+        Shape {
+            covers: self.window,
+            size: self.scale.sides(self.window),
+            ends_at_window: false,
+            room: [0; 4],
+        }
+    }
+
+    /// The rows of a raster of `shape` to draw: the rows asked for, or all, within the limit of 2^27 pixels.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `size` for a part (or the whole) of more than 2^27 pixels.
+    pub(crate) fn rows_within_limit(&self, shape: Shape) -> Result<(usize, usize), Error> {
         let rows = match self.rows {
             None => {
                 self.scale.size(shape.covers)?;
                 (0, shape.size.1)
             }
-            Some((first, end)) => {
+            Some(Rows { first, end, .. }) => {
                 if shape.size.0.saturating_mul(end - first) > MAX_PIXELS {
                     return Err(Error::invalid(
                         "size",
@@ -108,7 +151,7 @@ impl Request {
                 (first, end)
             }
         };
-        Ok((shape, rows))
+        Ok(rows)
     }
 }
 

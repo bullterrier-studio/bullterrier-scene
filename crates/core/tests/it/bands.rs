@@ -442,3 +442,63 @@ fn a_drawing_vector_cannot_window_is_refused_by_bands_as_by_the_whole_render() -
     );
     Ok(())
 }
+
+/// A recipe of one step as a look.
+fn one_step(effect: &str, params: &str) -> String {
+    format!(r#"{{"steps": [{{"effect": "{effect}", "params": {params}}}]}}"#)
+}
+
+/// A looked drawing, a group of one and a picture (enlarged, and shrunk past 2x) that fill the canvas, drawn by bands, equal the
+/// whole render for every recipe image can run on a band (a place by the picture: vignette; a position-hashed grain; a blur and a
+/// chain of looks whose margins add up), and for those it cannot (a blur summed by a Fourier transform, a statistic of the whole
+/// picture): drawn whole and cut. The drawing stops short of the frame's edges, so the margin rows hold other content than the band's.
+#[test]
+fn looked_layers_drawn_by_bands_make_the_picture_they_make_whole() -> Outcome {
+    let shape = rectangle((100, 100), (12.0, 22.0), (71.0, 93.0), "#c04020");
+    let cases = [
+        (
+            "vignette",
+            vec![one_step("vignette", r#"{"amount": 0.9, "radius": 0.2}"#)],
+        ),
+        ("grain", vec![one_step("grain", r#"{"amount": 0.6, "size": 1.5}"#)]),
+        ("small blur", vec![one_step("gaussian_blur", r#"{"radius": 8.0}"#)]),
+        (
+            "blur reaching 16 pixels",
+            vec![one_step("gaussian_blur", r#"{"radius": 24.0}"#)],
+        ),
+        (
+            "chain whose margins add",
+            vec![
+                one_step("gaussian_blur", r#"{"radius": 6.0}"#),
+                one_step("grain", r#"{"amount": 0.4}"#),
+                one_step("vignette", r#"{"amount": 0.5}"#),
+                one_step("gaussian_blur", r#"{"radius": 6.0}"#),
+            ],
+        ),
+        (
+            "blur summed by a Fourier transform",
+            vec![one_step("gaussian_blur", r#"{"radius": 300.0}"#)],
+        ),
+        ("statistic of the whole picture", vec![one_step("auto_levels", "{}")]),
+    ];
+    let fill = [100.0, 100.0];
+    let fitted = |raster: Raster| -> Result<Layer, Error> {
+        Layer::picture(raster).fit([0.0, 0.0, fill[0], fill[1]], Fit::Cover, [0.5, 0.5])
+    };
+    for (name, looks) in cases {
+        let bases = [
+            ("drawing", Layer::drawing(&shape)?),
+            ("group", Layer::scene(scene(100, 100, [Layer::drawing(&shape)?])?)),
+            ("enlarged picture", fitted(varied(40, 30)?)?),
+            ("shrunk picture", fitted(varied(320, 240)?)?),
+        ];
+        for (kind, mut layer) in bases {
+            for look in &looks {
+                layer = layer.look(look)?;
+            }
+            let looked = scene(100, 100, [Layer::fill("#204080")?, layer])?;
+            at_sizes(&looked, &[100, 97]).map_err(|error| format!("{kind} with {name}: {error}"))?;
+        }
+    }
+    Ok(())
+}

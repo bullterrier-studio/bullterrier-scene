@@ -8,13 +8,13 @@ use std::sync::{Arc, OnceLock};
 use bullterrier_image::{Number, Options, Photo, Presets, RECIPE_FORMATS, Recipe, Spread};
 use serde_json::{Value, json};
 
-use super::{Drawn, Given, Opened, Source};
+use super::{Drawn, Given, Opened, Rows, Source};
 use crate::cache::{Cache, Keyed};
 use crate::document::Form;
 use crate::files::{Fingerprint, Located, digest_bytes};
 use crate::geometry::Rect;
 use crate::parameters::{Parameter, Value as Setting};
-use crate::warp::resize;
+use crate::warp::{resize, resize_rows};
 use crate::{Error, Map, Raster};
 
 /// A picture the layer holds, or a file it reads when it is drawn. Its box is its pixels, one design pixel each, at the
@@ -205,6 +205,17 @@ impl Look {
         Ok(total.pixels())
     }
 
+    /// The rows of margin a band of the picture needs for this look to give the rows of the whole render (image's
+    /// `Recipe::band_margin`), or `None` if the look cannot be run on a band. `longest` is the canvas's longest side in pixels.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `look`, in image's words.
+    pub(crate) fn band_margin(&self, longest: u32) -> Result<Option<usize>, Error> {
+        self.recipe
+            .band_margin(&self.presets, longest)
+            .map_err(|error| refused(&error))
+    }
+
     /// The names of the maps the recipe can be given (`subject`, `depth`, a `given` region).
     pub(crate) fn known_maps(&self) -> Vec<&str> {
         self.recipe.known_maps()
@@ -222,6 +233,7 @@ impl Look {
         maps: &BTreeMap<String, Vec<f32>>,
         canvas: (u32, u32),
         light: bool,
+        rows: Option<Rows>,
     ) -> Result<Raster, Error> {
         let colour: Vec<f32> = layer
             .pixels()
@@ -242,12 +254,17 @@ impl Look {
                 .map_err(|error| refused(&error))?;
             photo = photo.with_map(name, map).map_err(|error| refused(&error))?;
         }
+        // rows of the whole picture are a window of it: its place and design scale are the whole picture's
+        let options = match rows {
+            Some(rows) => {
+                // a raster of at most 2^26 pixels on a canvas of at most 2^27: every side fits
+                let side = |length: usize| u32::try_from(length).unwrap_or(u32::MAX);
+                Options::default().with_window(side(rows.first), side(layer.width()), side(rows.total))
+            }
+            None => Options::default().with_canvas(canvas.0, canvas.1),
+        };
         let image = photo
-            .render(
-                &self.recipe,
-                &self.presets,
-                Options::default().with_canvas(canvas.0, canvas.1),
-            )
+            .render(&self.recipe, &self.presets, options)
             .map_err(|error| refused(&error))?;
         let mut graded = image.into_values();
         if !(graded.iter().all(|value| value.is_finite()) && into_range(&mut graded)) {
@@ -531,9 +548,17 @@ impl Source for Picture {
                 });
             }
             let window = request.window;
-            let (columns, rows) = request.scale.size(window)?;
+            let shape = request.window_shape();
+            let rows_wanted = request.rows_within_limit(shape)?;
+            let (columns, rows) = shape.size;
+            // some rows of the picture at the drawn size, each pixel what the whole has (see `Opened::by_window`)
+            let raster = if request.rows.is_some() {
+                resize_rows(&own, window, (columns, rows), rows_wanted)
+            } else {
+                resize(&own, window, (columns, rows))
+            };
             Ok(Drawn {
-                raster: resize(&own, window, (columns, rows)),
+                raster,
                 covers: window,
                 ends_at_window: false,
                 room: [0; 4],
@@ -544,7 +569,8 @@ impl Source for Picture {
                     .collect(),
             })
         })
-        .own_pixels())
+        .own_pixels()
+        .by_window())
     }
 
     fn map_names(&self) -> Option<Vec<&str>> {

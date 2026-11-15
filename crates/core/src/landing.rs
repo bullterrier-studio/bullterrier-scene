@@ -7,10 +7,11 @@ use std::sync::Arc;
 
 use crate::cache::{Cache, Keyed};
 use crate::finish::Chain;
+use crate::finish::Finish;
 use crate::geometry::{MAX_LOOKED_PIXELS, MAX_PIXELS, Rect, Scale};
 use crate::layer::Body;
 use crate::placement::{Layout, Placement};
-use crate::source::{Drawn, Opened, Request, Shape};
+use crate::source::{Drawn, Opened, Request, Rows, Shape};
 use crate::warp::{Map, Output, View, is_identity, rows_read, warp_into};
 use crate::{Error, Raster};
 
@@ -190,22 +191,88 @@ impl Landed {
 }
 
 /// What a layer drawn by window is drawn for, where it is: on a band, a source that draws its whole box and can draw some rows of it
-/// alone, with no look on it, and a warp that reads only some of those rows. The map and clip of the whole raster, the rows to draw
-/// (`first..end`) and the rows the raster has in all; `None` for any other layer, which is drawn whole.
+/// alone, a warp that reads only some of those rows, and looks that image can run on a band (or none). The map and clip of the whole
+/// raster, the rows to draw, and the rows of margin the looks need each side; `None` for any other layer, which is drawn whole.
+///
+/// # Errors
+/// What image refuses of a look.
 fn rows_to_draw(
     opened: &Opened,
     request: &Request,
     target: &Target,
-    looked: bool,
+    finish: &Finish,
+    held: &[&str],
+    light: bool,
     placed: impl Fn(Shape) -> (Map, Rect),
-) -> Option<(Map, Rect, (usize, usize), usize)> {
-    if !(target.is_band() && opened.by_window && !looked) {
-        return None;
+) -> Result<Option<(Map, Rect, Rows, usize)>, Error> {
+    // a source with no look to run on it hands over its own pixels (`own_pixels`) and draws no raster to window
+    if !(target.is_band() && opened.by_window && (finish.is_looked() || !opened.own_pixels)) {
+        return Ok(None);
     }
-    let shape = request.drawn_shape(opened.own);
+    let shape = if opened.whole {
+        request.drawn_shape(opened.own)
+    } else {
+        request.window_shape()
+    };
+    // looks run on the rows of the band and the margin they read round them (none: no look)
+    let margin = if finish.is_looked() {
+        let Some(margin) = finish.band_margin(request, shape.size, held, light)? else {
+            return Ok(None);
+        };
+        margin
+    } else {
+        0
+    };
     let (map, clip) = placed(shape);
-    let rows = rows_read(map, target.output(), shape.size)?;
-    (rows != (0, shape.size.1)).then_some((map, clip, rows, shape.size.1))
+    let Some((first, end)) = rows_read(map, target.output(), shape.size) else {
+        return Ok(None);
+    };
+    let total = shape.size.1;
+    Ok(((first, end) != (0, total)).then_some((map, clip, Rows { first, end, total }, margin)))
+}
+
+/// A layer drawn for the rows `read` of its raster: the source draws them and `margin` rows more each side, the looks run on all of
+/// them as the rows of the whole raster, and the margin is cut. No chain of looks is kept: a band's looks are not another band's.
+///
+/// # Errors
+/// What the source and the looks refuse.
+fn draw_rows(
+    opened: Opened,
+    request: Request,
+    finish: &Finish,
+    light: bool,
+    cache: &Cache,
+    (read, margin): (Rows, usize),
+) -> Result<Drawn, Error> {
+    let wide = Rows {
+        first: read.first.saturating_sub(margin),
+        end: read.end.saturating_add(margin).min(read.total),
+        total: read.total,
+    };
+    let mut drawn = opened.draw(
+        Request {
+            rows: Some(wide),
+            ..request
+        },
+        finish,
+        light,
+        cache,
+        None,
+    )?;
+    if (wide.first, wide.end) != (read.first, read.end) {
+        drawn.raster = Arc::new(cut(&drawn.raster, read.first - wide.first..read.end - wide.first));
+    }
+    Ok(drawn)
+}
+
+/// The rows `rows` of `raster`.
+fn cut(raster: &Raster, rows: std::ops::Range<usize>) -> Raster {
+    let line = raster.width() * 4;
+    Raster::made(
+        raster.width(),
+        rows.len(),
+        raster.pixels()[rows.start * line..rows.end * line].to_vec(),
+    )
 }
 
 /// `body` drawn at the scale it will have, and put on `target`: the source asked for the part of its box that shows, then the
@@ -254,20 +321,22 @@ pub(crate) fn land(body: &Body, target: &Target, light: bool) -> Result<Landed, 
             clip,
         )
     };
-    if let Some((map, clip, rows, total)) = rows_to_draw(&opened, &request, target, body.finish.is_looked(), placed) {
-        let rows_wanted = Request {
-            rows: Some(rows),
-            ..request
-        };
-        // a layer drawn by window has no look: there is no chain of looks to keep
-        let drawn = opened.draw(rows_wanted, &body.finish, light, target.cache, None)?;
+    if let Some((map, clip, read, margin)) = rows_to_draw(
+        &opened,
+        &request,
+        target,
+        &body.finish,
+        &body.source.map_names().unwrap_or_default(),
+        light,
+        placed,
+    )? {
         return Ok(Landed {
-            drawn,
+            drawn: draw_rows(opened, request, &body.finish, light, target.cache, (read, margin))?,
             map,
             clip,
             output: target.output(),
-            first: rows.0,
-            total,
+            first: read.first,
+            total: read.total,
         });
     }
     // the one place the drawn-size limit is checked, before any source draws: a source that draws its own pixels allocates

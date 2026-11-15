@@ -779,13 +779,25 @@ tests passed in a scratch environment with the two packages installed at the pin
   picture's own pixels), a flat colour (one pixel), a group with no look (drawn for the rows of its raster the band reads:
   `warp::rows_read` takes the four corners of the band through the map back, with the room the kernels read, and `View` lets the warp
   read a part of a raster as some rows of a taller one), a mask plane (the band and the reach of its blur). Whole, once, kept in the
-  cache and cut per band: **a layer with a look** (image's effects are whole-picture in 40 of 62 cases, and image's frame has no
-  first-row setter; banded looks need position-aware effects, `future.md`), and **a plugin kind**. *A drawing is windowed
+  cache and cut per band: **a layer with a look that cannot be banded** (below), and **a plugin kind**. *A drawing is windowed
   (2026-11-15):* vector's window render is the crop of its whole render byte for byte, so a drawing is drawn for the rows a band reads,
   and a refused window (a side past 65,000 pixels, 2^27 in all) is a raster the whole render refuses too: no whole fallback. *A kind is not asked for a band's rectangle:* its pixels are promised by rectangle and
   scale, not by position (a kind with a seeded stream draws other pixels for another rectangle). A group's inner looked layers are whole
   at the group's scale and kept, so each band of a group finds them. State of the floor: the looked layers' rasters
   stay resident (the cache holds up to 2 GiB of them).
+- **Banded looks (2026-11-15).** A looked layer whose source draws rows (a drawing, a group) is drawn for the rows a band reads and
+  the margin its looks reach each side (`Finish::band_margin`: the sum of image's `Recipe::band_margin` of each look), and each look
+  runs on those rows through `Options::with_window(first_row, raster width, raster rows)`, so a vignette's place and noise numbered by
+  position are the whole raster's. The window's canvas is the raster, and the canvas also sets a look's design scale, so the layer is
+  banded only where the raster's longest side is the scene canvas's (a layer fitted to the canvas; a smaller or a zoomed one is drawn
+  whole). Run whole too: a `light` layer (its looks run on a raster grown by room), a mask by a map, a recipe image cannot band
+  (whole-picture statistics, `each`, driven steps, maps, a `frame` or `size`), and looks whose margins add up to 16 pixels or more:
+  image sums a blur of that reach by a Fourier transform whose rounding depends on the rows it is given, so a band differs from the
+  whole in the last bits (measured: the bit-exact oracle fails with the limit lifted). Revisit with image's exact-only
+  `band_margin` (its roadmap). A looked picture is resized to the drawn size for the rows wanted
+  (`warp::resize_rows`: the same warp with an output of some rows, each pixel the whole resize's), then looked; a picture shrunk past
+  2x is averaged whole for each band until the reduced raster is kept (`future.md`). A look or a mask that reads a map the source
+  holds runs whole.
 - **The zoom limit.** A layer that draws only its own pixels with no look (a picture's, a flat colour's one) allocates nothing of the
   size it is placed at, so its drawn size is no longer limited to 2^27 pixels: a side of 2^31 is (what the warp's positions keep
   exact). A group drawn by band is limited by the rows it draws, so a group zoomed a thousand times (100,000 by 100,000 pixels) is
