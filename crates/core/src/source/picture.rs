@@ -226,7 +226,8 @@ impl Look {
     /// design scale of the look's `px`;
     /// a `light` layer's look sees the colour over black and its result is opaque (stage 7 makes the alpha: the light a look
     /// makes outside a shape is kept); the look sees those its recipe can be given, and image refuses the render, naming the
-    /// step and the map, if the recipe needs one that is not there.
+    /// step and the map, if the recipe needs one that is not there. `rows` says that `layer` is some rows of the whole raster
+    /// (a window of it); `room` that `layer` is a box grown by that many pixels on the top, right, bottom and left.
     pub(crate) fn apply(
         &self,
         layer: &Raster,
@@ -234,6 +235,7 @@ impl Look {
         canvas: (u32, u32),
         light: bool,
         rows: Option<Rows>,
+        room: [usize; 4],
     ) -> Result<Raster, Error> {
         let colour: Vec<f32> = layer
             .pixels()
@@ -262,6 +264,13 @@ impl Look {
                 Options::default().with_window(side(rows.first), side(layer.width()), side(rows.total))
             }
             None => Options::default().with_canvas(canvas.0, canvas.1),
+        };
+        // the raster is the box grown by `room`: a step that places itself by its picture is placed by the box
+        let options = if room == [0; 4] {
+            options
+        } else {
+            let [top, right, bottom, left] = room.map(|side| u32::try_from(side).unwrap_or(u32::MAX));
+            options.with_room(top, right, bottom, left)
         };
         let image = photo
             .render(&self.recipe, &self.presets, options)

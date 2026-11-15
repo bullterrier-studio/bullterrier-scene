@@ -76,8 +76,9 @@ fn glowing(layer: Result<Layer, Error>, recipe: &str, light: bool) -> Result<Lay
 }
 
 /// What image alone makes of the content on a frame grown by `pad` (transparent black), looked at as a light layer's look sees
-/// it (the colour over black): `3` floats a pixel, the picture `SIDE + 2 pad` square.
-fn by_image(recipe: &str, pad: usize) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+/// it (the colour over black): `3` floats a pixel, the picture `SIDE + 2 pad` square. With `boxed`, image is told the frame
+/// is a box with room (`Options::with_room`), so that a step that places itself by its picture is placed by the box.
+fn by_image(recipe: &str, pad: usize, boxed: bool) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
     let side = SIDE + 2 * pad;
     let inside = |x: usize, y: usize| (pad..pad + SIDE).contains(&x) && (pad..pad + SIDE).contains(&y);
     let colour: Vec<f32> = (0..side * side)
@@ -91,11 +92,15 @@ fn by_image(recipe: &str, pad: usize) -> Result<Vec<f32>, Box<dyn std::error::Er
         .collect();
     let presets = Presets::shipped()?;
     let checked = Recipe::from_json(recipe)?.checked(&presets)?;
-    let image = bullterrier_image::Photo::new(bullterrier_image::Picture::new(side, side, &colour)?).render(
-        &checked,
-        &presets,
-        bullterrier_image::Options::default().with_canvas(CANVAS, CANVAS),
-    )?;
+    let options = bullterrier_image::Options::default().with_canvas(CANVAS, CANVAS);
+    let pad_px = u32::try_from(pad)?;
+    let options = if boxed {
+        options.with_room(pad_px, pad_px, pad_px, pad_px)
+    } else {
+        options
+    };
+    let image = bullterrier_image::Photo::new(bullterrier_image::Picture::new(side, side, &colour)?)
+        .render(&checked, &presets, options)?;
     Ok(image.into_values())
 }
 
@@ -140,7 +145,7 @@ fn against_image(shown: &Raster, expected: &[f32], pad: usize, light: bool) -> f
 fn a_looked_layer_is_what_image_makes_of_the_layer_on_a_frame_grown_by_the_declared_room() -> Outcome {
     let room = declared(BLOOM)?;
     assert!(room > 4, "the room is {room}: too little to tell a halo from an edge");
-    let expected = by_image(BLOOM, room)?;
+    let expected = by_image(BLOOM, room, false)?;
     for (what, tight) in [
         ("drawing", drawing(0)?),
         ("picture", picture(0)?),
@@ -159,7 +164,7 @@ fn a_looked_layer_is_what_image_makes_of_the_layer_on_a_frame_grown_by_the_decla
 #[test]
 fn the_declared_room_holds_the_whole_halo() -> Outcome {
     let room = declared(BLOOM)?;
-    let wide = by_image(BLOOM, room + 8)?;
+    let wide = by_image(BLOOM, room + 8, false)?;
     let side = SIDE + 2 * (room + 8);
     let beyond = (0..side * side)
         .filter(|at| {
@@ -277,7 +282,7 @@ fn a_halo_wider_than_the_frame_goes_on_past_the_frame_edge() -> Outcome {
     let shown = render(glowing(drawing(2), BLOOM, true)?)?;
     let (row, edge) = (AT + SIDE / 2, AT - 2);
     assert!(pixel(&shown, edge - 1, row)[3] > 0.0, "the halo stops at the frame");
-    let difference = against_image(&shown, &by_image(BLOOM, room + 2)?, room + 2, true);
+    let difference = against_image(&shown, &by_image(BLOOM, room + 2, false)?, room + 2, true);
     assert!(difference < 1e-4, "differs from image's render by {difference}");
     Ok(())
 }
@@ -363,28 +368,24 @@ fn a_look_that_spreads_none_or_cannot_be_bounded_gets_no_room() -> Outcome {
     Ok(())
 }
 
-/// The caveat of a look that mixes a halo with an effect that places itself by the picture's bounds (image's list): the vignette
-/// of a bloom-and-vignette look is placed by the picture grown by the room, as image's own render of the grown picture places
-/// it, so the layer's own corners are darkened less than image's render of the layer's picture alone darkens them. The idiom is
-/// two layers (the vignette on one, the halo by reference on the other).
+/// A look that mixes a halo with an effect that places itself by the picture (a vignette): the vignette is placed by the layer's box,
+/// not by the box grown by the room (image's `Options::with_room`), so the layer's own corners are darkened as image darkens a
+/// render of the box, and the halo shows past it. The oracle is image's render of the box grown by the room, told it is a box with
+/// room; the same render without that differs, so the test fails where the vignette is placed by the grown picture.
 #[test]
-fn a_vignette_with_a_halo_is_placed_by_the_grown_picture() -> Outcome {
+fn a_vignette_with_a_halo_is_placed_by_the_box() -> Outcome {
     const BOTH: &str = r#"{"steps": [{"effect": "vignette"}, {"effect": "bloom", "params": {"radius": 12.0, "threshold": 0.2, "amount": 1.0}}]}"#;
-    const VIGNETTE: &str = r#"{"steps": [{"effect": "vignette"}]}"#;
     let room = declared(BOTH)?;
     let shown = render(glowing(picture(0), BOTH, true)?)?;
-    let difference = against_image(&shown, &by_image(BOTH, room)?, room, true);
+    let difference = against_image(&shown, &by_image(BOTH, room, true)?, room, true);
     assert!(
         difference < 1e-6,
-        "differs from image's render of the grown picture by {difference}"
+        "differs from image's render of the box with room by {difference}"
     );
-    // image's vignette of the content alone, at the same corner of the content
-    let alone = by_image(VIGNETTE, 0)?;
-    let corner = (SIDE - 1) * SIDE * 3 + (SIDE - 1) * 3;
-    let (here, there) = (pixel(&shown, AT + SIDE - 1, AT + SIDE - 1), alone[corner]);
+    let placed_by_grown = against_image(&shown, &by_image(BOTH, room, false)?, room, true);
     assert!(
-        here[0] * here[3] > there + 0.01,
-        "the corner is {here:?} with the halo and {there} without"
+        placed_by_grown > 0.01,
+        "the oracle must tell the box from the grown picture: they differ by {placed_by_grown}"
     );
     Ok(())
 }
@@ -398,7 +399,7 @@ fn the_rooms_of_the_looks_of_a_layer_add() -> Outcome {
     let (one, two) = (declared(BLUR)?, declared(TWICE)?);
     assert_eq!(two, 2 * one);
     let shown = render(glowing(picture(0), BLUR, true)?.look(BLUR)?)?;
-    let difference = against_image(&shown, &by_image(TWICE, two)?, two, true);
+    let difference = against_image(&shown, &by_image(TWICE, two, false)?, two, true);
     assert!(difference < 1e-5, "differs by {difference}");
     Ok(())
 }

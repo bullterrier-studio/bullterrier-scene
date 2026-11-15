@@ -593,13 +593,14 @@ Copied from the design of audio's measures by name (its A7), adapted to layer ki
   ended at the window now ends at the window grown (`ends_at_window`), so nothing cuts the halo. Masks by a layer multiply where
   the grown raster lands (canvas space); a mask by the layer's own map is continued by its nearest edge pixel (the rule a blur of
   a map has). The cached raster is the grown one: the room follows from the look documents and the canvas, both in the key.
-- **The grown-picture caveat is documented, not guarded.** A look that mixes a halo with an effect that places itself by the
-  picture's bounds (vignette, `x`/`y` centres, noise numbered by place, whole-picture statistics) sees the grown picture as the
-  whole. Image does not say which effects those are (its architecture note lists them in prose), so a guard would be a table of
-  effect names kept in scene and wrong whenever image adds an effect. Most such effects are `Unbounded` in image and so get no
-  room already (the warps about a centre, the statistics); of the others a vignette spreads none, so alone it is untouched, and
-  only a recipe that mixes it with a halo shifts it. The idiom is two layers. A test pins the behaviour: the vignette of a
-  bloom-and-vignette look is the vignette of image's render of the grown picture. `Options::with_room` in image would lift it.
+- **A step that places itself by its picture is placed by the box (2026-11-15).** A look that mixes a halo with an effect that places
+  itself by the picture's bounds (vignette, `x`/`y` centres, noise numbered by place, whole-picture statistics) used to see the grown
+  raster as the whole, so a vignette's corners were darkened less. The grown raster is now run with image's `Options::with_room`: those
+  steps run on the box and keep their pixels, every other step runs on the grown raster and paints its halo into the room. A test
+  pins it against image's own render of the box with room (and against the same render without, which differs). **Limit (image's):** a
+  boxed step does not reach a halo an earlier step painted into the room (a vignette after a bloom leaves the halo undarkened): order
+  the halo steps last. **A layer that is not light still has no room:** its alpha is its source's, so a halo past the box would have
+  no alpha to show it, whatever image paints there (image returns colour; a look that returns its stroke as alpha is not built).
 - **The "bloom tints the whole box" report was the halo cut at the frame.** A transparent pixel is black to a light layer's look
   and the bloom of black is black; a sun on a frame larger than itself showed a lit rectangle because the halo, wider than the
   frame, stopped at its edge. With room the halo goes on past the frame; `a_halo_wider_than_the_frame_goes_on_past_the_frame_edge`

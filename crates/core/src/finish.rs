@@ -268,7 +268,7 @@ impl Finish {
         for (at, look) in self.looks.iter().enumerate().skip(first) {
             #[cfg(test)]
             RAN.with(|ran| ran.set(ran.get() + 1));
-            looked = Arc::new(look.apply(&looked, &maps, canvas, light, request.rows)?);
+            looked = Arc::new(look.apply(&looked, &maps, canvas, light, request.rows, room)?);
             if let Some(key) = kept.as_ref().and_then(|stages| stages.get(at)) {
                 let bytes =
                     size_of_val(looked.pixels()) + maps.values().map(|values| size_of_val(&values[..])).sum::<usize>();
