@@ -44,7 +44,7 @@ What remains, with its evidence:
 | What | Why it is not built | What would build it |
 |---|---|---|
 | ~~**Banded looks.**~~ **Done 2026-11-15** (step 3 below): what stays whole is a looked layer whose recipe image cannot band, a layer not the canvas's size, a light layer and looks reaching 16 pixels or more (a Fourier-summed blur is banded within 1e-4, not to the bit: wait for image's exact-only `band_margin`) | | |
-| **A PDF whose compressed image is not held.** `render_to_pdf` keeps the compressed colour (and alpha) streams until the file is assembled | pdf-writer writes whole objects | a hand-written writer of the one image object, or pdf-writer taking a stream; a vector PDF is a separate decision | **Needs a decision (2026-11-15):** (a) spill the two compressed streams to temporary files beside the output and assemble the PDF by hand (header, objects, xref: about 150 lines, two temporary files, a test that the file opens and decodes as now); (b) wait for pdf-writer to take a stream; the held bytes are the compressed picture (a print of a photograph is hundreds of megabytes), not the picture. Not built: either is a design change.
+| ~~**A PDF whose compressed image is not held.**~~ **Done 2026-11-15:** the compressed colour and alpha go to scratch files beside the output and the PDF is assembled by copying them (`pdf.rs` writes the objects, table and trailer; pdf-writer writes the content stream). Held: a row and the codecs' buffers (0.8 MB for a 7.2 MB file; 29.7 MB before). Disk: the two files, as large as the compressed image | | |
 | ~~**A plugin kind drawn by band**~~ **Done 2026-11-15** (step 5): a kind says `by_position` | | |
 | ~~**Reducing a picture shrunk past 2x once.**~~ **Done 2026-11-15:** a band lands from the average, made once and kept in the cache (`reduced_for_bands`); only a map whose footprint is a rectangle along the axes averages first | | |
 | ~~**Scan-resistant cache for banded renders.**~~ **Done 2026-11-15:** the plane of a band is kept as expendable (`Cache::fetch_expendable`): only where it costs no finished layer, and the first to go. What else a band keeps that no other band reads is not measured | | |
@@ -87,7 +87,7 @@ Each item has the evidence that found it. Fix by the usual rule: reproduce at th
 - **What exists:** the whole core roadmap through C7, O1 and P1 (`roadmap.md`): layers of picture, drawing, text, fill, scene
   and plugin kinds (C8); `fit`, `place`, `perspective`; masks, maps, references, groups; looks on every layer; the sixteen
   blends and light; parameters and `with_values`; the saved scene; the cache; PNG and raster PDF output; `bt-scene`. **What is missing:**
-  vector PDF, a PDF whose compressed image is not held, banded looks of a recipe image cannot band,
+  vector PDF, banded looks of a recipe image cannot band,
   the open polish row 9 (the cost of a bloom on a very large layer), the web export, hit-test and tree edit for an editor.
 - **The pieces** are in `bullterrier-demos` and use scene as a library from a checkout (`BT_SCENE_SRC`, the sibling's
   `src/`): 06 the two-ink poster, 07 the composed world, 08 the Conan poster, 09 the wow poster (a loop with a value set per

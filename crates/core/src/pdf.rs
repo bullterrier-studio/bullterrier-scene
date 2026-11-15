@@ -1,23 +1,26 @@
 //! `Raster::write_pdf`: a picture as a one-page PDF at a physical size. The adapter of the PDF writer (`pdf-writer`), the
-//! Flate encoder (`miniz_oxide`) and the colour transform to a caller's CMYK profile (`moxcms`).
+//! Flate encoder (`miniz_oxide`) and the colour transform to a caller's CMYK profile (`moxcms`); the file's objects are written
+//! here, so that the two image streams go from disk to the file and are never held.
 //!
 //! Layout, in PDF points (1/72 in) from the page's lower left corner: the page (`MediaBox`) is the bleed box plus, with crop
 //! marks, a margin; the bleed box (`BleedBox`) is the trim box grown by the bleed on every side; the trim box (`TrimBox`) is
 //! the picture at its physical size. The picture is drawn with its bleed (the edge pixels repeated outward, whole pixels) and
 //! clipped to the bleed box.
 
+use std::fs::File;
+use std::io::{self, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use miniz_oxide::MZFlush;
 use miniz_oxide::deflate::core::{CompressorOxide, create_comp_flags_from_zip_params};
 use miniz_oxide::deflate::stream::deflate;
 use moxcms::{ColorProfile, DataColorSpace, Layout, Transform8BitExecutor, TransformOptions};
-use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref};
+use pdf_writer::Content;
 
 use crate::geometry::MAX_PIXELS;
 use crate::ranges::{BLEED_MM, DPI};
 use crate::raster::eight_bit;
-use crate::stream::failed;
+use crate::stream::{Part, failed};
 use crate::{Error, Raster};
 
 /// Millimetres in an inch (exact, by definition).
@@ -115,16 +118,19 @@ fn points(value: f64) -> f32 {
 /// The zlib level of the image streams: miniz's default.
 const FLATE_LEVEL: i32 = 6;
 
-/// A Flate (zlib) stream being written: bytes go in as they are made, the compressed bytes are kept.
+/// A Flate (zlib) stream being written: bytes go in as they are made and the compressed bytes go to a scratch file, so that
+/// none is held.
 struct Flate {
     compressor: Box<CompressorOxide>,
-    compressed: Vec<u8>,
+    spill: BufWriter<File>,
+    /// The compressed bytes written so far.
+    length: u64,
     /// Room for one call's output.
     room: Vec<u8>,
 }
 
 impl Flate {
-    fn new() -> Self {
+    fn new(spill: File) -> Self {
         Self {
             // a window of more than 0 bits writes the zlib header
             compressor: Box::new(CompressorOxide::new(create_comp_flags_from_zip_params(
@@ -132,36 +138,47 @@ impl Flate {
                 1,
                 0,
             ))),
-            compressed: Vec::new(),
+            spill: BufWriter::new(spill),
+            length: 0,
             room: vec![0; 1 << 16],
         }
     }
 
     /// Compresses `input`, which follows what came before.
-    fn push(&mut self, mut input: &[u8]) {
+    fn push(&mut self, mut input: &[u8]) -> io::Result<()> {
         while !input.is_empty() {
             let step = deflate(&mut self.compressor, input, &mut self.room, MZFlush::None);
-            self.compressed.extend_from_slice(&self.room[..step.bytes_written]);
+            self.keep(step.bytes_written)?;
             input = &input[step.bytes_consumed..];
+        }
+        Ok(())
+    }
+
+    /// The compressed stream, ended: the scratch file read from its start, and its length.
+    fn finish(mut self) -> io::Result<(File, u64)> {
+        loop {
+            let step = deflate(&mut self.compressor, &[], &mut self.room, MZFlush::Finish);
+            self.keep(step.bytes_written)?;
+            // `Ok(StreamEnd)` ends the stream; an error cannot come, the room is never empty
+            if step.status != Ok(miniz_oxide::MZStatus::Ok) {
+                let mut file = self.spill.into_inner().map_err(io::IntoInnerError::into_error)?;
+                file.seek(SeekFrom::Start(0))?;
+                return Ok((file, self.length));
+            }
         }
     }
 
-    /// The compressed stream, ended.
-    fn finish(mut self) -> Vec<u8> {
-        loop {
-            let step = deflate(&mut self.compressor, &[], &mut self.room, MZFlush::Finish);
-            self.compressed.extend_from_slice(&self.room[..step.bytes_written]);
-            // `Ok(StreamEnd)` ends the stream; an error cannot come, the room is never empty
-            if step.status != Ok(miniz_oxide::MZStatus::Ok) {
-                return self.compressed;
-            }
-        }
+    /// Writes the first `count` bytes of the room to the scratch file.
+    fn keep(&mut self, count: usize) -> io::Result<()> {
+        self.length += count as u64;
+        self.spill.write_all(&self.room[..count])
     }
 }
 
 /// A one-page PDF being written row by row: the picture's rows go in a band at a time, as one Flate stream of colour (and one
-/// of alpha), and what is held is the compressed streams, never the picture or its 8-bit planes. [`Raster::write_pdf`] is one
-/// push of the whole picture.
+/// of alpha) that goes to a scratch file beside the PDF, so that what is held is a row and the codecs' buffers, never the
+/// picture, its 8-bit planes or the compressed streams. The scratch files are gone when the PDF is in place, or when this is
+/// dropped. [`Raster::write_pdf`] is one push of the whole picture.
 pub(crate) struct PdfStream {
     path: PathBuf,
     options: PdfOptions,
@@ -172,6 +189,8 @@ pub(crate) struct PdfStream {
     height: usize,
     colour: Flate,
     alpha: Flate,
+    /// The scratch files the two streams are written to: removed when dropped.
+    _scratch: [Part; 2],
     /// Whether some pixel is not opaque, so that the alpha is written.
     translucent: bool,
     /// The rows pushed so far.
@@ -190,7 +209,7 @@ impl PdfStream {
     /// (the picture and its bleed) may have.
     ///
     /// # Errors
-    /// As [`Raster::write_pdf`], for a profile and a size.
+    /// As [`Raster::write_pdf`], for a profile and a size, and [`Error::Write`] naming `path` for a folder that is not there.
     pub(crate) fn create(
         path: &Path,
         (width, height): (usize, usize),
@@ -213,6 +232,8 @@ impl PdfStream {
                 )
             })?;
         let channels = if profile.is_some() { 4 } else { 3 };
+        let (colour_part, colour_file) = Part::scratch(path, "colour")?;
+        let (alpha_part, alpha_file) = Part::scratch(path, "alpha")?;
         Ok(Self {
             path: path.to_path_buf(),
             options: options.clone(),
@@ -220,8 +241,9 @@ impl PdfStream {
             profile,
             width,
             height,
-            colour: Flate::new(),
-            alpha: Flate::new(),
+            colour: Flate::new(colour_file),
+            alpha: Flate::new(alpha_file),
+            _scratch: [colour_part, alpha_part],
             translucent: false,
             rows: 0,
             rgb: vec![0; width * 3],
@@ -235,7 +257,8 @@ impl PdfStream {
     /// The next rows of the picture.
     ///
     /// # Errors
-    /// [`Error::Invalid`] naming `cmyk_profile` if the conversion fails.
+    /// [`Error::Invalid`] naming `cmyk_profile` if the conversion fails, [`Error::Write`] naming the path if a stream cannot be
+    /// kept.
     pub(crate) fn push(&mut self, band: &Raster) -> Result<(), Error> {
         let flatten = self.options.flatten;
         let channels = if self.profile.is_some() { 4 } else { 3 };
@@ -281,9 +304,13 @@ impl PdfStream {
                 .extend(std::iter::repeat_n(self.opacity[self.width - 1], bleed));
             let times = 1 + bleed * (usize::from(self.rows == 0) + usize::from(self.rows + 1 == self.height));
             for _ in 0..times {
-                self.colour.push(&self.colour_row);
+                self.colour
+                    .push(&self.colour_row)
+                    .map_err(|error| failed(&self.path, error))?;
                 if !flatten {
-                    self.alpha.push(&self.alpha_row);
+                    self.alpha
+                        .push(&self.alpha_row)
+                        .map_err(|error| failed(&self.path, error))?;
                 }
             }
             self.rows += 1;
@@ -306,17 +333,23 @@ impl PdfStream {
             translucent,
             ..
         } = self;
-        let colour = colour.finish();
-        let alpha = (translucent && !options.flatten).then(|| alpha.finish());
-        let bytes = assemble(
+        let colour = colour.finish().map_err(|error| failed(&path, error))?;
+        let alpha = (translucent && !options.flatten)
+            .then(|| alpha.finish())
+            .transpose()
+            .map_err(|error| failed(&path, error))?;
+        let (part, file) = Part::create(&path)?;
+        let mut file = BufWriter::new(file);
+        document(
+            &mut file,
             &layout,
             &options,
             profile.as_ref().map(|(bytes, _)| bytes.as_slice()),
-            &colour,
-            alpha.as_deref(),
-        )?;
-        let (part, mut file) = crate::stream::Part::create(&path)?;
-        std::io::Write::write_all(&mut file, &bytes).map_err(|error| failed(&path, error))?;
+            colour,
+            alpha,
+        )
+        .and_then(|()| file.flush())
+        .map_err(|error| failed(&path, error))?;
         drop(file);
         part.commit()
     }
@@ -454,73 +487,89 @@ fn read_profile(options: &PdfOptions) -> Result<Option<(Vec<u8>, ColorProfile)>,
     Ok(Some((bytes, parsed)))
 }
 
-/// The bytes of the PDF of an image whose compressed colour is `colour` and alpha `alpha` (if it has one), laid out as `layout`
-/// says, with the ICC profile bytes `profile` of a CMYK image.
+/// A writer that counts the bytes it is given: where each object starts, for the cross-reference table.
+struct Counted<W> {
+    inner: W,
+    at: u64,
+}
+
+impl<W: Write> Write for Counted<W> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        let count = self.inner.write(bytes)?;
+        self.at += count as u64;
+        Ok(count)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+/// The start of indirect object `offsets.len() + 1`: its offset is kept, its number written.
+fn begin(out: &mut Counted<impl Write>, offsets: &mut Vec<u64>) -> io::Result<()> {
+    offsets.push(out.at);
+    writeln!(out, "{} 0 obj", offsets.len())
+}
+
+/// A stream object: the dictionary `entries` (lines), then `length` bytes read from `data`.
+fn stream(
+    out: &mut Counted<impl Write>,
+    offsets: &mut Vec<u64>,
+    entries: &str,
+    mut data: impl Read,
+    length: u64,
+) -> io::Result<()> {
+    begin(out, offsets)?;
+    write!(out, "<<\n{entries}/Length {length}\n>>\nstream\n")?;
+    io::copy(&mut data, out)?;
+    out.write_all(b"\nendstream\nendobj\n")
+}
+
+/// `[left bottom right top]` in points, as a PDF array.
+fn rectangle([left, bottom, right, top]: [f64; 4]) -> String {
+    format!(
+        "[{} {} {} {}]",
+        points(left),
+        points(bottom),
+        points(right),
+        points(top)
+    )
+}
+
+/// Writes the PDF of an image whose compressed colour is `colour` and alpha `alpha` (if it has one), each a stream and its
+/// length, laid out as `layout` says, with the ICC profile bytes `profile` of a CMYK image: the header, the objects, the
+/// cross-reference table and the trailer. The streams are copied from where they are, so the PDF is never held.
+///
+/// The objects are numbered from 1 in the order they are written: the catalog, the page tree, the page, its content, the image,
+/// then the image's soft mask and the profile if there are any.
 ///
 /// # Errors
-/// [`Error::Invalid`] naming `raster` for a side that does not fit the PDF's 32-bit number.
-fn assemble(
+/// What `out` or a stream's file refuses.
+fn document(
+    out: impl Write,
     layout: &Geometry,
     options: &PdfOptions,
     profile: Option<&[u8]>,
-    colour: &[u8],
-    alpha: Option<&[u8]>,
-) -> Result<Vec<u8>, Error> {
-    let rect = |[x1, y1, x2, y2]: [f64; 4]| Rect::new(points(x1), points(y1), points(x2), points(y2));
+    colour: (File, u64),
+    alpha: Option<(File, u64)>,
+) -> io::Result<()> {
+    let mut out = Counted { inner: out, at: 0 };
+    let mut offsets = Vec::new();
+    out.write_all(b"%PDF-1.7\n%\x80\x80\x80\x80\n")?;
 
-    // the objects: catalog, page tree, page, image, soft mask, content, profile
-    let (catalog_id, tree_id, page_id, image_id, mask_id, content_id, profile_id) = (
-        Ref::new(1),
-        Ref::new(2),
-        Ref::new(3),
-        Ref::new(4),
-        Ref::new(5),
-        Ref::new(6),
-        Ref::new(7),
-    );
-    let name = Name(b"Picture");
-    let mut pdf = Pdf::new();
-    pdf.catalog(catalog_id).pages(tree_id);
-    pdf.pages(tree_id).kids([page_id]).count(1);
-    let mut page = pdf.page(page_id);
-    page.media_box(rect(layout.page));
-    page.bleed_box(rect(layout.bleed_box));
-    page.trim_box(rect(layout.trim));
-    page.parent(tree_id);
-    page.contents(content_id);
-    page.resources().x_objects().pair(name, image_id);
-    page.finish();
-
-    // a side is under 2^27, so it fits the 32-bit number of the PDF
-    let size = |side: usize| i32::try_from(side).map_err(|_| Error::invalid("raster", "a side is too long"));
-    let (image_width, image_height) = (size(layout.image.0)?, size(layout.image.1)?);
-    let mut image = pdf.image_xobject(image_id, colour);
-    image.filter(Filter::FlateDecode);
-    image.width(image_width);
-    image.height(image_height);
-    image.bits_per_component(8);
-    match profile {
-        Some(_) => image.color_space().icc_based(profile_id),
-        None => {
-            image.color_space().device_rgb();
-        }
-    }
-    if alpha.is_some() {
-        image.s_mask(mask_id);
-    }
-    image.finish();
-    if let Some(coverage) = alpha {
-        let mut mask = pdf.image_xobject(mask_id, coverage);
-        mask.filter(Filter::FlateDecode);
-        mask.width(image_width);
-        mask.height(image_height);
-        mask.color_space().device_gray();
-        mask.bits_per_component(8);
-        mask.finish();
-    }
-    if let Some(bytes) = profile {
-        pdf.icc_profile(profile_id, bytes).n(4).alternate().device_cmyk();
-    }
+    begin(&mut out, &mut offsets)?;
+    write!(out, "<<\n/Type /Catalog\n/Pages 2 0 R\n>>\nendobj\n")?;
+    begin(&mut out, &mut offsets)?;
+    write!(out, "<<\n/Type /Pages\n/Kids [3 0 R]\n/Count 1\n>>\nendobj\n")?;
+    begin(&mut out, &mut offsets)?;
+    write!(
+        out,
+        "<<\n/Type /Page\n/Parent 2 0 R\n/MediaBox {}\n/BleedBox {}\n/TrimBox {}\n/Contents 4 0 R\n\
+         /Resources <<\n/XObject <<\n/Picture 5 0 R\n>>\n>>\n>>\nendobj\n",
+        rectangle(layout.page),
+        rectangle(layout.bleed_box),
+        rectangle(layout.trim)
+    )?;
 
     // the image's lower left corner is the trim box's, moved out by the bleed pixels; the clip is the bleed box
     let outward = float(layout.bleed_pixels) * layout.per_pixel;
@@ -539,13 +588,58 @@ fn assemble(
             points(layout.trim[0] - outward),
             points(layout.trim[1] - outward),
         ])
-        .x_object(name)
+        .x_object(pdf_writer::Name(b"Picture"))
         .restore_state();
     if options.crop_marks {
         crop_marks(&mut content, layout.trim, layout.bleed_box);
     }
-    pdf.stream(content_id, &content.finish());
-    Ok(pdf.finish())
+    let content = content.finish();
+    stream(&mut out, &mut offsets, "", &*content, content.len() as u64)?;
+
+    let (width, height) = layout.image;
+    let (mask, profile_id) = (6, 6 + usize::from(alpha.is_some()));
+    let space = if profile.is_some() {
+        format!("[/ICCBased {profile_id} 0 R]")
+    } else {
+        "/DeviceRGB".to_string()
+    };
+    let soft_mask = if alpha.is_some() {
+        format!("/SMask {mask} 0 R\n")
+    } else {
+        String::new()
+    };
+    let image = format!(
+        "/Type /XObject\n/Subtype /Image\n/Filter /FlateDecode\n/Width {width}\n/Height {height}\n/BitsPerComponent 8\n\
+         /ColorSpace {space}\n{soft_mask}"
+    );
+    stream(&mut out, &mut offsets, &image, colour.0, colour.1)?;
+    if let Some((coverage, length)) = alpha {
+        let gray = format!(
+            "/Type /XObject\n/Subtype /Image\n/Filter /FlateDecode\n/Width {width}\n/Height {height}\n/BitsPerComponent 8\n\
+             /ColorSpace /DeviceGray\n"
+        );
+        stream(&mut out, &mut offsets, &gray, coverage, length)?;
+    }
+    if let Some(bytes) = profile {
+        stream(
+            &mut out,
+            &mut offsets,
+            "/N 4\n/Alternate /DeviceCMYK\n",
+            bytes,
+            bytes.len() as u64,
+        )?;
+    }
+
+    let table = out.at;
+    let count = offsets.len() + 1;
+    write!(out, "xref\n0 {count}\n0000000000 65535 f \n")?;
+    for offset in offsets {
+        writeln!(out, "{offset:010} 00000 n ")?;
+    }
+    write!(
+        out,
+        "trailer\n<<\n/Size {count}\n/Root 1 0 R\n>>\nstartxref\n{table}\n%%EOF\n"
+    )
 }
 
 /// `raster` written to `path` as a PDF.

@@ -28,6 +28,7 @@ sha2.workspace = true
 
 [dev-dependencies]
 lopdf.workspace = true
+peak_alloc.workspace = true
 proptest.workspace = true
 tempfile.workspace = true
 

@@ -238,8 +238,8 @@ impl Scene {
 
     /// The picture of [`render`](Scene::render) written to `path` as a one-page PDF, as [`Raster::write_pdf`] writes a picture
     /// (the same page, boxes and image), drawn by bands and written as each is made, with no limit on the pixels of the
-    /// image. What is held is a band and the compressed image, never the picture: the compressed image is at most about the
-    /// size of the file. The file is put in place when it is whole, as for [`render_to_png`](Scene::render_to_png).
+    /// image. What is held is a band and a few buffers, never the picture or the compressed image: that goes to two scratch
+    /// files beside `path` (as large as the compressed image) which are removed when the PDF is in place or the render fails. The file is put in place when it is whole, as for [`render_to_png`](Scene::render_to_png).
     ///
     /// # Errors
     /// As [`render_bands`](Scene::render_bands) for the picture, and as [`Raster::write_pdf`] for the options and the page.

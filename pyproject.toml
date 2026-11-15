@@ -174,8 +174,9 @@ scope-pattern = "^[a-z0-9][a-z0-9/_-]*$"
 cap-mb = 8000
 
 # Read by tools/check_rust_test_layout.py: the Rust test files that are binaries of their own (path -> why they need a
-# process to themselves). Empty: every integration test is a module of tests/it/.
+# process to themselves). Every other integration test is a module of tests/it/.
 [tool.rust-tests.own-binaries]
+"crates/core/tests/memory.rs" = "a counting #[global_allocator] measures the whole process's peak heap"
 
 # Read by tools/pre_push.py (`poe proofs`, the last step of `poe check`): the gate proofs (tests marked `gate`) run in `check` only when the
 # change since they last passed touches one of these globs, relative to the repository root, or when they never passed here. List every file a proof

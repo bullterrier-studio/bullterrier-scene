@@ -1,5 +1,6 @@
 //! `Raster::write_pdf`. The reader is lopdf, independent of the writer (pdf-writer); every expected number is worked out by
 //! hand from the dpi (a point is 1/72 in, a millimetre 72/25.4 pt) and the rounding of a PNG (`level * 255 + 0.5`, cut).
+//! The PDF's own file layout (offsets, scratch files) is read by hand in the tests that name it.
 
 use std::path::Path;
 
@@ -641,5 +642,126 @@ fn a_pdf_streamed_by_bands_is_the_pdf_of_the_picture_written_whole() -> Outcome 
     let (am, bm) = (a.mask.ok_or("no mask")?, b.mask.ok_or("no mask")?);
     assert_eq!(am.iter().zip(&bm).position(|(x, y)| x != y), None);
     assert_eq!(am.len(), bm.len());
+    Ok(())
+}
+
+/// The names in `folder`, sorted.
+fn names(folder: &Path) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let mut names = std::fs::read_dir(folder)?
+        .map(|entry| entry.map(|entry| entry.file_name().to_string_lossy().into_owned()))
+        .collect::<Result<Vec<_>, _>>()?;
+    names.sort();
+    Ok(names)
+}
+
+/// The file's layout is read by hand (PDF 1.7, 7.5.4 and 7.3.8), where lopdf would repair a wrong one: object `n` starts at the
+/// offset of entry `n` of the cross-reference table (`startxref`, a header, a free entry and one entry of 20 bytes an object),
+/// and a stream is as long as its `/Length` says, whatever the objects are (an opaque picture, a soft mask, a profile).
+#[test]
+fn the_cross_reference_table_and_the_stream_lengths_are_where_the_format_says() -> Outcome {
+    let folder = tempfile::tempdir()?;
+    let profile = folder.path().join("test.icc");
+    std::fs::write(&profile, cmyk_profile())?;
+    let cases = [
+        // catalog, tree, page, content, image
+        ("opaque", picture(5, 4, |_, _| 1.0)?, PdfOptions::new(96.0)?, 5),
+        (
+            "with a soft mask",
+            picture(5, 4, |x, _| 0.5 + f32::from(u8::try_from(x).unwrap_or_default()) / 10.0)?,
+            PdfOptions::new(96.0)?,
+            6,
+        ),
+        (
+            "with a profile",
+            picture(5, 4, |_, _| 1.0)?,
+            PdfOptions::new(96.0)?.cmyk_profile(&profile),
+            6,
+        ),
+        (
+            "with both, a bleed and crop marks",
+            picture(5, 4, |x, _| 0.5 + f32::from(u8::try_from(x).unwrap_or_default()) / 10.0)?,
+            PdfOptions::new(96.0)?
+                .cmyk_profile(&profile)
+                .bleed_mm(1.0)?
+                .crop_marks(true),
+            7,
+        ),
+    ];
+    for (what, raster, options, objects) in cases {
+        let path = folder.path().join("table.pdf");
+        raster.write_pdf(&path, &options)?;
+        let bytes = std::fs::read(&path)?;
+        let last = |needle: &[u8]| bytes.windows(needle.len()).rposition(|window| window == needle);
+        let after = &bytes[last(b"startxref\n").ok_or("no startxref")? + b"startxref\n".len()..];
+        let table: usize =
+            std::str::from_utf8(after.split(|&byte| byte == b'\n').next().ok_or("no offset")?)?.parse()?;
+        let lines: Vec<&[u8]> = bytes[table..].split(|&byte| byte == b'\n').collect();
+        assert_eq!(lines[0], b"xref", "{what}");
+        assert_eq!(
+            lines[1],
+            format!("0 {}", objects + 1).as_bytes(),
+            "{what}: the free entry and every object"
+        );
+        assert_eq!(lines[2], b"0000000000 65535 f ", "{what}");
+        for number in 1..=objects {
+            let entry = lines[2 + number];
+            assert_eq!(entry.len(), 19, "{what}: an entry is 20 bytes with its line feed");
+            assert!(entry.ends_with(b" 00000 n "), "{what}: entry {number}");
+            let offset: usize = std::str::from_utf8(&entry[..10])?.parse()?;
+            assert!(
+                bytes[offset..].starts_with(format!("{number} 0 obj\n").as_bytes()),
+                "{what}: object {number} is not at its offset {offset}"
+            );
+            // from the fourth on, every object is a stream: the page content, the image, its mask, the profile
+            let object = &bytes[offset..];
+            if number >= 4 {
+                let dictionary = object
+                    .windows(8)
+                    .position(|window| window == b"\nstream\n")
+                    .ok_or("a stream object with no stream")?;
+                let text = String::from_utf8_lossy(&object[..dictionary]).into_owned();
+                let (_, tail) = text.split_once("/Length ").ok_or("a stream with no length")?;
+                let length: usize = tail.split('\n').next().unwrap_or_default().parse()?;
+                assert!(
+                    object[dictionary + 8 + length..].starts_with(b"\nendstream\nendobj\n"),
+                    "{what}: object {number} is not {length} bytes long"
+                );
+            }
+        }
+        // the trailer has the root and as many entries as the table
+        let trailer = String::from_utf8_lossy(&bytes[last(b"trailer").ok_or("no trailer")?..]).into_owned();
+        assert!(
+            trailer.contains(&format!("/Size {}", objects + 1)) && trailer.contains("/Root 1 0 R"),
+            "{what}"
+        );
+    }
+    Ok(())
+}
+
+/// The compressed streams are written to scratch files beside the PDF while it is made; no file is left but the PDF, whether
+/// it is put in place or not.
+#[test]
+fn a_pdf_leaves_no_file_beside_it_when_it_is_written_and_when_it_cannot_be_put_in_place() -> Outcome {
+    let folder = tempfile::tempdir()?;
+    let translucent = picture(40, 30, |x, _| {
+        0.5 + f32::from(u8::try_from(x).unwrap_or_default()) / 100.0
+    })?;
+    let options = PdfOptions::new(300.0)?.bleed_mm(1.0)?;
+    translucent.write_pdf(&folder.path().join("out.pdf"), &options)?;
+    assert_eq!(names(folder.path())?, ["out.pdf"], "after a PDF is written");
+
+    // a folder is where the PDF should go: the picture is drawn and compressed, and the file cannot take its place
+    let taken = folder.path().join("taken");
+    std::fs::create_dir(&taken)?;
+    let error = translucent.write_pdf(&taken, &options).err();
+    assert!(
+        matches!(&error, Some(Error::Write { path, .. }) if *path == taken.display().to_string()),
+        "{error:?}"
+    );
+    assert_eq!(
+        names(folder.path())?,
+        ["out.pdf", "taken"],
+        "after a PDF that cannot be put in place"
+    );
     Ok(())
 }

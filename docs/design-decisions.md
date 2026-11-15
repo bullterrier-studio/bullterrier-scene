@@ -695,8 +695,10 @@ paper-size option (the canvas and `--size` already say the picture; a paper size
 *Alternative weighed:* keep vectors and text as PDF paths, which needs vector to write PDF and the layer stack (blend modes, looks,
 masks) to be expressible in PDF: not planned. The PDF is a delivery of the finished raster, the print counterpart of the PNG.
 
-**Crates.** `pdf-writer` (typst; MIT or Apache-2.0; four small dependencies: bitflags, itoa, memchr, ryu) writes the
-objects and is the only PDF code in the tree; it writes no Info, date or ID, so the same picture gives the same bytes. *Alternative
+**Crates.** `pdf-writer` (typst; MIT or Apache-2.0; four small dependencies: bitflags, itoa, memchr, ryu) writes the page's
+content stream (the picture's placement and the crop marks); `pdf.rs` writes the objects, the cross-reference table and the trailer
+itself, because pdf-writer writes whole objects and the two image streams are not held (below). No Info, date or ID is written, so
+the same picture gives the same bytes. *Alternative
 weighed:* `printpdf`, which is a document builder with fonts, layers and an `image` dependency for decoding: more than one
 embedded image needs, and a second picture decoder. `miniz_oxide` (MIT, Zlib or Apache-2.0) is the Flate encoder: `pdf-writer` does
 not compress, and the crate was already in the tree through `png`. No predictor: the image is a few times larger than a PNG's
@@ -826,10 +828,15 @@ tests passed in a scratch environment with the two packages installed at the pin
   pixels are those of `Raster::write` once decoded (a test over a picture of two bands); the bytes are not.
 - **PDF: one Flate stream, written incrementally.** The writer takes rows as they come (bleed rows repeat the first and last
   row, a CMYK profile converts each row as before, the alpha stream is kept only if some pixel was not opaque) and compresses them
-  through miniz's streaming deflater into two buffers; `Raster::write_pdf` is one push of the whole picture, so the two share one
+  through miniz's streaming deflater into two scratch files beside the PDF; `Raster::write_pdf` is one push of the whole picture, so the two share one
   path and the boxes, the image and the operations are the same (a test of a picture of two bands with bleed and crop marks decodes both
-  and compares). **The floor of a PDF is its compressed image** (held until the file is assembled, as pdf-writer writes whole objects),
-  not the picture or its 8-bit planes; the 2^27 pixel limit of `write_pdf` is lifted for `render_to_pdf` (the page's 14,400 pt and the
+  and compares). **Nothing of a PDF's size is held:** the compressed colour and alpha go to the two scratch files, and the PDF is assembled by
+  copying them (a row, the codecs' buffers and the small objects are what is held: 0.8 MB while a 7.2 MB file of noise is written, 29.7 MB
+  before; an own-binary test with a counting allocator, `tests/memory.rs`); the cost is disk, as large as the compressed image, and
+  a write that fails or ends removes it. *Alternative weighed:* pdf-writer taking a stream (not offered; the hand-written part is the
+  header, seven kinds of object and the table, about 150 lines read back by hand in a test: offsets and stream lengths). The
+  streams are not held, so the output bytes differ from the earlier writer's in layout only (object order and numbering); the pixels
+  are the same; the 2^27 pixel limit of `write_pdf` is lifted for `render_to_pdf` (the page's 14,400 pt and the
   PDF's 32-bit sides are the limits). A file is written under a temporary name and renamed when whole: a render that fails leaves no file
   and a file that was there stays.
 - **Storage precision (decision 2): float32.** A band is float32 premultiplied RGBA, 16 bytes a pixel, and no finished layer is stored
@@ -847,8 +854,7 @@ tests passed in a scratch environment with the two packages installed at the pin
   megapixels, one rotated, a multiplied band, type at 1,600, a feathered mask layer, an overlay fill) written to a PNG by `render_to_png`:
   **25 s, 1.77 GB peak, a 44 MB file** that decodes to 9,933 by 14,043. A band there is 1,689 rows, 270 MB; the group alone would be
   2.2 GB whole.
-- **Not built, and why.** A PDF whose compressed image is not held (a decision: the two compressed streams go to temporary files and a
-  hand-written container assembles them, or pdf-writer takes a stream; `future.md`); banded looks of a recipe image cannot band, of a
+- **Not built, and why.** Banded looks of a recipe image cannot band, of a
   blur summed by a Fourier transform and of a layer that is not the canvas's size (image's exact-only `band_margin`, and a window with a
   canvas apart from the scale; "Banded looks" above).
 - **Measured 2026-11-15 (a stand-in A3 poster of 15 layers, a looked photo of vignette and grain, one bloom, a perspective picture;

@@ -30,14 +30,33 @@ impl Part {
     /// # Errors
     /// [`Error::Write`] naming `target` for a folder that is not there or a path that cannot be written.
     pub(crate) fn create(target: &Path) -> Result<(Self, File), Error> {
+        Self::open(target, "part", File::options().write(true))
+    }
+
+    /// A scratch file beside `target` that holds `kind` while the target is made: open for writing and for reading back, and
+    /// gone when the returned `Part` is dropped (it is never committed).
+    ///
+    /// # Errors
+    /// As [`Part::create`].
+    pub(crate) fn scratch(target: &Path, kind: &str) -> Result<(Self, File), Error> {
+        Self::open(target, &format!("{kind}.part"), File::options().read(true).write(true))
+    }
+
+    /// The file `.<name of target>.<suffix>` beside `target`, created (emptied if it was there) with `options`.
+    fn open(target: &Path, suffix: &str, options: &mut std::fs::OpenOptions) -> Result<(Self, File), Error> {
         let name = target
             .file_name()
             .ok_or_else(|| failed(target, "the path has no file name"))?;
         let mut temp_name = std::ffi::OsString::from(".");
         temp_name.push(name);
-        temp_name.push(".part");
+        temp_name.push(".");
+        temp_name.push(suffix);
         let temp = target.with_file_name(temp_name);
-        let file = File::create(&temp).map_err(|error| failed(target, error))?;
+        let file = options
+            .create(true)
+            .truncate(true)
+            .open(&temp)
+            .map_err(|error| failed(target, error))?;
         Ok((
             Self {
                 target: target.to_path_buf(),
