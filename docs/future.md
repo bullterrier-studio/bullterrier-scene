@@ -34,7 +34,7 @@ drawn in the drawing: 3 s). Sources: the 71 s in `bullterrier-demos/feedback/sce
 8. Print output for dither, halftone and spot-ink pieces (plates, mirrored bleed, DPI, a white underbase), once image
    hands out its ink planes: [dither-and-print.md](dither-and-print.md).
 
-Room for light layers is built (C5c). B1 is built; banded looks are the open step 3 of "B1 completion" (image's window and margin now exist).
+Room for light layers is built (C5c), and B1 with banded looks; what still renders whole is stated in "B1 completion" below.
 
 ## B1: what banded rendering still lacks (2026-11-14)
 
@@ -44,12 +44,12 @@ What remains, with its evidence:
 | What | Why it is not built | What would build it |
 |---|---|---|
 | ~~**Banded looks.**~~ **Done 2026-11-15** (step 3 below): what stays whole is a looked layer whose recipe image cannot band, a layer not the canvas's size, a light layer and looks reaching 16 pixels or more (a Fourier-summed blur is banded within 1e-4, not to the bit: wait for image's exact-only `band_margin`) | | |
-| **A PDF whose compressed image is not held.** `render_to_pdf` keeps the compressed colour (and alpha) streams until the file is assembled | pdf-writer writes whole objects | a hand-written writer of the one image object, or pdf-writer taking a stream; a vector PDF is a separate decision |
+| **A PDF whose compressed image is not held.** `render_to_pdf` keeps the compressed colour (and alpha) streams until the file is assembled | pdf-writer writes whole objects | a hand-written writer of the one image object, or pdf-writer taking a stream; a vector PDF is a separate decision | **Needs a decision (2026-11-15):** (a) spill the two compressed streams to temporary files beside the output and assemble the PDF by hand (header, objects, xref: about 150 lines, two temporary files, a test that the file opens and decodes as now); (b) wait for pdf-writer to take a stream; the held bytes are the compressed picture (a print of a photograph is hundreds of megabytes), not the picture. Not built: either is a design change.
 | ~~**A plugin kind drawn by band**~~ **Done 2026-11-15** (step 5): a kind says `by_position` | | |
 | ~~**Reducing a picture shrunk past 2x once.**~~ **Done 2026-11-15:** a band lands from the average, made once and kept in the cache (`reduced_for_bands`); only a map whose footprint is a rectangle along the axes averages first | | |
 | ~~**Scan-resistant cache for banded renders.**~~ **Done 2026-11-15:** the plane of a band is kept as expendable (`Cache::fetch_expendable`): only where it costs no finished layer, and the first to go. What else a band keeps that no other band reads is not measured | | |
 
-### B1 completion: unblocked on 2026-11-15; steps 1 and 2 done, start at step 3
+### B1 completion: unblocked on 2026-11-15; steps 1 to 5 done the same day, step 6 measured (`design-decisions.md`)
 
 The two blockers in the first two rows above are lifted in the siblings; the scene side is the next batch:
 
@@ -58,7 +58,7 @@ The two blockers in the first two rows above are lifted in the siblings; the sce
 3. **Banded looks. Done 2026-11-15** (a looked picture, drawing or group is drawn for the rows of a band and the margin its looks reach; recipes image cannot band, a layer not the canvas's size, a light layer and margins from 16 pixels stay whole: "Banded looks" in `design-decisions.md`). Image now has `Options::with_window(first_row, canvas_width, canvas_height)` and `Recipe::band_margin(presets, longest_side) -> Option<usize>` (the margin rows a band needs, or `None` when the recipe cannot be banded: steps that read the whole picture, `each`/driven steps, steps with a `mask`/`partition`/field parameter, a `frame` or `size`). A looked layer whose recipes all have a margin can be drawn by band plus margin and looked per band; the others stay whole. Caveat from image: a blur summed by Fourier transform (reach of 16 working pixels or more) differs from the whole render by up to 1e-4, so those are banded within rounding, not bit for bit: either treat a recipe with such a blur as not bandable until image offers an exact-only `band_margin` (listed in image's roadmap), or state the tolerance. The bit-exact oracle decides.
 4. **Room for every layer kind. Done 2026-11-15** for what room can show: a light layer's looks now run with `Options::with_room`, so a step that places itself by its picture is placed by the box (the oracle: image's render of the box with room). A layer that is not light still has none: its alpha is its source's, so there is no alpha for a halo to show in; the black margin that darkened its blurred edges is not the question while it has no room. Open: a boxed step after a halo step does not reach the halo (image's signed `Place`).
 5. **Plugin kinds by band. Done 2026-11-15:** `LayerKind::by_position` (default false; Python `by_position=True`); a kind that says yes is asked for the rows a band reads (and the margin of its looks), and `check_by_position` (public) holds it to "a drawn sub-rectangle equals the same crop of the whole rectangle".
-6. Docs, the limits table and the 15-layer A3 / A0 measurements are updated with each step; one full gate per batch.
+6. **Docs, the limits table and the 15-layer A3 / A0 measurements. Done 2026-11-15** (`design-decisions.md`, "Measured 2026-11-15"; banded A3 peak 3.25 to 2.96 GB on the new stand-in).
 
 ## Polish found by building real pieces
 
@@ -74,7 +74,7 @@ Each item has the evidence that found it. Fix by the usual rule: reproduce at th
 | 6 | ~~`Layer.text` takes a flat colour only~~ **Done** (9132201 (`api.md` recipe: a gradient on type)) | M2 used vector's `text` with a gradient fill directly |
 | 7 | ~~A picture cannot be trimmed to its matte~~ **Done** (9132201 (`api.md` recipe: trim to the matte)) | M2 cropped with numpy to put the reflection at the paws |
 | 8 | ~~No keyline helper~~ **Done** (9132201 (`api.md` recipe: a keyline; image returning the stroke as alpha stays listed under "Needs from others")) | the Conan poster used image's `outline` on a second picture with `lighten`: works, awkward; a look cannot return its stroke as alpha only |
-| 9 | A bloom on a magnified perspective layer takes 71 s (the perspective cap fix made it work). Performance of looks on large drawn rasters needs a look. **Open**; C5c adds room only to a light layer, at most up to image's 2^26 pixels, so a light bloom on such a layer is looked at a larger raster still | M2 (`scene-m2.md`, 1): C7 and B1 |
+| 9 | A bloom on a magnified perspective layer takes 71 s (the perspective cap fix made it work). Performance of looks on large drawn rasters needs a look. **Measured 2026-11-15, not changed:** a 600 by 600 grid drawing on a quadrilateral whose near side is magnified, on a 1,200 by 800 canvas, takes 3.7 s with no look and 21.2 s with a light bloom (a debug-info test build): the look runs on the layer at its largest scale, up to image's 2^26 pixels (about 0.26 microseconds a pixel for a bloom, image's), and neither banded looks nor room change it (a perspective layer is not banded). **Options:** a lower cap for a looked layer (a blurrier near side: the owner's choice) or a faster bloom in image | M2 (`scene-m2.md`, 1): C7 and B1 |
 | 10 | ~~Room for looks (a halo past the layer box) and light spill~~ done (C5c; a bounds effect is placed by the box since `with_room`, 2026-11-15): a light layer's looks run on its raster grown by image's `Recipe::spread`. **What remains:** a layer that is not light has none (its alpha is its source's: no alpha for a halo to show in); a boxed step after a halo step does not reach the halo (order halo steps last, or image's signed `Place`); a look image cannot bound (`Unbounded`) gets none | `api.md`, "Looks" |
 | 11 | `fit` then `place(dx, dy)` composes correctly in either order | verified on renders (`scene-conan.md`, 3): no gap, listed so nobody re-checks |
 | 12 | A look's `px` cannot be given in output pixels or as a share of the canvas: a look carried over from a picture of another size is rescaled by hand (`480 / long side`), and inside a group by the group's size again | the mill (`PX = 480 / max(W, H)`), the wow poster's story group (looks scaled by `H / h`) |
@@ -87,8 +87,8 @@ Each item has the evidence that found it. Fix by the usual rule: reproduce at th
 - **What exists:** the whole core roadmap through C7, O1 and P1 (`roadmap.md`): layers of picture, drawing, text, fill, scene
   and plugin kinds (C8); `fit`, `place`, `perspective`; masks, maps, references, groups; looks on every layer; the sixteen
   blends and light; parameters and `with_values`; the saved scene; the cache; PNG and raster PDF output; `bt-scene`. **What is missing:**
-  banded looks (B1 is built; looks wait for image), vector PDF,
-  the open polish row 9, the web export, hit-test and tree edit for an editor.
+  vector PDF, a PDF whose compressed image is not held, banded looks of a recipe image cannot band,
+  the open polish row 9 (the cost of a bloom on a very large layer), the web export, hit-test and tree edit for an editor.
 - **The pieces** are in `bullterrier-demos` and use scene as a library from a checkout (`BT_SCENE_SRC`, the sibling's
   `src/`): 06 the two-ink poster, 07 the composed world, 08 the Conan poster, 09 the wow poster (a loop with a value set per
   frame: `with_values` then `render`), 10 the mill video. Its `feedback/scene-*.md` are the evidence of every polish row.

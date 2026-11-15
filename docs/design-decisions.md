@@ -847,6 +847,13 @@ tests passed in a scratch environment with the two packages installed at the pin
   megapixels, one rotated, a multiplied band, type at 1,600, a feathered mask layer, an overlay fill) written to a PNG by `render_to_png`:
   **25 s, 1.77 GB peak, a 44 MB file** that decodes to 9,933 by 14,043. A band there is 1,689 rows, 270 MB; the group alone would be
   2.2 GB whole.
-- **Not built, and why.** Banded looks (image has no first-row setter and 40 of its 62 effects read positions); a PDF whose compressed image is not held (a hand-written PDF writer, or pdf-writer taking a
-  stream); a kind drawn by band (its pixels are not by position); the reduction of a picture shrunk past 2x is made again for each
-  band (the area average of the whole raster; a time cost, not memory: `future.md`).
+- **Not built, and why.** A PDF whose compressed image is not held (a decision: the two compressed streams go to temporary files and a
+  hand-written container assembles them, or pdf-writer takes a stream; `future.md`); banded looks of a recipe image cannot band, of a
+  blur summed by a Fourier transform and of a layer that is not the canvas's size (image's exact-only `band_margin`, and a window with a
+  canvas apart from the scale; "Banded looks" above).
+- **Measured 2026-11-15 (a stand-in A3 poster of 15 layers, a looked photo of vignette and grain, one bloom, a perspective picture;
+  a debug-info test build, one run each, the machine's other load unknown), before and after banded looks, the drawing, kind and
+  room batches:** whole 4.33 GB and 14.2 s the first render, 1.40 s the second (after: 4.33 GB, 15.2 s, 1.38 s); banded in 1,000
+  rows **3.25 GB, 14.9 s before, 2.96 GB, 14.8 s after** (the vignette and grain of the one banded look; the bloom layers are whole).
+  An A0 print at 300 dpi of eight layers to a PNG: 31.7 s, 1.66 GB before, 31.9 s, 1.68 GB after (nothing there is looked). The
+  stand-in is heavier than the earlier one (a bloom at the canvas's size), so the figures above are not comparable with it.
