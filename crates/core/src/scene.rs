@@ -61,6 +61,13 @@ impl Scene {
         })
     }
 
+    /// This empty scene with a cache of `bytes` bytes: what a test fills cheaply.
+    #[cfg(test)]
+    pub(crate) fn with_cache_capacity(mut self, bytes: usize) -> Self {
+        self.cache = Arc::new(Cache::with_capacity(bytes));
+        self
+    }
+
     /// A scene of the same canvas with no layer, sharing this scene's cache: the start of a scene made from this one.
     pub(crate) fn emptied(&self) -> Self {
         Self {

@@ -499,6 +499,29 @@ mod tests {
         Ok(())
     }
 
+    /// The planes of a banded render are used by their own band alone, so they never cost the cache a finished layer: a looked layer
+    /// that fills the cache is looked once however many bands a masked layer over it takes.
+    #[test]
+    fn the_planes_of_the_bands_do_not_push_a_finished_layer_out_of_a_full_cache() -> Result<(), Error> {
+        let looked = picture()?
+            .fit([0.0, 0.0, 100.0, 100.0], Fit::Cover, [0.5, 0.5])?
+            .look(r#"{"steps": [{"effect": "auto_levels", "params": {}}]}"#)?
+            .named("photo")?;
+        // the finished raster is 100 x 100 x 16 bytes; the room left is less than one plane of a band
+        let scene = Scene::new(100, 100)?.with_cache_capacity(160_000 + 1_000).add([
+            looked,
+            Layer::fill("#c04020")?.mask(Layer::fill("#ffffff")?.fit(
+                [10.0, 10.0, 80.0, 80.0],
+                Fit::Stretch,
+                [0.5, 0.5],
+            )?)?,
+        ])?;
+        let before = RAN.with(std::cell::Cell::get);
+        scene.render_bands(100, 10, |_, _| Ok(()))?;
+        assert_eq!(RAN.with(std::cell::Cell::get) - before, 1);
+        Ok(())
+    }
+
     #[test]
     fn references_that_add_looks_to_one_chain_run_its_looks_once() -> Result<(), Error> {
         let scene = Scene::new(24, 16)?.add([

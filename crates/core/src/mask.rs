@@ -217,17 +217,23 @@ impl CanvasMask {
 
     /// The values of this mask over `target`: the layer drawn on it, read, blurred, inverted. A mask layer that several layers
     /// share, or that a reference draws again, is drawn once for a target: the plane is kept by what the layer is made of, the
-    /// reading, the blur and the target.
+    /// reading, the blur and the target. The plane of a band is read by the layers of that band alone, so it is kept only where it
+    /// costs the cache no finished layer.
     fn plane(&self, target: &Target) -> Result<Arc<Plane>, Error> {
         let mut key = Keyed::new("plane");
         self.layer.keyed(&mut key)?;
         key.debug(&(self.uses, self.feather, self.invert));
         target.keyed(&mut key);
-        target.cache.fetch(&key.finish(), || {
+        let draw = || {
             let plane = self.drawn(target)?;
             let bytes = size_of_val(plane.values.as_slice());
             Ok((plane, bytes))
-        })
+        };
+        if target.is_band() {
+            target.cache.fetch_expendable(&key.finish(), draw)
+        } else {
+            target.cache.fetch(&key.finish(), draw)
+        }
     }
 
     /// [`CanvasMask::plane`], drawn.

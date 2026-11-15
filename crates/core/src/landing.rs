@@ -50,7 +50,7 @@ impl Target<'_> {
     }
 
     /// Whether only some rows of the plane are drawn.
-    fn is_band(&self) -> bool {
+    pub(crate) fn is_band(&self) -> bool {
         self.window != (0, self.size().1)
     }
 

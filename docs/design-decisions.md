@@ -802,6 +802,12 @@ tests passed in a scratch environment with the two packages installed at the pin
   (`warp::resize_rows`: the same warp with an output of some rows, each pixel the whole resize's), then looked; a picture shrunk past
   2x is averaged whole for each band until the reduced raster is kept (`future.md`). A look or a mask that reads a map the source
   holds runs whole.
+- **A picture shrunk past 2x is averaged once, and a band's plane is expendable (2026-11-15).** The warp averages a raster down first
+  where its map shrinks it past 2x and its footprint is a rectangle along the axes; each band did it again. A band now lands from the
+  average, kept in the cache under the source, its looks and masks, the request and the size (`warp::reduction`, `reduced_map`); a pixel
+  is what the whole render makes (the oracle). The plane of a mask drawn for a band is read by that band alone: it is put in the cache
+  as expendable, so it is kept only where it fits without costing a finished layer, and leaves first, where it used to evict the looked
+  layers of the render.
 - **The zoom limit.** A layer that draws only its own pixels with no look (a picture's, a flat colour's one) allocates nothing of the
   size it is placed at, so its drawn size is no longer limited to 2^27 pixels: a side of 2^31 is (what the warp's positions keep
   exact). A group drawn by band is limited by the rows it draws, so a group zoomed a thousand times (100,000 by 100,000 pixels) is

@@ -139,6 +139,23 @@ impl Cache {
         Ok(self.put(*key, value, bytes, false))
     }
 
+    /// [`fetch`](Self::fetch) for a value only the render that makes it will use again (the plane of a band, which no other band
+    /// reads): kept only where it fits without costing the cache a finished value, and the first to leave (`put`'s `expendable`).
+    ///
+    /// # Errors
+    /// What `make` refuses: nothing is kept then.
+    pub(crate) fn fetch_expendable<T: Send + Sync + 'static>(
+        &self,
+        key: &Key,
+        make: impl FnOnce() -> Result<(T, usize), Error>,
+    ) -> Result<Arc<T>, Error> {
+        if let Some(found) = self.get(key) {
+            return Ok(found);
+        }
+        let (value, bytes) = make()?;
+        Ok(self.put(*key, value, bytes, true))
+    }
+
     /// The value kept under `key`, made the most recently used.
     pub(crate) fn get<T: Send + Sync + 'static>(&self, key: &Key) -> Option<Arc<T>> {
         let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);

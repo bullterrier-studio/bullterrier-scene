@@ -46,8 +46,8 @@ What remains, with its evidence:
 | ~~**Banded looks.**~~ **Done 2026-11-15** (step 3 below): what stays whole is a looked layer whose recipe image cannot band, a layer not the canvas's size, a light layer and looks reaching 16 pixels or more (a Fourier-summed blur is banded within 1e-4, not to the bit: wait for image's exact-only `band_margin`) | | |
 | **A PDF whose compressed image is not held.** `render_to_pdf` keeps the compressed colour (and alpha) streams until the file is assembled | pdf-writer writes whole objects | a hand-written writer of the one image object, or pdf-writer taking a stream; a vector PDF is a separate decision |
 | ~~**A plugin kind drawn by band**~~ **Done 2026-11-15** (step 5): a kind says `by_position` | | |
-| **Reducing a picture shrunk past 2x once.** A picture shrunk by a map that averages it first (an A0 photo placed small) is averaged again for each band | the average is of the whole raster (`warp::reduce`); a time cost per band, not memory | the reduced raster kept in the cache by its key, or reduced for the needed rows only |
-| **Scan-resistant cache for banded renders.** The cache's 2 GiB holds the looked layers and drawings of a banded render, and the planes of each band (not reused by another band) | a plane is kept by the target, which now includes the band's rows | planes not kept where only one band uses them |
+| ~~**Reducing a picture shrunk past 2x once.**~~ **Done 2026-11-15:** a band lands from the average, made once and kept in the cache (`reduced_for_bands`); only a map whose footprint is a rectangle along the axes averages first | | |
+| ~~**Scan-resistant cache for banded renders.**~~ **Done 2026-11-15:** the plane of a band is kept as expendable (`Cache::fetch_expendable`): only where it costs no finished layer, and the first to go. What else a band keeps that no other band reads is not measured | | |
 
 ### B1 completion: unblocked on 2026-11-15; steps 1 and 2 done, start at step 3
 
