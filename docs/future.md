@@ -78,6 +78,9 @@ Each item has the evidence that found it. Fix by the usual rule: reproduce at th
 | 9 | A bloom on a magnified perspective layer takes 71 s (the perspective cap fix made it work). Performance of looks on large drawn rasters needs a look. **Open**; C5c adds room only to a light layer, at most up to image's 2^26 pixels, so a light bloom on such a layer is looked at a larger raster still | M2 (`scene-m2.md`, 1): C7 and B1 |
 | 10 | ~~Room for looks (a halo past the layer box) and light spill~~ done (C5c): a light layer's looks run on its raster grown by image's `Recipe::spread`. **What remains:** a layer that is not light has none (its alpha is its source's); a recipe mixing a halo with a bounds effect shifts that effect by the room (two layers; image's `Options::with_room` would lift it); a look image cannot bound (`Unbounded`) gets none | `api.md`, "Looks" |
 | 11 | `fit` then `place(dx, dy)` composes correctly in either order | verified on renders (`scene-conan.md`, 3): no gap, listed so nobody re-checks |
+| 12 | A look's `px` cannot be given in output pixels or as a share of the canvas: a look carried over from a picture of another size is rescaled by hand (`480 / long side`), and inside a group by the group's size again | the mill (`PX = 480 / max(W, H)`), the wow poster's story group (looks scaled by `H / h`) |
+| 13 | Worked answers missing in `api.md`: a halo only (the glow masked by its inverted source), one look on the whole scene (a group round everything), `aspect` squashing toward the anchor (the shadow's `dy`), stroke widths under `perspective` (drawn flat, so near lines grow) | M2, the mill |
+| 14 | Stale text: rows 2 to 8 are answered (`api.md` recipes, commits d1597b2, 58386bf, 9132201) but not marked done; `design-decisions.md` still calls a look's `px` a canvas pixel in two places; `roadmap.md` says vector's V10e is not built | checked 2026-11-15 |
 
 ## Context for the next agent
 
