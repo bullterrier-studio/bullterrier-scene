@@ -603,29 +603,43 @@ pub(crate) fn rows_read(map: Map, output: Output, (width, total): (usize, usize)
 /// area down to the pixels it covers; unchanged where the map does not shrink it.
 fn prefiltered(source: View, map: Affine, clip: Rect) -> (Option<Raster>, Affine, Rect) {
     let (width, height) = (source.width(), source.height());
-    let (columns, rows) = reduced_size((width, height), map);
-    if (columns, rows) == (width, height) {
+    let Some((columns, rows)) = reduction((width, height), map) else {
         return (None, map, clip);
-    }
+    };
     // a part of a picture is never reduced: whoever draws a part checks `rows_read` first
     debug_assert!(source.first == 0 && source.raster.height() == height);
-    // a pixel of the averaged raster is this many pixels of the source across
-    let (step_x, step_y) = (lossless(width) / lossless(columns), lossless(height) / lossless(rows));
-    let map = Affine {
-        a: map.a * step_x,
-        b: map.b * step_y,
-        c: map.c,
-        d: map.d * step_x,
-        e: map.e * step_y,
-        f: map.f,
-    };
-    let clip = Rect {
-        x: clip.x / step_x,
-        y: clip.y / step_y,
-        width: clip.width / step_x,
-        height: clip.height / step_y,
-    };
+    let (map, clip) = reduced_map((width, height), (columns, rows), map, clip);
     (Some(reduce(source.raster, columns, rows)), map, clip)
+}
+
+/// The size `map` averages a raster of `size` pixels down to before it is resampled, or `None` where it does not shrink it or the
+/// footprint is not a rectangle along the axes (the kernel for another map averages by its own footprint).
+pub(crate) fn reduction(size: (usize, usize), map: Affine) -> Option<(usize, usize)> {
+    let reduced = reduced_size(size, map);
+    (is_exact_class(map) && reduced != size).then_some(reduced)
+}
+
+/// `map` and `clip` for a raster of `from` pixels averaged down to `to` (a size [`reduction`] gave): the same picture on the same
+/// output, from fewer pixels.
+pub(crate) fn reduced_map(from: (usize, usize), to: (usize, usize), map: Affine, clip: Rect) -> (Affine, Rect) {
+    // a pixel of the averaged raster is this many pixels of the source across
+    let (step_x, step_y) = (lossless(from.0) / lossless(to.0), lossless(from.1) / lossless(to.1));
+    (
+        Affine {
+            a: map.a * step_x,
+            b: map.b * step_y,
+            c: map.c,
+            d: map.d * step_x,
+            e: map.e * step_y,
+            f: map.f,
+        },
+        Rect {
+            x: clip.x / step_x,
+            y: clip.y / step_y,
+            width: clip.width / step_x,
+            height: clip.height / step_y,
+        },
+    )
 }
 
 /// The source pixels, and their weights, that make output pixel `j` of `count` on a line of `from` pixels: each source pixel
@@ -660,7 +674,11 @@ fn spans(from: usize, count: usize) -> Vec<Span> {
 
 /// `source` averaged by area to `columns` by `rows` pixels (each at most the source's): the premultiplied mean of the pixels
 /// each covers, then straight again.
-fn reduce(source: &Raster, columns: usize, rows: usize) -> Raster {
+pub(crate) fn reduce(source: &Raster, columns: usize, rows: usize) -> Raster {
+    #[cfg(test)]
+    if let Ok(mut reduced) = REDUCED.lock() {
+        reduced.push((source.width(), source.height()));
+    }
     let width = source.width();
     let (across, down) = (spans(width, columns), spans(source.height(), rows));
     // first along each row: height x columns, premultiplied
@@ -703,6 +721,18 @@ fn reduce(source: &Raster, columns: usize, rows: usize) -> Raster {
 
 // Inline, because no public route reaches the general kernel for a map that keeps the axes: `warp` takes the other one there,
 // and the two must give the same pixels.
+#[cfg(test)]
+static REDUCED: std::sync::Mutex<Vec<(usize, usize)>> = std::sync::Mutex::new(Vec::new());
+
+/// The sizes of the rasters averaged down so far, in every thread: what the tests below count, by the size of a picture no other
+/// test makes.
+#[cfg(test)]
+pub(crate) fn reductions_of(size: (usize, usize)) -> usize {
+    REDUCED
+        .lock()
+        .map_or(0, |reduced| reduced.iter().filter(|&&each| each == size).count())
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;

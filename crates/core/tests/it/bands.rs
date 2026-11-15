@@ -301,6 +301,43 @@ fn the_check_of_a_kind_that_draws_by_position_passes_one_that_does_and_names_one
     Ok(())
 }
 
+/// A picture shrunk past 2x by its map is averaged down first; drawn by bands, each band lands from the one average and the bands
+/// put together are the whole render: shrunk plain, shrunk and turned (a map that does not keep the axes), shrunk with a look and a
+/// mask by its own map, and shrunk in one axis only.
+#[test]
+fn a_picture_shrunk_past_2x_makes_the_same_picture_by_bands() -> Outcome {
+    let big = || varied(397, 293);
+    let cover = |layer: Layer| layer.fit([0.0, 0.0, 40.0, 30.0], Fit::Cover, [0.5, 0.5]);
+    let scenes = [
+        scene(40, 30, [cover(Layer::picture(big()?))?])?,
+        scene(
+            40,
+            30,
+            [cover(Layer::picture(big()?))?.place(Place::new().rotate(Deg(7.0)).dx(2.5))?],
+        )?,
+        scene(
+            40,
+            30,
+            [cover(Layer::picture(big()?))?
+                .look(r#"{"steps": [{"effect": "vignette", "params": {"amount": 0.9}}]}"#)?],
+        )?,
+        scene(
+            40,
+            30,
+            [Layer::picture(big()?).fit([0.0, 0.0, 40.0, 30.0], Fit::Stretch, [0.5, 0.5])?],
+        )?,
+        scene(
+            40,
+            30,
+            [Layer::picture(big()?).fit([3.0, 2.0, 36.0, 9.0], Fit::Stretch, [0.5, 0.5])?],
+        )?,
+    ];
+    for scene in &scenes {
+        at_sizes(scene, &[40, 37])?;
+    }
+    Ok(())
+}
+
 /// A scene whose picture has more pixels than a band holds (so a file written from it is written in more than one band): a
 /// ground that stops short of the bottom, a photo and a translucent bar, 4,100 by 4,100 pixels at size 4,100.
 pub(crate) fn past_one_band() -> Result<Scene, Error> {

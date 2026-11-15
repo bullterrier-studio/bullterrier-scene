@@ -12,7 +12,7 @@ use crate::geometry::{MAX_LOOKED_PIXELS, MAX_PIXELS, Rect, Scale};
 use crate::layer::Body;
 use crate::placement::{Layout, Placement};
 use crate::source::{Drawn, Opened, Request, Rows, Shape};
-use crate::warp::{Map, Output, View, is_identity, rows_read, warp_into};
+use crate::warp::{Map, Output, View, is_identity, reduce, reduced_map, reduction, rows_read, warp_into};
 use crate::{Error, Raster};
 
 /// Where a layer is drawn: the output grid of the canvas, with `margin` more pixels on each side (along x and y) for a mask
@@ -265,6 +265,41 @@ fn draw_rows(
     Ok(drawn)
 }
 
+/// A layer whose map shrinks its raster past 2x has the raster averaged down first (`warp`): on a band, that is the same average
+/// for each band, so it is made once, kept in the cache and found by the next band. The layer lands from the averaged raster, as
+/// the warp would have made it, so a pixel is the same.
+///
+/// # Errors
+/// A source or look that cannot be written into a key.
+fn reduced_for_bands(
+    body: &Body,
+    request: &Request,
+    target: &Target,
+    light: bool,
+    (mut drawn, map, clip): (Drawn, Map, Rect),
+) -> Result<(Drawn, Map, Rect), Error> {
+    let Map::Affine(affine) = map else {
+        return Ok((drawn, map, clip));
+    };
+    let from = (drawn.raster.width(), drawn.raster.height());
+    let Some(to) = target.is_band().then(|| reduction(from, affine)).flatten() else {
+        return Ok((drawn, map, clip));
+    };
+    // what the reduction is of: the source and its looks and masks (they make the raster) at this request, and the size
+    let mut key = Keyed::new("reduced");
+    body.source.keyed(&mut key)?;
+    body.finish.keyed(&mut key)?;
+    key.debug(&(light, request, to));
+    let raster = target.cache.fetch(&key.finish(), || {
+        let reduced = reduce(&drawn.raster, to.0, to.1);
+        let bytes = size_of_val(reduced.pixels());
+        Ok((reduced, bytes))
+    })?;
+    let (affine, clip) = reduced_map(from, to, affine, clip);
+    drawn.raster = raster;
+    Ok((drawn, Map::Affine(affine), clip))
+}
+
 /// The rows `rows` of `raster`.
 fn cut(raster: &Raster, rows: std::ops::Range<usize>) -> Raster {
     let line = raster.width() * 4;
@@ -376,6 +411,7 @@ pub(crate) fn land(body: &Body, target: &Target, light: bool) -> Result<Landed, 
         opened.draw(request, &body.finish, light, target.cache, None)?
     };
     let (map, clip) = placed(drawn.shape());
+    let (drawn, map, clip) = reduced_for_bands(body, &request, target, light, (drawn, map, clip))?;
     let total = drawn.raster.height();
     Ok(Landed {
         drawn,
@@ -385,4 +421,36 @@ pub(crate) fn land(body: &Body, target: &Target, light: bool) -> Result<Landed, 
         first: 0,
         total,
     })
+}
+
+// Inline, because no public route counts how often a raster is averaged down: `warp::reductions_of` is the one seam, and the
+// pictures are compared with the whole render's by the oracle of `tests/it/bands.rs`.
+#[cfg(test)]
+mod tests {
+    use crate::warp::reductions_of;
+    use crate::{Error, Fit, Layer, Raster, Scene};
+
+    /// A picture whose size no other test makes, shrunk to a tenth of its width.
+    fn shrunk() -> Result<Scene, Error> {
+        let (columns, rows) = (397, 293);
+        let pixels =
+            (0..columns * rows).flat_map(|at| [f32::from(u8::try_from(at % 251).unwrap_or(0)) / 251.0, 0.5, 0.25, 1.0]);
+        Scene::new(40, 30)?.add([Layer::picture(Raster::rgba(columns, rows, pixels.collect())?).fit(
+            [0.0, 0.0, 40.0, 30.0],
+            Fit::Cover,
+            [0.5, 0.5],
+        )?])
+    }
+
+    #[test]
+    fn a_picture_shrunk_past_2x_is_averaged_down_once_however_many_bands_there_are() -> Result<(), Error> {
+        let scene = shrunk()?;
+        let before = reductions_of((397, 293));
+        scene.render_bands(40, 3, |_, _| Ok(()))?;
+        assert_eq!(reductions_of((397, 293)) - before, 1, "ten bands of three rows");
+        // and the next render takes it from the cache
+        scene.render_bands(40, 7, |_, _| Ok(()))?;
+        assert_eq!(reductions_of((397, 293)) - before, 1);
+        Ok(())
+    }
 }
