@@ -9,8 +9,7 @@ independent review done. Sizes: **S** one working session, **M** two or three, *
 
 Owner's decision, 2026-11-08: no work on scene starts until image's E4 and vector's V10 are finished, merged and pushed. State on
 2026-11-13: **met.** Image finished its Rust port (E1 to E7, with effect footprints and a banded render) on 2026-11-11; vector
-finished V10 and V10d (gradients, the full separable blend set, clip groups, soft masks) and V16 (SVG import, trimmed). Not yet
-built in vector: V10e (window render, B1 needs it) and V10f (text runs, M1 needs it if mixed fonts are wanted). After the first
+finished V10 and V10d (gradients, the full separable blend set, clip groups, soft masks) and V16 (SVG import, trimmed). Vector's V10e (window render, B1) is built; V10f (text runs, M1 needs it if mixed fonts are wanted) is not. After the first
 batch, each batch starts when what it needs exists (the last column of the table). Scene pins image and vector at a revision, so
 their later changes cannot break it; a bump of the pin is a reviewed commit, and the adapter files (`source/picture.rs`,
 `source/drawing.rs`) take the change.

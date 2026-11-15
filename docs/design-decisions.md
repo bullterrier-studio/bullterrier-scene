@@ -126,7 +126,7 @@ kind: anything that can be drawn can mask. *Consequence:* a mask layer is owned 
 
 `place` sets `dx`, `dy`, `scale`, `aspect` (the height ratio), `rotate`, `skew`, `flip` and `anchor`; the order of application is
 fixed, and the finished raster is put on the canvas by one warp ("Placement: a hand-written warp"). A layer is looked at its
-fitted size, so a look's `px` is a canvas pixel as the layer is fitted and `place` scales a halo with its layer. *Reason:*
+fitted size, so a look's `px` is image's design pixel (1/480 of the canvas's long side) as the layer is fitted and `place` scales a halo with its layer. *Reason:*
 every placement number has an address (a chain of verbs cannot), and every range holds only valid values, so a slider built
 from `parameters()` cannot ask for an error by itself (a zero or negative scale, a flip as a negative number; skew is applied
 x then y, so its bound of 89 degrees is enough). A rule across two numbers of an embedded look is the sibling's. `fit`'s slack is `align`,

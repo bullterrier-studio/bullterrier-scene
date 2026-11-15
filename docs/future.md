@@ -34,7 +34,7 @@ drawn in the drawing: 3 s). Sources: the 71 s in `bullterrier-demos/feedback/sce
 8. Print output for dither, halftone and spot-ink pieces (plates, mirrored bleed, DPI, a white underbase), once image
    hands out its ink planes: [dither-and-print.md](dither-and-print.md).
 
-Room for light layers is built (C5c). B1 is built; banded looks wait for image's position-aware effects (B1 section below).
+Room for light layers is built (C5c). B1 is built; banded looks are the open step 3 of "B1 completion" (image's window and margin now exist).
 
 ## B1: what banded rendering still lacks (2026-11-14)
 
@@ -66,20 +66,20 @@ Each item has the evidence that found it. Fix by the usual rule: reproduce at th
 
 | # | Item | Evidence |
 |---|---|---|
-| 1 | `import bullterrier_scene` from a source checkout fails with `PackageNotFoundError`: `__version__` reads package metadata at import | `src/bullterrier_scene/__init__.py` calls `metadata.version(...)`; a checkout without an installed distribution cannot import |
-| 2 | A layer used only as the source of `Layer.of` references must be drawn. There is no "definition only" layer | M1 hid it with `opacity(0)` |
-| 3 | A look on a layer used as a mask runs although only its alpha is read | reported by the lead agent; not reproduced yet (write the failing test first) |
-| 4 | Rotating text moves it off the canvas: the pivot is the box centre. `api.md` needs a worked example (`anchor=(0, 1)`) | reported by the lead agent; write a render that shows it first |
-| 5 | `api.md` says a look's `px` are "design pixels of the canvas" (Looks, step 3; "Design pixels"; "Design scale"). Since C5b they are image's design pixels of the canvas: 1/480 of the canvas long side. Fix the sentence everywhere, and the roadmap's C5 row | Conan poster: `outline(width=26)` made a ring 140 px wide on a 2700 px canvas; width 4.6 gives about 25 px (`bullterrier-demos/feedback/scene-conan.md`, 6b) |
-| 6 | `Layer.text` takes a flat colour only | M2 used vector's `text` with a gradient fill directly |
-| 7 | A picture cannot be trimmed to its matte | M2 cropped with numpy to put the reflection at the paws |
-| 8 | No keyline helper | the Conan poster used image's `outline` on a second picture with `lighten`: works, awkward; a look cannot return its stroke as alpha only |
+| 1 | ~~`import bullterrier_scene` from a source checkout fails with `PackageNotFoundError`: `__version__` reads package metadata at import~~ **Done** (88a3446) | `src/bullterrier_scene/__init__.py` calls `metadata.version(...)`; a checkout without an installed distribution cannot import |
+| 2 | ~~A layer used only as the source of `Layer.of` references must be drawn. There is no "definition only" layer~~ **Done** (d1597b2) | M1 hid it with `opacity(0)` |
+| 3 | ~~A look on a layer used as a mask runs although only its alpha is read~~ **Done** (58386bf) | reported by the lead agent; not reproduced yet (write the failing test first) |
+| 4 | ~~Rotating text moves it off the canvas: the pivot is the box centre. `api.md` needs a worked example (`anchor=(0, 1)`)~~ **Done** (9132201) | reported by the lead agent; write a render that shows it first |
+| 5 | ~~`api.md` says a look's `px` are "design pixels of the canvas" (Looks, step 3; "Design pixels"; "Design scale"). Since C5b they are image's design pixels of the canvas: 1/480 of the canvas long side. Fix the sentence everywhere, and the roadmap's C5 row~~ **Done** (a27fd03, 9132201) | Conan poster: `outline(width=26)` made a ring 140 px wide on a 2700 px canvas; width 4.6 gives about 25 px (`bullterrier-demos/feedback/scene-conan.md`, 6b) |
+| 6 | ~~`Layer.text` takes a flat colour only~~ **Done** (9132201 (`api.md` recipe: a gradient on type)) | M2 used vector's `text` with a gradient fill directly |
+| 7 | ~~A picture cannot be trimmed to its matte~~ **Done** (9132201 (`api.md` recipe: trim to the matte)) | M2 cropped with numpy to put the reflection at the paws |
+| 8 | ~~No keyline helper~~ **Done** (9132201 (`api.md` recipe: a keyline; image returning the stroke as alpha stays listed under "Needs from others")) | the Conan poster used image's `outline` on a second picture with `lighten`: works, awkward; a look cannot return its stroke as alpha only |
 | 9 | A bloom on a magnified perspective layer takes 71 s (the perspective cap fix made it work). Performance of looks on large drawn rasters needs a look. **Open**; C5c adds room only to a light layer, at most up to image's 2^26 pixels, so a light bloom on such a layer is looked at a larger raster still | M2 (`scene-m2.md`, 1): C7 and B1 |
 | 10 | ~~Room for looks (a halo past the layer box) and light spill~~ done (C5c): a light layer's looks run on its raster grown by image's `Recipe::spread`. **What remains:** a layer that is not light has none (its alpha is its source's); a recipe mixing a halo with a bounds effect shifts that effect by the room (two layers; image's `Options::with_room` would lift it); a look image cannot bound (`Unbounded`) gets none | `api.md`, "Looks" |
 | 11 | `fit` then `place(dx, dy)` composes correctly in either order | verified on renders (`scene-conan.md`, 3): no gap, listed so nobody re-checks |
 | 12 | A look's `px` cannot be given in output pixels or as a share of the canvas: a look carried over from a picture of another size is rescaled by hand (`480 / long side`), and inside a group by the group's size again | the mill (`PX = 480 / max(W, H)`), the wow poster's story group (looks scaled by `H / h`) |
 | 13 | Worked answers missing in `api.md`: a halo only (the glow masked by its inverted source), one look on the whole scene (a group round everything), `aspect` squashing toward the anchor (the shadow's `dy`), stroke widths under `perspective` (drawn flat, so near lines grow) | M2, the mill |
-| 14 | Stale text: rows 2 to 8 are answered (`api.md` recipes, commits d1597b2, 58386bf, 9132201) but not marked done; `design-decisions.md` still calls a look's `px` a canvas pixel in two places; `roadmap.md` says vector's V10e is not built | checked 2026-11-15 |
+| 14 | ~~Stale text: rows 2 to 8 are answered (`api.md` recipes, commits d1597b2, 58386bf, 9132201) but not marked done; `design-decisions.md` still calls a look's `px` a canvas pixel in two places; `roadmap.md` says vector's V10e is not built~~ **Done** (this batch) | checked 2026-11-15 |
 
 ## Context for the next agent
 
