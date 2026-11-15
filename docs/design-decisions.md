@@ -800,7 +800,9 @@ tests passed in a scratch environment with the two packages installed at the pin
   (whole-picture statistics, `each`, driven steps, maps, a `frame` or `size`), and looks whose margins add up to 16 pixels or more:
   image sums a blur of that reach by a Fourier transform whose rounding depends on the rows it is given, so a band differs from the
   whole in the last bits (measured: the bit-exact oracle fails with the limit lifted). Revisit with image's exact-only
-  `band_margin` (its roadmap). A looked picture is resized to the drawn size for the rows wanted
+  `band_margin` (its roadmap). `grain` is the case this guard cannot see: its footprint is a pixel (margin 0) but its noise is blurred by
+  a Fourier transform from a clump of about 8 working pixels (a long side of about 3,800 pixels at the default size), so a banded A3
+  differs from the whole by at most one float step, 1.2e-7 (measured 2026-11-15); the oracle's pictures are too small to reach it. A looked picture is resized to the drawn size for the rows wanted
   (`warp::resize_rows`: the same warp with an output of some rows, each pixel the whole resize's), then looked; a picture shrunk past
   2x is averaged whole for each band until the reduced raster is kept (`future.md`). A look or a mask that reads a map the source
   holds runs whole.
@@ -863,3 +865,9 @@ tests passed in a scratch environment with the two packages installed at the pin
   rows **3.25 GB, 14.9 s before, 2.96 GB, 14.8 s after** (the vignette and grain of the one banded look; the bloom layers are whole).
   An A0 print at 300 dpi of eight layers to a PNG: 31.7 s, 1.66 GB before, 31.9 s, 1.68 GB after (nothing there is looked). The
   stand-in is heavier than the earlier one (a bloom at the canvas's size), so the figures above are not comparable with it.
+- **Release build, one thread, 2026-11-15 (a lighter 15-layer A3 stand-in; one run each, the machine's other load unknown), image `11eedda9` then
+  `72865bfd`, then `with_threads(0)` set for the probe only:** whole render 4.4 s and 2.05 GB at both pins, 2.2 s with threads; banded in
+  1,000 rows 4.5 s and 1.58 GB, 4.4 s with the new pin, 2.3 s with threads; peak memory the same with threads on. Threads stay off in scene:
+  image starts a pool for each look it runs and callers can render scenes in parallel (`future.md`, polish row 9). Fat LTO with one codegen
+  unit on the same stand-in: whole 4.4 to 4.1 s, banded 4.5 to 4.1 s, a perspective drawing with no look 2.27 to 2.4 s (slower), the same
+  pixels, a longer build: not adopted (no `[profile.release]`).
