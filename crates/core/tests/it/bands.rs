@@ -386,3 +386,59 @@ fn a_group_zoomed_past_the_limit_of_a_layer_is_drawn_by_the_rows_a_band_reads() 
     }
     Ok(())
 }
+
+/// A drawing zoomed 500 times is 50,000 by 50,000 pixels where it is drawn: `render` refuses it by the limit of 2^27 pixels on
+/// a layer, and drawn by bands only the rows a band reads are drawn (vector's window), so the zoom shows what lies at the
+/// centre. The drawing's top half is red; the picture's middle row is where it ends.
+#[test]
+fn a_drawing_zoomed_past_the_limit_of_a_layer_is_drawn_by_the_rows_a_band_reads() -> Outcome {
+    let half = rectangle((100, 100), (0.0, 0.0), (100.0, 50.0), "#c04020");
+    let zoomed = scene(100, 100, [Layer::drawing(&half)?.place(Place::new().scale(500.0))?])?;
+    assert!(
+        matches!(zoomed.render(100), Err(Error::Invalid { ref address, .. }) if address.ends_with("size")),
+        "a whole render is refused by the limit of a layer"
+    );
+    let mut seen = 0;
+    zoomed.render_bands(100, 10, |range, band| {
+        let level = |row: usize| -> [f32; 4] {
+            band.pixels()[row * band.width() * 4..][..4]
+                .try_into()
+                .unwrap_or([f32::NAN; 4])
+        };
+        let (top, bottom) = (level(0), level(band.height() - 1));
+        for (row, found) in [(range.start, top), (range.end - 1, bottom)] {
+            let [red, green, blue, alpha] = found;
+            if row < 50 {
+                assert!(
+                    (red - f32::from(0xc0_u8) / 255.0).abs() < 1e-6 && alpha > 0.999,
+                    "row {row}: {found:?}"
+                );
+                assert!(
+                    (green - f32::from(0x40_u8) / 255.0).abs() < 1e-6
+                        && (blue - f32::from(0x20_u8) / 255.0).abs() < 1e-6
+                );
+            } else {
+                assert!(alpha < 1e-6, "row {row}: {found:?}");
+            }
+        }
+        seen += 1;
+        Ok(())
+    })?;
+    assert_eq!(seen, 10);
+    Ok(())
+}
+
+/// Where vector refuses a window (a layer more than 65,000 pixels wide), the whole render of the layer is refused too, so the
+/// bands fail the way the whole render does, naming the window, and draw nothing wrong.
+#[test]
+fn a_drawing_vector_cannot_window_is_refused_by_bands_as_by_the_whole_render() -> Outcome {
+    let half = rectangle((100, 100), (0.0, 0.0), (100.0, 50.0), "#c04020");
+    let wide = scene(100, 100, [Layer::drawing(&half)?.place(Place::new().scale(1000.0))?])?;
+    assert!(matches!(wide.render(100), Err(Error::Invalid { .. })));
+    let refused = wide.render_bands(100, 10, |_, _| Ok(()));
+    assert!(
+        matches!(refused, Err(Error::Invalid { ref message, .. }) if message.contains("window")),
+        "{refused:?}"
+    );
+    Ok(())
+}

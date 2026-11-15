@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
 
-use bullterrier_vector::{Font, Inputs, Param, ScaleBy, Size, Unit, Values};
+use bullterrier_vector::{Font, Inputs, Param, ScaleBy, Size, Unit, Values, Window};
 use serde_json::{Value, json};
 
 use super::{Drawn, Opened, Source};
@@ -356,7 +356,8 @@ impl Source for Drawing {
         Ok(Arc::new(next))
     }
 
-    /// The whole frame at the asked scale: vector draws no part of a frame yet.
+    /// The whole frame at the asked scale, or the rows of it a band reads (`Request::rows`): vector draws a window that is the
+    /// crop of the whole render.
     ///
     /// Vector draws a frame at one scale, centred, in a raster of whole pixels, which leaves a fraction of a pixel of slack along
     /// the axis that does not bind, and cannot draw a frame at two scales. So the raster is made to the pixel: the drawing's
@@ -379,8 +380,9 @@ impl Source for Drawing {
             // output pixels per design pixel of the box along each axis, and the fractions of a pixel the box starts at
             let (across, down) = (request.scale.x.pixels(1.0), request.scale.y.pixels(1.0));
             let (shift_x, shift_y) = request.phase;
-            let covers = request.whole(own);
-            let (width, height) = request.scale.size(covers)?;
+            let (shape, (first, end)) = request.drawn_rows(own)?;
+            let covers = shape.covers;
+            let (width, height) = shape.size;
             // vector's one scale: the mean of the two, so that each axis is scaled by a factor of about 1
             let one = f64::midpoint(across, down);
             #[expect(clippy::cast_precision_loss, reason = "a side of at most 65,000 pixels")]
@@ -388,22 +390,26 @@ impl Source for Drawing {
                 (width as f64 / one, height as f64 / one),
                 Size::px(width as f64, height as f64),
             );
+            // the rows asked for are the crop of the whole box's raster, byte for byte (vector's window render); a window vector
+            // refuses (a side past 65,000 pixels, 2^27 pixels in all) is a raster its whole render refuses too
+            #[expect(clippy::cast_precision_loss, reason = "a side of at most 65,000 pixels")]
+            let window = Window::px(0.0, first as f64, width as f64, (end - first) as f64);
             let bytes = self
                 .document
                 .scale(ScaleBy::new((across / one, down / one)).about((0.0, 0.0)))
                 .translate(shift_x / one, shift_y / one)
                 .with_size(frame.0, frame.1)
-                .to_rgba(size, &given)
+                .to_rgba_window(size, window, &given)
                 .map_err(|error| Error::invalid("drawing", error.to_string()))?;
             let pixels = bytes.iter().map(|&byte| f32::from(byte) / 255.0).collect();
             Ok(Drawn {
-                raster: Arc::new(Raster::made(width, height, pixels)),
+                raster: Arc::new(Raster::made(width, end - first, pixels)),
                 covers,
                 ends_at_window: request.window == own,
                 room: [0; 4],
                 maps: BTreeMap::new(),
             })
         });
-        Ok(opened.drawing_whole())
+        Ok(opened.drawing_whole().by_window())
     }
 }

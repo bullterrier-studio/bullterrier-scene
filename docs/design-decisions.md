@@ -780,12 +780,11 @@ tests passed in a scratch environment with the two packages installed at the pin
   `warp::rows_read` takes the four corners of the band through the map back, with the room the kernels read, and `View` lets the warp
   read a part of a raster as some rows of a taller one), a mask plane (the band and the reach of its blur). Whole, once, kept in the
   cache and cut per band: **a layer with a look** (image's effects are whole-picture in 40 of 62 cases, and image's frame has no
-  first-row setter; banded looks need position-aware effects, `future.md`), **a drawing** and **a plugin kind**. *A drawing is not
-  windowed although vector can:* vector's own notes say its window render is within one level of the whole render at an edge pixel
-  and the cause is not isolated; the cache-test poster's logo differed by one level at one pixel of a one-row band. A banded render that
-  is not the whole render is not the promise. *A kind is not asked for a band's rectangle:* its pixels are promised by rectangle and
-  scale, not by position (a kind with a seeded stream draws other pixels for another rectangle). A group's inner drawings are whole
-  at the group's scale and kept, so each band of a group finds them. State of the floor: the looked layers' rasters and the drawings
+  first-row setter; banded looks need position-aware effects, `future.md`), and **a plugin kind**. *A drawing is windowed
+  (2026-11-15):* vector's window render is the crop of its whole render byte for byte, so a drawing is drawn for the rows a band reads,
+  and a refused window (a side past 65,000 pixels, 2^27 in all) is a raster the whole render refuses too: no whole fallback. *A kind is not asked for a band's rectangle:* its pixels are promised by rectangle and
+  scale, not by position (a kind with a seeded stream draws other pixels for another rectangle). A group's inner looked layers are whole
+  at the group's scale and kept, so each band of a group finds them. State of the floor: the looked layers' rasters
   stay resident (the cache holds up to 2 GiB of them).
 - **The zoom limit.** A layer that draws only its own pixels with no look (a picture's, a flat colour's one) allocates nothing of the
   size it is placed at, so its drawn size is no longer limited to 2^27 pixels: a side of 2^31 is (what the warp's positions keep
@@ -826,7 +825,6 @@ tests passed in a scratch environment with the two packages installed at the pin
   megapixels, one rotated, a multiplied band, type at 1,600, a feathered mask layer, an overlay fill) written to a PNG by `render_to_png`:
   **25 s, 1.77 GB peak, a 44 MB file** that decodes to 9,933 by 14,043. A band there is 1,689 rows, 270 MB; the group alone would be
   2.2 GB whole.
-- **Not built, and why.** Banded looks (image has no first-row setter and 40 of its 62 effects read positions); a drawing by window
-  (vector's window is within a level, not equal); a PDF whose compressed image is not held (a hand-written PDF writer, or pdf-writer taking a
+- **Not built, and why.** Banded looks (image has no first-row setter and 40 of its 62 effects read positions); a PDF whose compressed image is not held (a hand-written PDF writer, or pdf-writer taking a
   stream); a kind drawn by band (its pixels are not by position); the reduction of a picture shrunk past 2x is made again for each
   band (the area average of the whole raster; a time cost, not memory: `future.md`).

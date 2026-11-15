@@ -118,11 +118,11 @@ A stack of full-size float pictures is the wrong way to render a poster: one 12-
    is drawn for its band and the reach of its blur (the box passes of the blur are aligned so its sums add in the same order). A
    layer with a look is drawn **whole** once and cut per band: image's effects are 22 of 62 less than whole-picture and 40 whole
    (measured in image on 2026-11-08), and image's frame has no first-row setter, so a look cannot run on a band until effects take
-   a row origin and the canvas size (`future.md`). A drawing is drawn whole too: vector's window render is within one level of its
-   whole render, not equal, and a banded render must equal the whole one. A plugin kind is drawn whole once (its pixels are
+   a row origin and the canvas size (`future.md`). A drawing is drawn for the rows a band reads (vector's window render is the crop of its
+   whole render, byte for byte). A plugin kind is drawn whole once (its pixels are
    promised by rectangle and scale, not by position). These are the memory floor of a banded render.
 3. **Finished layers are held as float32.** Decision 2 of the roadmap, settled at B1 with the peak measurements.
-4. **Vector draws a window** where its output is exact; it is not yet, so a drawing is whole.
+4. **Vector draws a window**, exact to the byte, so a drawing is drawn by band. A window vector refuses (a side past 65,000 pixels, 2^27 in all) is a raster its whole render refuses too: there is no whole fallback.
 5. **Design pixels belong to the whole canvas,** not the band, so a banded render equals a whole one.
 
 The test that decides it: a banded render equals the whole render for every example scene at several band heights, and the peak of a
