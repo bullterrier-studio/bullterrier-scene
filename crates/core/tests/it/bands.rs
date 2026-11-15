@@ -617,3 +617,39 @@ fn a_looked_layer_whose_recipe_image_cannot_band_exactly_is_drawn_whole_and_the_
     }
     Ok(())
 }
+
+/// Looked scenes rendered on several threads at once, each making the picture a render alone makes, whole and by bands: the
+/// looks run on image's threads, which the renders share, and the picture does not depend on how many threads there are.
+#[test]
+fn scenes_with_looks_rendered_on_several_threads_at_once_each_make_the_picture_rendered_alone() -> Outcome {
+    let layer = |look: &str| -> Result<Layer, Error> {
+        Layer::picture(varied(64, 48)?)
+            .fit([0.0, 0.0, 64.0, 48.0], Fit::Cover, [0.5, 0.5])?
+            .look(look)
+    };
+    let scenes = [
+        scene(64, 48, [layer(&one_step("gaussian_blur", r#"{"radius": 3.0}"#))?])?,
+        scene(64, 48, [layer(&one_step("vignette", r#"{"amount": 0.8}"#))?])?,
+        scene(64, 48, [layer(&one_step("grain", r#"{"amount": 0.5}"#))?])?,
+    ];
+    let alone: Vec<Raster> = scenes.iter().map(|scene| scene.render(64)).collect::<Result<_, _>>()?;
+    std::thread::scope(|threads| -> Outcome {
+        let renders: Vec<_> = (0..6)
+            .map(|which| {
+                let (scene, alone) = (&scenes[which % 3], &alone[which % 3]);
+                threads.spawn(move || -> Result<(), String> {
+                    for _ in 0..4 {
+                        let made = scene.render(64).map_err(|error| error.to_string())?;
+                        assert_eq!(first_difference(alone, made.pixels()), None);
+                        bands_make_the_whole(scene, 64).map_err(|error| error.to_string())?;
+                    }
+                    Ok(())
+                })
+            })
+            .collect();
+        for render in renders {
+            render.join().map_err(|_| "a render panicked")??;
+        }
+        Ok(())
+    })
+}

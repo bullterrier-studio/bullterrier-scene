@@ -272,6 +272,9 @@ impl Look {
             let [top, right, bottom, left] = room.map(|side| u32::try_from(side).unwrap_or(u32::MAX));
             options.with_room(top, right, bottom, left)
         };
+        // one thread for each core: image keeps one pool of that size for the process, so renders running at once share it, and the
+        // picture is the same at any count
+        let options = options.with_threads(0);
         let image = photo
             .render(&self.recipe, &self.presets, options)
             .map_err(|error| refused(&error))?;
