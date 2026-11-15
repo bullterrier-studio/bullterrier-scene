@@ -31,6 +31,8 @@ drawn in the drawing: 3 s). Sources: the 71 s in `bullterrier-demos/feedback/sce
 6. **The final poster** (`bullterrier-demos`, demo 09, built on every library): the owner judges whether it is the final one.
 7. After scene's first release: video (clock, mapping, encode), the web export, editor support (hit-test, tree edit), a
    frontend.
+8. Print output for dither, halftone and spot-ink pieces (plates, mirrored bleed, DPI, a white underbase), once image
+   hands out its ink planes: [dither-and-print.md](dither-and-print.md).
 
 Room for light layers is built (C5c). B1 is built; banded looks wait for image's position-aware effects (B1 section below).
 
