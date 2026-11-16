@@ -20,7 +20,7 @@ use crate::files::Fingerprint;
 /// The most bytes of pixels, planes and decoded files the cache of one scene keeps: 2 GiB. Measured on a 15-layer A3 poster at
 /// 300 dpi (`docs/design-decisions.md`, "The cache"): what its render can reuse is about 1.2 GiB, and a bound below that keeps
 /// nothing useful (a render takes the layers in turn, so the least recently used is always the next one wanted: 5.2 s again;
-/// `keep` now spares what the render has used, so a scan keeps all it can), at 1.25 GiB the second render of the same poster
+/// a banded render spares what it has used, see `begin_render`), at 1.25 GiB the second render of the same poster
 /// takes 0.39 s. An entry larger than the bound is not kept, and that is never an error.
 pub(crate) const MAX_BYTES: usize = 1 << 31;
 
@@ -88,8 +88,10 @@ struct Kept {
     bytes: usize,
     /// A count of uses: the least recently used entry is the one with the least `used`.
     clock: u64,
-    /// How many renders have begun: what a render has used is not pushed out by what it makes after (`keep`).
+    /// How many renders have begun: what a render that scans has used is not pushed out by what it makes after (`keep`).
     render: u64,
+    /// Whether the render in progress scans its layers once more for each band (`begin_render`).
+    scan: bool,
 }
 
 /// A bounded store of what renders drew, by [`Key`], shared by the scenes made from one another and by their threads. When it
@@ -160,11 +162,16 @@ impl Cache {
         Ok(self.put(*key, value, bytes, true))
     }
 
-    /// A render begins: what it uses from here on is kept over what it makes after, where the cache is full (`put`). A render and
-    /// a band of one are a render; a scene drawn as a group inside it is not another. Renders at once on one cache share the
-    /// count, which only makes each spare what the others use too: the picture never depends on it.
-    pub(crate) fn begin_render(&self) {
-        self.kept.lock().unwrap_or_else(PoisonError::into_inner).render += 1;
+    /// A render begins. If it `scan`s (it reads its layers once more for each band), what it uses from here on is kept over
+    /// what it makes after, where the cache is full (`put`): a scan of more than the cache holds would otherwise find the layer
+    /// it wants next just gone. A render of one pass does not: a value it makes may be read again at once (a reference, a
+    /// layer that is also a mask, a group used twice), and the least recently used leaves for it. A render and a band of one are
+    /// a render; a scene drawn as a group inside it is not another. Renders at once on one cache share the count, which only
+    /// makes each spare what the others use too: the picture never depends on it.
+    pub(crate) fn begin_render(&self, scan: bool) {
+        let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
+        kept.render += 1;
+        kept.scan = scan;
     }
 
     /// The value kept under `key`, made the most recently used.
@@ -198,12 +205,13 @@ impl Cache {
             return;
         }
         let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
-        let render = kept.render;
+        let (render, scan) = (kept.render, kept.scan);
         if let Some(replaced) = kept.entries.remove(&key) {
             kept.bytes -= replaced.bytes;
         }
-        // what may go for this value: a stage, and (not for a stage) what the render has not used
-        let may_go = |entry: &Entry| entry.expendable || (!expendable && entry.render != render);
+        // what may go for this value: a stage, and (not for a stage) all but what a scanning render has used
+        let spared = |entry: &Entry| scan && entry.render == render;
+        let may_go = |entry: &Entry| entry.expendable || (!expendable && !spared(entry));
         if expendable {
             let others: usize = kept
                 .entries
@@ -288,7 +296,7 @@ mod tests {
             made(&cache, name, 40, &mut makes)?;
         }
         assert_eq!(makes, 2, "`a` is kept");
-        cache.begin_render(); // `a` and `b` were used by an earlier render
+        cache.begin_render(false); // `a` and `b` were used by an earlier render
         made(&cache, "c", 40, &mut makes)?; // 120 > 100: `b`, not `a`, goes
         assert_eq!(makes, 3);
         made(&cache, "a", 40, &mut makes)?;
@@ -303,7 +311,7 @@ mod tests {
     {
         let cache = Cache::with_capacity(100);
         let mut makes = 0;
-        cache.begin_render();
+        cache.begin_render(true);
         // a scan of four values of 40 with room for two, each read again by the next band
         for _ in 0..3 {
             for name in ["a", "b", "c", "d"] {
@@ -316,7 +324,7 @@ mod tests {
             "`a` and `b` are made once, `c` and `d` for each of the three bands"
         );
         // the next render finds `a` and `b`: they were not used by it yet, so a value it makes may take their room, the oldest first
-        cache.begin_render();
+        cache.begin_render(true);
         made(&cache, "a", 40, &mut makes)?;
         made(&cache, "c", 40, &mut makes)?; // `b` is the oldest of the two not used by this render
         assert_eq!(makes, 9, "`a` was found, `c` was made");

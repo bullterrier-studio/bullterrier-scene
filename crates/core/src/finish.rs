@@ -385,7 +385,9 @@ fn replicated(values: &[f32], (columns, rows): (usize, usize), [top, right, bott
 #[cfg(test)]
 mod tests {
     use super::{RAN, fits};
+    use crate::blend::Blend;
     use crate::geometry::MAX_LOOKED_PIXELS;
+    use crate::mask::{Mask, Use};
     use crate::{Error, Fit, Layer, Raster, Scene, Values};
 
     #[test]
@@ -559,6 +561,70 @@ mod tests {
             4 + 9,
             "what the first render kept is not spared by the next"
         );
+        Ok(())
+    }
+
+    /// Looks run by a render of three looked layers that fill a cache of room for three, then `tail`: `render`, or `render_bands`
+    /// in bands of `band_rows` rows.
+    fn looks_of_a_full_cache_then(tail: Vec<Layer>, band_rows: Option<usize>) -> Result<usize, Error> {
+        let looked = |exposure: f64, name: &str| -> Result<Layer, Error> {
+            picture()?
+                .fit([0.0, 0.0, 100.0, 100.0], Fit::Cover, [0.5, 0.5])?
+                .look(&grade(exposure))?
+                .named(name)
+        };
+        let mut layers = vec![looked(0.1, "p0")?, looked(0.2, "p1")?, looked(0.3, "p2")?];
+        layers.extend(tail);
+        let scene = Scene::new(100, 100)?
+            .with_cache_capacity(3 * 160_000 + 1_000)
+            .add(layers)?;
+        let before = RAN.with(std::cell::Cell::get);
+        match band_rows {
+            None => drop(scene.render(100)?),
+            Some(rows) => scene.render_bands(100, rows, |_, _| Ok(()))?,
+        }
+        Ok(RAN.with(std::cell::Cell::get) - before)
+    }
+
+    fn looked_h() -> Result<Layer, Error> {
+        picture()?
+            .fit([0.0, 0.0, 100.0, 100.0], Fit::Cover, [0.5, 0.5])?
+            .look(&grade(0.9))?
+            .named("h")
+    }
+
+    /// A value that a whole render needs twice is made once, whatever the cache holds: the three layers before it fill a cache
+    /// of room for three, and the least recently used of them (not the value) leaves for it, as when a render had no policy of
+    /// its own. The oracle is the count of the layers: three before, one `h`, however many times it is read.
+    #[test]
+    fn a_value_a_whole_render_needs_twice_is_made_once_in_a_cache_full_of_what_the_render_used() -> Result<(), Error> {
+        type Tail = fn() -> Result<Vec<Layer>, Error>;
+        let rows: [(&str, Tail); 4] = [
+            ("a reference", || Ok(vec![looked_h()?, Layer::of("h").named("r")?])),
+            ("two blends", || {
+                Ok(vec![looked_h()?, Layer::of("h").named("r")?.blend(Blend::Multiply)])
+            }),
+            ("a layer that is also a mask", || {
+                Ok(vec![
+                    looked_h()?,
+                    Layer::fill("#c04020")?.mask(Mask::new(Layer::of("h")).using(Use::Luminance))?,
+                ])
+            }),
+            ("a group used twice", || {
+                let inner = Scene::new(100, 100)?.add([looked_h()?])?;
+                Ok(vec![Layer::scene(inner).named("g")?, Layer::of("g").named("g2")?])
+            }),
+        ];
+        for (what, tail) in rows {
+            // `render`, and `render_bands` in one band, are a render of one pass
+            for band_rows in [None, Some(100)] {
+                assert_eq!(
+                    looks_of_a_full_cache_then(tail()?, band_rows)?,
+                    3 + 1,
+                    "{what}, {band_rows:?}"
+                );
+            }
+        }
         Ok(())
     }
 
