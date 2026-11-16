@@ -453,6 +453,18 @@ a second, flat picture of the photo's size that carries the same matte as a map,
 its `width` in image's design pixels (1/480 of the canvas's long side, "Looks"). The Conan poster of the demos builds exactly
 this: a flat picture with the matte, the outline look, `lighten`, under the dog.
 
+**A halo only.** A light reference's glow lies over its source, so it brightens the source too. Mask the glow by its inverted
+source: the source stays as it was and only the halo is added.
+
+```python
+bts.Layer.of("sun").look(bloom).as_light().blend("screen").mask(bts.Layer.of("sun"), invert=True)
+```
+
+On a 400 by 300 canvas (background `#203050`, a disc `#ffe27a` of radius 44 drawn below the glow), the disc's centre pixel is
+`#ffe27a` exactly (1.0, 0.886, 0.478) with the mask and (1.0, 1.0, 0.897) without it. 6 pixels past the edge it is
+(0.67, 0.62, 0.46) in both, against the background's (0.13, 0.19, 0.31). The sun needs an alpha (a drawing, or a picture
+with a matte): an opaque square picture masks the halo that falls inside its box (the pixel there stays the background).
+
 ## Data in
 
 | Layer | Takes | Scene needs of it |
