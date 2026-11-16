@@ -596,6 +596,20 @@ mod tests {
     /// A value that a whole render needs twice is made once, whatever the cache holds: the three layers before it fill a cache
     /// of room for three, and the least recently used of them (not the value) leaves for it, as when a render had no policy of
     /// its own. The oracle is the count of the layers: three before, one `h`, however many times it is read.
+    /// The render before a banded one pushed a layer out: the banded render finds it gone and pushes out the layer it will want
+    /// last, not the one it wants next, as a whole render does. Four layers, room for three, bands of ten rows: the whole render
+    /// makes four looks; the banded one makes `l0` and `l3` in its first band and `l3` again in each of the nine after it
+    /// (`l3` is the layer that cannot stay), where pushing out the least recently used would make all four in the first band.
+    #[test]
+    fn a_banded_render_after_a_whole_one_of_a_scene_larger_than_the_cache_keeps_all_but_one_layer() -> Result<(), Error>
+    {
+        let (ran, pixels) = looks_of_repeated_renders(4, 3, &[None, Some(10)])?;
+        assert_eq!(ran, [4, 2 + 9]);
+        let (_, cold) = looks_of_repeated_renders(4, 4, &[None])?;
+        assert!(pixels == cold, "the pixels of a cold render");
+        Ok(())
+    }
+
     #[test]
     fn a_value_a_whole_render_needs_twice_is_made_once_in_a_cache_full_of_what_the_render_used() -> Result<(), Error> {
         type Tail = fn() -> Result<Vec<Layer>, Error>;
@@ -624,6 +638,62 @@ mod tests {
                     "{what}, {band_rows:?}"
                 );
             }
+        }
+        Ok(())
+    }
+
+    /// Looks run by each render of one scene of `layers` looked layers, whose cache has room for `room` of them: a whole render
+    /// for each `None` of `plan`, `render_bands` in bands of the rows given for each `Some`. And the pixels of the last render.
+    fn looks_of_repeated_renders(
+        layers: usize,
+        room: usize,
+        plan: &[Option<usize>],
+    ) -> Result<(Vec<usize>, Vec<f32>), Error> {
+        let looked = (0..layers)
+            .map(|index| {
+                picture()?
+                    .fit([0.0, 0.0, 100.0, 100.0], Fit::Cover, [0.5, 0.5])?
+                    // a blur of 16 pixels or more is summed by a Fourier transform, which image cannot band to the bit: each layer
+                    // is looked whole, once however many bands there are
+                    .look(&format!(
+                        r#"{{"steps": [{{"effect": "gaussian_blur", "params": {{"radius": {}}}}}]}}"#,
+                        24 + index
+                    ))?
+                    .named(&format!("p{index}"))
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+        let scene = Scene::new(100, 100)?
+            .with_cache_capacity(room * 160_000 + 1_000)
+            .add(looked)?;
+        let (mut ran, mut pixels) = (Vec::new(), Vec::new());
+        for rows in plan {
+            let before = RAN.with(std::cell::Cell::get);
+            pixels = match rows {
+                None => scene.render(100)?.pixels().to_vec(),
+                Some(rows) => {
+                    let mut bands = Vec::new();
+                    scene.render_bands(100, *rows, |_, band| {
+                        bands.extend_from_slice(band.pixels());
+                        Ok(())
+                    })?;
+                    bands
+                }
+            };
+            ran.push(RAN.with(std::cell::Cell::get) - before);
+        }
+        Ok((ran, pixels))
+    }
+
+    /// A scene of more layers than the cache holds, drawn again, makes the layers that left for the one it wants last again,
+    /// not every layer: least recently used first would push out the layer wanted next each time. The oracle is the count
+    /// of looks (all of them for the first render, the two that cannot stay for each next one) and the pixels of a cold render.
+    #[test]
+    fn a_scene_larger_than_the_cache_drawn_again_makes_two_layers_again_and_not_all() -> Result<(), Error> {
+        for (layers, room) in [(4, 3), (8, 7)] {
+            let (ran, pixels) = looks_of_repeated_renders(layers, room, &[None; 3])?;
+            assert_eq!(ran, [layers, 2, 2], "{layers} layers, room for {room}");
+            let (_, cold) = looks_of_repeated_renders(layers, layers, &[None])?;
+            assert!(pixels == cold, "{layers} layers: the pixels of a cold render");
         }
         Ok(())
     }

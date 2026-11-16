@@ -8,7 +8,7 @@
 //! used scene and compare the picture with a cold scene's.
 
 use std::any::Any;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -92,6 +92,13 @@ struct Kept {
     render: u64,
     /// Whether the render in progress scans its layers once more for each band (`begin_render`).
     scan: bool,
+    /// The finished values the render in progress has pushed out for room, and those the render before it pushed out
+    /// (`begin_render`); a stage or the plane of a band is not one, so the set never outgrows the layers.
+    evicted: HashSet<Key>,
+    ghost: HashSet<Key>,
+    /// Whether the render in progress is making a value the render before it pushed out: the scene holds more than the cache
+    /// does and is read in turn (`keep`).
+    repeats_a_scan: bool,
 }
 
 /// A bounded store of what renders drew, by [`Key`], shared by the scenes made from one another and by their threads. When it
@@ -168,10 +175,18 @@ impl Cache {
     /// layer that is also a mask, a group used twice), and the least recently used leaves for it. A render and a band of one are
     /// a render; a scene drawn as a group inside it is not another. Renders at once on one cache share the count, which only
     /// makes each spare what the others use too: the picture never depends on it.
+    ///
+    /// A scene of more layers than the cache holds, drawn again, finds gone the layer the render before pushed out for the last
+    /// one it made, and so on round: least recently used first would push out the layer wanted next each time. The values a
+    /// render pushes out are kept by key (not the values) for the next, and a render that makes one of them is a repeated scan:
+    /// from there it pushes out first what the render before used and it has not yet, the most recently used first (the one
+    /// wanted last), and only then the least recently used of what it used. All but two of the layers are found each time.
     pub(crate) fn begin_render(&self, scan: bool) {
         let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
         kept.render += 1;
         kept.scan = scan;
+        kept.ghost = std::mem::take(&mut kept.evicted);
+        kept.repeats_a_scan = false;
     }
 
     /// The value kept under `key`, made the most recently used.
@@ -197,7 +212,7 @@ impl Cache {
     }
 
     /// Keeps `value` of `bytes` bytes under `key`, after making room: expendable entries go first, then the least recently
-    /// used of those this render has not used. A value larger than the whole cache, or that would need a value this render has
+    /// used of those this render has not used (the most recently used first, in a repeated scan: `begin_render`). A value larger than the whole cache, or that would need a value this render has
     /// used to go, is not kept: a render that holds more than the cache keeps scans it in turn, and the least recently used
     /// would be the next one wanted each time (nothing kept is read again, where sparing the used ones keeps all but the last).
     fn keep(&self, key: Key, value: Arc<dyn Any + Send + Sync>, bytes: usize, expendable: bool) {
@@ -209,6 +224,10 @@ impl Cache {
         if let Some(replaced) = kept.entries.remove(&key) {
             kept.bytes -= replaced.bytes;
         }
+        // made again what the render before pushed out: the scene is a scan the cache cannot hold, and from here on what the
+        // render before used and this one has not yet is what goes (the one it wants last), not the one it wants next
+        kept.repeats_a_scan |= kept.ghost.contains(&key);
+        let repeats = kept.repeats_a_scan;
         // what may go for this value: a stage, and (not for a stage) all but what a scanning render has used
         let spared = |entry: &Entry| scan && entry.render == render;
         let may_go = |entry: &Entry| entry.expendable || (!expendable && !spared(entry));
@@ -237,13 +256,25 @@ impl Cache {
                 .entries
                 .iter()
                 .filter(|(_, entry)| may_go(entry))
-                .min_by_key(|(_, entry)| (!entry.expendable, entry.used))
+                .min_by_key(|(_, entry)| {
+                    let unused = entry.render != render;
+                    // least recently used first; in a repeated scan, what this render has not used goes first, newest first
+                    let rank = if repeats && unused {
+                        u64::MAX - entry.used
+                    } else {
+                        entry.used
+                    };
+                    (!entry.expendable, repeats && !unused, rank)
+                })
                 .map(|(key, _)| *key)
             else {
                 break;
             };
             if let Some(gone) = kept.entries.remove(&oldest) {
                 kept.bytes -= gone.bytes;
+                if !gone.expendable {
+                    kept.evicted.insert(oldest);
+                }
             }
         }
         kept.clock += 1;
@@ -330,6 +361,44 @@ mod tests {
         assert_eq!(makes, 9, "`a` was found, `c` was made");
         made(&cache, "b", 40, &mut makes)?;
         assert_eq!(makes, 10, "`b` went for `c`");
+        Ok(())
+    }
+
+    #[test]
+    fn a_scan_the_cache_cannot_hold_keeps_all_but_two_of_its_values_for_the_render_after() -> Result<(), Error> {
+        let cache = Cache::with_capacity(120);
+        let mut makes = 0;
+        let mut per_render = Vec::new();
+        for _ in 0..3 {
+            cache.begin_render(false);
+            let before = makes;
+            for name in ["a", "b", "c", "d"] {
+                made(&cache, name, 40, &mut makes)?;
+            }
+            per_render.push(makes - before);
+        }
+        // the first render pushes `a` out for `d`; the second finds `a` gone, and from then on what the render before used
+        // and it has not yet is what goes, newest first (`d`), so `b` and `c` are found; `d` then pushes out `a`, the least
+        // recently used of those this render used
+        assert_eq!(per_render, [4, 2, 2]);
+        Ok(())
+    }
+
+    #[test]
+    fn a_value_new_to_a_repeated_scan_pushes_out_what_the_render_has_not_used_and_not_what_it_has() -> Result<(), Error>
+    {
+        let cache = Cache::with_capacity(120);
+        let mut makes = 0;
+        cache.begin_render(false);
+        for name in ["a", "b", "c", "d"] {
+            made(&cache, name, 40, &mut makes)?; // `a` goes for `d`
+        }
+        cache.begin_render(false);
+        // `a` is found gone, so this render repeats the scan: `d` leaves for it; `x` is new, and `c`, not yet used by this render, leaves for it
+        for name in ["a", "x", "a"] {
+            made(&cache, name, 40, &mut makes)?;
+        }
+        assert_eq!(makes, 4 + 2, "`a` and `x` are made, and `a` is found again");
         Ok(())
     }
 
