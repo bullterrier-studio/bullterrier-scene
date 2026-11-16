@@ -475,6 +475,17 @@ bts.Scene(W, H).add(bts.Layer.scene(inner).look(grade))
 It equals the look applied to the flat render of `inner` (a `Layer.picture` of its pixels with the same look): on a 400 by
 300 canvas of a fill, a drawing and a text, with a `gradient_map`, the largest difference is 0.0.
 
+**`aspect` squashes toward the anchor.** `aspect` scales y about `anchor`, the centre of the box by default, so a contact
+shadow `Layer.of("dog").place(aspect=0.12)` lands mid-body, not at the feet. Anchor it at the bottom edge and it keeps the
+feet line, with no `dy`.
+
+```python
+shadow = bts.Layer.fill("#000000").mask(bts.Layer.of("dog").place(aspect=0.12, anchor=(0.5, 1)), feather=12)
+```
+
+A dog 200 pixels tall on rows 100 to 299 gives a shadow on rows 188 to 211 with the default anchor, rows 276 to 299 with
+`anchor=(0.5, 1)`, and the same 276 to 299 with the default anchor and `dy=88` (half the height times 1 - `aspect`).
+
 ## Data in
 
 | Layer | Takes | Scene needs of it |
