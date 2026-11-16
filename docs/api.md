@@ -486,6 +486,19 @@ shadow = bts.Layer.fill("#000000").mask(bts.Layer.of("dog").place(aspect=0.12, a
 A dog 200 pixels tall on rows 100 to 299 gives a shadow on rows 188 to 211 with the default anchor, rows 276 to 299 with
 `anchor=(0.5, 1)`, and the same 276 to 299 with the default anchor and `dy=88` (half the height times 1 - `aspect`).
 
+**Stroke widths under `perspective`.** A drawing is drawn flat and then warped, so a stroke grows with the magnification
+where it lands: near lines are wider. For equal lines on the canvas, give the far lines a wide stroke and the near ones a thin
+one (width by row, in the drawing); a faint wide halo (a second, wider stroke at low opacity) softens the taper of a line
+along its run.
+
+```python
+bts.Layer.drawing(lines).perspective([(200, 50), (400, 50), (600, 400), (0, 400)])
+```
+
+Two horizontal lines of width 4 at rows 10 and 390 of a 400 by 400 drawing, warped to that quadrilateral on a 600 by 400
+canvas, are 0.90 pixel thick at the far line (row 52) and 7.12 at the near one (row 372): a ratio of 7.9. Widths 15.76 and 2
+give 3.56 and 3.58.
+
 ## Data in
 
 | Layer | Takes | Scene needs of it |
