@@ -3,12 +3,15 @@
 //! The PDF's own file layout (offsets, scratch files) is read by hand in the tests that name it.
 
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-use bullterrier_scene::{Error, PdfOptions, Raster};
+use bullterrier_scene::{Error, Layer, LayerKind, PdfOptions, Raster};
 use lopdf::content::{Content, Operation};
 use lopdf::{Document, Object, ObjectId, Stream};
+use serde_json::{Value, json};
 
-use crate::common::{Outcome, pixel, varied};
+use crate::common::{Outcome, pixel, scene, varied};
 
 /// `level` as the 8-bit number a PNG would hold.
 #[expect(
@@ -763,5 +766,81 @@ fn a_pdf_leaves_no_file_beside_it_when_it_is_written_and_when_it_cannot_be_put_i
         ["out.pdf", "taken"],
         "after a PDF that cannot be put in place"
     );
+    Ok(())
+}
+
+/// A kind that draws by position and refuses the rows from `until` (a design y) down: a render in bands draws the first ones,
+/// then fails.
+struct Late {
+    until: f64,
+    drawn: AtomicUsize,
+}
+
+impl LayerKind for Late {
+    fn by_position(&self) -> bool {
+        true
+    }
+
+    fn name(&self) -> &'static str {
+        "late"
+    }
+
+    fn options(&self) -> Value {
+        json!({ "until": self.until })
+    }
+
+    fn draw(&self, area: [f64; 4], scale: [f64; 2]) -> Result<Raster, Error> {
+        if area[1] >= self.until {
+            return Err(Error::Invalid {
+                address: "late".to_owned(),
+                message: "this kind draws nothing from its limit down".to_owned(),
+            });
+        }
+        self.drawn.fetch_add(1, Ordering::SeqCst);
+        #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "a test size")]
+        let (columns, rows) = (
+            (area[2] * scale[0] * (1.0 - 1e-12)).ceil() as usize,
+            (area[3] * scale[1] * (1.0 - 1e-12)).ceil() as usize,
+        );
+        Raster::rgba(columns, rows, vec![0.0; columns * rows * 4])
+    }
+}
+
+/// A PDF whose render fails after a band was written leaves no file and no scratch one, and an old file stays as it was: the
+/// failure comes in the second band, when the first one's colour and alpha are already in the scratch files.
+#[test]
+fn a_pdf_render_that_fails_in_a_later_band_leaves_no_file_and_no_scratch_file() -> Outcome {
+    let folder = tempfile::tempdir()?;
+    let late = Arc::new(Late {
+        until: 4000.0,
+        drawn: AtomicUsize::new(0),
+    });
+    let scene_ = scene(
+        4100,
+        4100,
+        [
+            Layer::fill("#204080")?,
+            Layer::make(Arc::clone(&late) as Arc<dyn LayerKind>),
+        ],
+    )?;
+    let options = PdfOptions::new(300.0)?;
+    let pdf = folder.path().join("late.pdf");
+    assert!(matches!(
+        scene_.render_to_pdf(4100, &pdf, &options),
+        Err(Error::Invalid { .. })
+    ));
+    assert!(
+        late.drawn.load(Ordering::SeqCst) >= 1,
+        "a band was drawn, and written to the scratch files, before the failure"
+    );
+    assert_eq!(
+        names(folder.path())?,
+        Vec::<String>::new(),
+        "no file, and no scratch one"
+    );
+    std::fs::write(&pdf, b"old")?;
+    assert!(scene_.render_to_pdf(4100, &pdf, &options).is_err());
+    assert_eq!(std::fs::read(&pdf)?, b"old");
+    assert_eq!(names(folder.path())?, ["late.pdf"], "the old file and no scratch one");
     Ok(())
 }
