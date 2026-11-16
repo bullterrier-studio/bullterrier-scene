@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use bullterrier_scene::{
-    Blend, Deg, Error, Fit, Layer, MAX_DEPTH, MAX_LAYERS, Mask, Place, Raster, Scene, Text, Use, Values,
+    Blend, Deg, Error, Fit, Layer, MAX_DEPTH, MAX_LAYERS, Mask, Place, Px, Raster, Scene, Text, Use, Values,
 };
 use proptest::prelude::*;
 use serde_json::Value;
@@ -397,6 +397,45 @@ fn a_file_that_is_not_there_is_a_read_error_at_render_and_at_to_json_not_at_load
     Ok(())
 }
 
+/// A look in canvas pixels is written with its unit and read back as it was; a look in design pixels is written as it always was
+/// (no unit: every scene saved before reads the same), and the unit tells two scenes apart.
+#[test]
+fn a_looks_unit_is_saved_only_when_it_is_canvas_pixels() -> Outcome {
+    let with = |px: Px| {
+        scene(
+            24,
+            16,
+            [Layer::fill("#ff0000").and_then(|layer| layer.look_in(px, GRADE))?],
+        )
+    };
+    let (design, canvas) = (with(Px::Design)?, with(Px::Canvas)?);
+    assert_ne!(design, canvas);
+    assert_eq!(design, with(Px::Design)?);
+    let look_of = |scene: &Scene| -> Result<Value, Box<dyn std::error::Error>> {
+        Ok(serde_json::from_str::<Value>(&scene.to_json()?)?["layers"][0]["looks"][0].clone())
+    };
+    let keys = |look: Value| -> Vec<String> {
+        look.as_object()
+            .map_or_else(Vec::new, |map| map.keys().cloned().collect())
+    };
+    assert_eq!(keys(look_of(&design)?), ["format", "recipe"]);
+    assert_eq!(keys(look_of(&canvas)?), ["format", "recipe", "px"]);
+    assert_eq!(look_of(&canvas)?["px"], "canvas");
+    let base = std::path::Path::new(".");
+    assert_eq!(Scene::from_json(&canvas.to_json()?, base)?, canvas);
+    assert_eq!(
+        Scene::from_json(&canvas.to_json()?, base)?.to_json()?,
+        canvas.to_json()?
+    );
+    assert_eq!(Scene::from_json(&design.to_json()?, base)?, design);
+    // a unit written out is read as the one that is the default
+    let spelled = design
+        .to_json()?
+        .replacen("\"recipe\"", "\"px\":\"design\",\"recipe\"", 1);
+    assert_eq!(Scene::from_json(&spelled, base)?, design);
+    Ok(())
+}
+
 #[test]
 fn a_path_where_a_look_or_a_drawing_belongs_is_read_at_load_and_written_inline() -> Outcome {
     let files = Files::new()?;
@@ -547,6 +586,8 @@ fn a_document_the_reader_cannot_take_is_refused_at_the_pointer_of_the_value_with
         ("a mask feather below 0", with(r##"{"fill":"#ffffff","masks":[{"layer":{"fill":"#ffffff"},"feather":-1}]}"##), "/layers/0/masks/0/feather", "0 to 1000000"),
         ("a look with a format nobody reads", with(r##"{"fill":"#ffffff","looks":[{"format":9,"recipe":{"steps":[]}}]}"##), "/layers/0/looks/0/format", "image formats 1, 2, 3"),
         ("a look that is no object", with(r##"{"fill":"#ffffff","looks":[3]}"##), "/layers/0/looks/0", "a look is"),
+        ("a look px nobody reads", with(r##"{"fill":"#ffffff","looks":[{"recipe":{"steps":[]},"px":"inch"}]}"##), "/layers/0/looks/0/px", "\"design\" or \"canvas\""),
+        ("a look px that is a number", with(r##"{"fill":"#ffffff","looks":[{"recipe":{"steps":[]},"px":3}]}"##), "/layers/0/looks/0/px", "\"design\" or \"canvas\""),
         ("a look without a recipe", with(r##"{"fill":"#ffffff","looks":[{}]}"##), "/layers/0/looks/0", "`recipe` is missing"),
         ("a look image refuses", with(r##"{"fill":"#ffffff","looks":[{"recipe":{"steps":[{"effect":"nothing_like_it"}]}}]}"##), "/layers/0/looks/0/recipe", "nothing_like_it"),
         ("a look that sets a size", with(r##"{"fill":"#ffffff","looks":[{"recipe":{"steps":[{"effect":"grade","params":{"exposure":1.0}}],"size":10}}]}"##), "/layers/0/looks/0/recipe", "size"),

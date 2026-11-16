@@ -64,3 +64,18 @@ fn inside_a_group_canvas_pixels_are_the_inner_scenes_so_a_taller_inner_canvas_ke
     assert!(near(tall, 20.0 * 1067.0 / 480.0), "design px, 1067 tall: {tall}");
     Ok(())
 }
+
+/// The unit is in the cache key: scenes made from one scene share a cache, and a look in canvas pixels is not served the
+/// picture the same recipe made in design pixels.
+#[test]
+fn the_unit_is_part_of_what_the_cache_remembers() -> Outcome {
+    let base = Scene::new(300, 2700)?;
+    let layer = |px: Px| -> Result<Layer, Error> { Layer::fill("#ffffff")?.look_in(px, &lines(25.0)) };
+    let (design, canvas) = (base.add([layer(Px::Design)?])?, base.add([layer(Px::Canvas)?])?);
+    let first = design.render(2700)?;
+    let shared = canvas.render(2700)?;
+    let alone = ruled((300, 2700), Px::Canvas, 25.0)?.render(2700)?;
+    assert_eq!(shared.pixels(), alone.pixels());
+    assert_ne!(shared.pixels(), first.pixels());
+    Ok(())
+}
