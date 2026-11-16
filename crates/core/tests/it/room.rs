@@ -3,7 +3,7 @@
 //! render, which never grows a picture. Every recipe here is a bloom of image, whose spread is the number the pad is made from.
 
 use bullterrier_image::{Presets, Recipe};
-use bullterrier_scene::{Blend, Error, Fit, Layer, Map, Place, Raster};
+use bullterrier_scene::{Blend, Error, Fit, Layer, Map, Place, Px, Raster};
 
 use crate::common::{Outcome, made, pixel, pixels, rectangle, scene, solid};
 
@@ -401,5 +401,54 @@ fn the_rooms_of_the_looks_of_a_layer_add() -> Outcome {
     let shown = render(glowing(picture(0), BLUR, true)?.look(BLUR)?)?;
     let difference = against_image(&shown, &by_image(TWICE, two, false)?, two, true);
     assert!(difference < 1e-5, "differs by {difference}");
+    Ok(())
+}
+
+/// A bloom of 2.4 pixels of this canvas of 96: image's design radius 12 is 2.4 canvas pixels here, so the same halo.
+const BLOOM_IN_CANVAS_PIXELS: &str =
+    r#"{"steps": [{"effect": "bloom", "params": {"radius": 2.4, "threshold": 0.2, "amount": 1.0}}]}"#;
+
+/// Whether `shown` has light past the content's square, on any side.
+fn glows_past_the_box(shown: &Raster) -> bool {
+    (0..CANVAS as usize).any(|y| {
+        (0..CANVAS as usize).any(|x| {
+            let inside = (AT..AT + SIDE).contains(&x) && (AT..AT + SIDE).contains(&y);
+            !inside && pixel(shown, x, y)[0] > 0.01
+        })
+    })
+}
+
+/// The largest difference of a channel between two renders of one size.
+fn apart(left: &Raster, right: &Raster) -> f32 {
+    left.pixels()
+        .iter()
+        .zip(right.pixels())
+        .fold(0.0, |worst, (a, b)| worst.max((a - b).abs()))
+}
+
+/// A look in canvas pixels is given the room of its own unit: the halo of a bloom of 2.4 canvas pixels on a light layer is not cut,
+/// it is the halo of the same bloom in the 12 design pixels it equals (image's room, tested above), alone or after another look
+/// whose unit is design pixels (each look of a chain adds its own room).
+#[test]
+fn a_bloom_in_canvas_pixels_is_given_the_room_of_its_halo() -> Outcome {
+    for (what, tight) in [
+        ("drawing", drawing(0)?),
+        ("picture", picture(0)?),
+        ("group", group(0)?),
+        ("fill", fill()?),
+    ] {
+        let light = |layer: Layer| layer.as_light(true).blend(Blend::Screen);
+        let design = render(light(tight.clone().look(BLOOM)?))?;
+        assert!(glows_past_the_box(&design), "{what}: the design halo is seen");
+        let canvas = render(light(tight.clone().look_in(Px::Canvas, BLOOM_IN_CANVAS_PIXELS)?))?;
+        assert!(apart(&design, &canvas) < 1e-5, "{what}: {}", apart(&design, &canvas));
+        let twice = render(light(tight.clone().look(BLOOM)?.look(BLOOM)?))?;
+        let mixed = render(light(tight.look(BLOOM)?.look_in(Px::Canvas, BLOOM_IN_CANVAS_PIXELS)?))?;
+        assert!(
+            apart(&twice, &mixed) < 1e-5,
+            "{what} in a chain: {}",
+            apart(&twice, &mixed)
+        );
+    }
     Ok(())
 }

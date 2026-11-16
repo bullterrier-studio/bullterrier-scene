@@ -6,7 +6,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use bullterrier_scene::{
-    BAND_PIXELS, Blend, Deg, Error, Fit, Layer, LayerKind, Mask, Place, Raster, Scene, Text, Use, Values,
+    BAND_PIXELS, Blend, Deg, Error, Fit, Layer, LayerKind, Mask, Place, Px, Raster, Scene, Text, Use, Values,
     check_by_position,
 };
 use serde_json::{Value, json};
@@ -584,6 +584,48 @@ fn looked_layers_drawn_by_bands_make_the_picture_they_make_whole() -> Outcome {
             }
             let looked = scene(100, 100, [Layer::fill("#204080")?, layer])?;
             at_sizes(&looked, &[100, 97]).map_err(|error| format!("{kind} with {name}: {error}"))?;
+        }
+    }
+    Ok(())
+}
+
+/// Looks in canvas pixels, each with its own unit in a chain, drawn by bands equal the whole render to the bit: the bands are
+/// windows of the real canvas, and the unit's canvas (not the window's) fixes the scale of the look's `px`. A blur of 1.5 canvas
+/// pixels and a grain of half a pixel are bands image can make exactly, so this is the banded path, not a whole render cut.
+#[test]
+fn looks_in_canvas_pixels_drawn_by_bands_make_the_picture_they_make_whole() -> Outcome {
+    let shape = rectangle((100, 100), (12.0, 22.0), (71.0, 93.0), "#c04020");
+    let blur = one_step("gaussian_blur", r#"{"radius": 1.5}"#);
+    let grain = one_step("grain", r#"{"amount": 0.6, "size": 0.5}"#);
+    let vignette = one_step("vignette", r#"{"amount": 0.9, "radius": 0.2}"#);
+    let cases = [
+        ("blur", vec![(Px::Canvas, &blur)]),
+        ("grain", vec![(Px::Canvas, &grain)]),
+        (
+            "design vignette, canvas blur",
+            vec![(Px::Design, &vignette), (Px::Canvas, &blur)],
+        ),
+        (
+            "canvas blur, design blur",
+            vec![(Px::Canvas, &blur), (Px::Design, &blur)],
+        ),
+    ];
+    let fitted = |raster: Raster| -> Result<Layer, Error> {
+        Layer::picture(raster).fit([0.0, 0.0, 100.0, 100.0], Fit::Cover, [0.5, 0.5])
+    };
+    for (name, looks) in cases {
+        let bases = [
+            ("drawing", Layer::drawing(&shape)?),
+            ("group", Layer::scene(scene(100, 100, [Layer::drawing(&shape)?])?)),
+            ("enlarged picture", fitted(varied(40, 30)?)?),
+            ("shrunk picture", fitted(varied(320, 240)?)?),
+        ];
+        for (kind, mut layer) in bases {
+            for (px, look) in &looks {
+                layer = layer.look_in(*px, look)?;
+            }
+            let looked = scene(100, 100, [Layer::fill("#204080")?, layer])?;
+            at_sizes(&looked, &[100, 97, 250]).map_err(|error| format!("{kind} with {name}: {error}"))?;
         }
     }
     Ok(())
