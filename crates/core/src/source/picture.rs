@@ -8,12 +8,13 @@ use std::sync::{Arc, OnceLock};
 use bullterrier_image::{Number, Options, Photo, Presets, RECIPE_FORMATS, Recipe, Spread};
 use serde_json::{Value, json};
 
-use super::{Drawn, Given, Opened, Rows, Source};
+use super::{Drawn, Given, Opened, Request, Rows, Source};
 use crate::cache::{Cache, Keyed};
 use crate::document::Form;
 use crate::files::{Fingerprint, Located, digest_bytes};
 use crate::geometry::Rect;
 use crate::parameters::{Parameter, Value as Setting};
+use crate::placement::Px;
 use crate::warp::{resize, resize_rows};
 use crate::{Error, Map, Raster};
 
@@ -44,6 +45,8 @@ pub(crate) struct Look {
     presets: Arc<Presets>,
     /// The numbers of the recipe that can be set, as image lists them now.
     numbers: Arc<[Number]>,
+    /// The unit of the look's `px`.
+    px: Px,
     /// The digest of the look's document, made when first asked for: a look is never changed, `with_values` makes another.
     fingerprint: OnceLock<Fingerprint>,
 }
@@ -77,7 +80,7 @@ fn refused(error: &bullterrier_image::Error) -> Error {
 impl Look {
     /// The look the recipe document `document` is: an object image reads, with a `format` it reads or none (a refused one is
     /// an [`Error::Format`] naming the versions read).
-    pub(crate) fn new(document: &Value) -> Result<Self, Error> {
+    pub(crate) fn new(document: &Value, px: Px) -> Result<Self, Error> {
         let Value::Object(members) = document else {
             return Err(Error::Format {
                 pointer: "/look".to_owned(),
@@ -116,6 +119,7 @@ impl Look {
         Ok(Self {
             numbers: numbers_of(&recipe)?,
             recipe,
+            px,
             presets: Arc::new(presets),
             fingerprint: OnceLock::new(),
         })
@@ -155,18 +159,25 @@ impl Look {
         Ok(Self {
             numbers: numbers_of(&recipe)?,
             recipe,
+            px: self.px,
             presets: Arc::clone(&self.presets),
             fingerprint: OnceLock::new(),
         })
     }
 
-    /// This look as the document of a saved scene: `{"format": N, "recipe": {...}}`, with the lowest format the recipe needs.
+    /// This look as the document of a saved scene: `{"format": N, "recipe": {...}}`, with the lowest format the recipe needs, and
+    /// `"px": "canvas"` for a look in canvas pixels.
     ///
     /// # Errors
     /// [`Error::Invalid`] naming `look` for a recipe image cannot write as data.
     pub(crate) fn document(&self) -> Result<Value, Error> {
         let recipe = serde_json::to_value(&self.recipe).map_err(|error| Error::invalid("look", error.to_string()))?;
-        Ok(json!({"format": self.recipe.format(), "recipe": recipe}))
+        let mut document = json!({"format": self.recipe.format(), "recipe": recipe});
+        // a design look is written as it always was
+        if self.px != Px::Design {
+            document["px"] = json!(self.px.name());
+        }
+        Ok(document)
     }
 
     /// Writes into `key` the look's document: the recipe as image writes it, the same text for the same look. **Limit:** a file a
@@ -186,19 +197,19 @@ impl Look {
     }
 
     /// The room the `looks` ask for together, in pixels of the picture they run on: how far past it they paint on the top, right,
-    /// bottom and left, as image declares it for a canvas of `canvas` pixels (what sets the look's design scale). The looks'
+    /// bottom and left, as image declares it for the canvas of each look's unit (`Request::canvas_of`: what sets its design scale). The looks'
     /// sides add, each working on what the one before made, rounded up to whole pixels. `None` if a look may paint anywhere (a
     /// warp about the picture's centre, a statistic of the whole picture): no room holds it.
     ///
     /// # Errors
     /// [`Error::Invalid`] naming `look`, in image's words.
-    pub(crate) fn room(looks: &[Self], canvas: (u32, u32)) -> Result<Option<[usize; 4]>, Error> {
-        let longest = canvas.0.max(canvas.1);
+    pub(crate) fn room(looks: &[Self], request: &Request) -> Result<Option<[usize; 4]>, Error> {
         let mut total = Spread::NONE;
         for look in looks {
+            let canvas = request.canvas_of(look.px);
             total = total.then(
                 look.recipe
-                    .spread(&look.presets, longest)
+                    .spread(&look.presets, canvas.0.max(canvas.1))
                     .map_err(|error| refused(&error))?,
             );
         }
@@ -206,14 +217,20 @@ impl Look {
     }
 
     /// The rows of margin a band of the picture needs for this look to give the rows of the whole render (image's
-    /// `Recipe::band_margin`), or `None` if the look cannot be run on a band. `longest` is the canvas's longest side in pixels.
+    /// `Recipe::band_margin`), or `None` if the look cannot be run on a band. The canvas is the look's unit's.
     ///
     /// # Errors
     /// [`Error::Invalid`] naming `look`, in image's words.
-    pub(crate) fn band_margin(&self, longest: u32) -> Result<Option<usize>, Error> {
+    pub(crate) fn band_margin(&self, request: &Request) -> Result<Option<usize>, Error> {
+        let canvas = request.canvas_of(self.px);
         self.recipe
-            .band_margin(&self.presets, longest)
+            .band_margin(&self.presets, canvas.0.max(canvas.1))
             .map_err(|error| refused(&error))
+    }
+
+    /// The unit of the look's `px`.
+    pub(crate) const fn px(&self) -> Px {
+        self.px
     }
 
     /// The names of the maps the recipe can be given (`subject`, `depth`, a `given` region).
@@ -222,7 +239,8 @@ impl Look {
     }
 
     /// `layer` with the look run on its colour, straight, whatever the layer is; its alpha stays. `maps` are the picture's
-    /// maps at the size of `layer`; `canvas` is the scene's canvas in the output pixels this layer is drawn at (width, height), which fixes the
+    /// maps at the size of `layer`; `canvas` is the canvas of the look's unit (`Request::canvas_of`: the scene's canvas in the output
+    /// pixels this layer is drawn at, or that canvas shrunk to 480 canvas pixels a long side for a look in canvas pixels), which fixes the
     /// design scale of the look's `px`;
     /// a `light` layer's look sees the colour over black and its result is opaque (stage 7 makes the alpha: the light a look
     /// makes outside a shape is kept); the look sees those its recipe can be given, and image refuses the render, naming the
@@ -261,7 +279,12 @@ impl Look {
             Some(rows) => {
                 // a raster of at most 2^26 pixels on a canvas of at most 2^27: every side fits
                 let side = |length: usize| u32::try_from(length).unwrap_or(u32::MAX);
-                Options::default().with_window(side(rows.first), side(layer.width()), side(rows.total))
+                let window = Options::default().with_window(side(rows.first), side(layer.width()), side(rows.total));
+                // in a window the canvas fixes the design scale and the window only the place (image's rule)
+                match self.px {
+                    Px::Design => window,
+                    Px::Canvas => window.with_canvas(canvas.0, canvas.1),
+                }
             }
             None => Options::default().with_canvas(canvas.0, canvas.1),
         };

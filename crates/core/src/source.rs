@@ -13,6 +13,7 @@ use crate::files::Located;
 use crate::finish::{Chain, Finish};
 use crate::geometry::{MAX_PIXELS, Rect, Scale, whole_up};
 use crate::parameters::{Parameter, Value};
+use crate::placement::Px;
 use crate::{Error, Map, Raster};
 
 pub(crate) mod drawing;
@@ -94,6 +95,28 @@ impl Request {
         let density = self.density();
         let side = |length: f64| u32::try_from(whole_up(length)).unwrap_or(u32::MAX);
         (side(self.canvas.0 * density.0), side(self.canvas.1 * density.1))
+    }
+
+    /// The canvas a look of unit `px` measures its `px` on: [`Request::looks_canvas`] for design pixels; for canvas pixels the same
+    /// canvas shrunk by 480 over the scene canvas's long side (each side rounded, at least 1), so that image's design scale of it
+    /// is one pixel of the scene's canvas as drawn.
+    pub(crate) fn canvas_of(&self, px: Px) -> (u32, u32) {
+        let (width, height) = self.looks_canvas();
+        match px {
+            Px::Design => (width, height),
+            Px::Canvas => {
+                let long = self.canvas.0.max(self.canvas.1).max(1.0);
+                // clamped to 1 and to u32, so the cast is exact
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "rounded and clamped into 1 to u32::MAX"
+                )]
+                let shrink =
+                    |side: u32| (f64::from(side) * 480.0 / long).round().clamp(1.0, f64::from(u32::MAX)) as u32;
+                (shrink(width), shrink(height))
+            }
+        }
     }
 
     /// The shape of the whole box of `own` at this request, whatever its size.

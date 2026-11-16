@@ -48,7 +48,7 @@ pub use map::Map;
 pub use mask::{Mask, MaskBy, Use};
 pub use parameters::{Kind, Parameter, Value, Values};
 pub use pdf::PdfOptions;
-pub use placement::{Deg, Fit, Place};
+pub use placement::{Deg, Fit, Place, Px};
 pub use raster::Raster;
 pub use render::BAND_PIXELS;
 pub use scene::Scene;

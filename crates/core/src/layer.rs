@@ -10,7 +10,7 @@ use crate::files::Located;
 use crate::finish::{Finish, MapMask};
 use crate::mask::{By, CanvasMask, Mask, Use};
 use crate::perspective::Quad;
-use crate::placement::{Fit, Fitting, Place, Placed, Placement};
+use crate::placement::{Fit, Fitting, Place, Placed, Placement, Px};
 use crate::reference::Reference;
 use crate::source::drawing::Drawing;
 use crate::source::fill::Fill;
@@ -313,18 +313,27 @@ impl Layer {
     /// This layer with an image look run on it, after the looks it has: `json` is the recipe document that the image package's
     /// `Recipe.to_dict()` writes, checked now by the linked image crate. Any layer takes one: the look runs on what its source
     /// drew at the size the layer has (a picture resampled, a drawing, a text, a fill or a group's finished picture), on its
-    /// colour with the alpha left as it is, and its `px` values are image's own (a picture whose long side is 480); a look
+    /// colour with the alpha left as it is, and its `px` values are image's design pixels (1/480 of the canvas's long side); a look
     /// that sets `size` or `frame` is refused.
     ///
     /// # Errors
     /// [`Error::Format`] if `json` is not a JSON object or carries a recipe `format` the linked image crate does not read;
     /// [`Error::Invalid`] naming `look` for anything image refuses, in its words.
     pub fn look(self, json: &str) -> Result<Self, Error> {
+        self.look_in(Px::Design, json)
+    }
+
+    /// [`Layer::look`] with its `px` in the unit `px`: [`Px::Canvas`] counts them in the scene's canvas pixels (inside a group,
+    /// the inner scene's), so a value tuned on one canvas size means the same on another.
+    ///
+    /// # Errors
+    /// As [`Layer::look`].
+    pub fn look_in(self, px: Px, json: &str) -> Result<Self, Error> {
         let recipe = serde_json::from_str(json).map_err(|error| Error::Format {
             pointer: "/look".to_owned(),
             message: format!("not JSON: {error}"),
         })?;
-        self.looked(&recipe)
+        self.looked(&recipe, px)
     }
 
     /// This layer with the look of the recipe file `path` (TOML, as the image package writes it), read now.
@@ -332,15 +341,23 @@ impl Layer {
     /// # Errors
     /// [`Error::Read`] if the file cannot be read; otherwise as [`Layer::look`].
     pub fn look_file(self, path: impl AsRef<Path>) -> Result<Self, Error> {
-        self.looked(&recipe_file(path.as_ref())?)
+        self.look_file_in(Px::Design, path)
+    }
+
+    /// [`Layer::look_file`] with its `px` in the unit `px` (see [`Layer::look_in`]).
+    ///
+    /// # Errors
+    /// As [`Layer::look_file`].
+    pub fn look_file_in(self, px: Px, path: impl AsRef<Path>) -> Result<Self, Error> {
+        self.looked(&recipe_file(path.as_ref())?, px)
     }
 
     /// This layer with the look `recipe`: run on what its source drew, or, for a reference, kept to be run on that of the layer
     /// it names after that layer's looks.
-    fn looked(mut self, recipe: &serde_json::Value) -> Result<Self, Error> {
+    fn looked(mut self, recipe: &serde_json::Value, px: Px) -> Result<Self, Error> {
         match &mut self.base {
-            Base::Body(body) => body.finish.add_look(Look::new(recipe)?),
-            Base::Of(reference) => reference.looks.push(Look::new(recipe)?),
+            Base::Body(body) => body.finish.add_look(Look::new(recipe, px)?),
+            Base::Of(reference) => reference.looks.push(Look::new(recipe, px)?),
         }
         Ok(self)
     }

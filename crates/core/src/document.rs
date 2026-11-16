@@ -16,7 +16,7 @@ use crate::error::label;
 use crate::files::{Fingerprint, Located, hex_of};
 use crate::layer::Base;
 use crate::mask::{Mask, MaskBy, Use};
-use crate::placement::{Deg, Fit, Place, Placed, Placement};
+use crate::placement::{Deg, Fit, Place, Placed, Placement, Px};
 use crate::suggest::nearest;
 use crate::text::Text;
 use crate::{Error, Layer, LayerKinds, Scene};
@@ -996,7 +996,15 @@ fn read_look(layer: Layer, value: &Value, at: &str, base: &Path) -> Result<Layer
         at,
         "a look is {\"format\": n, \"recipe\": {...}} or the path of a recipe file",
     )?;
-    known_keys(map, at, "a look", &["format", "recipe"])?;
+    known_keys(map, at, "a look", &["format", "recipe", "px"])?;
+    let px = match map.get("px") {
+        None => Px::Design,
+        Some(Value::String(word)) => word.parse().map_err(|_| Error::Format {
+            pointer: escaped(at, "px"),
+            message: format!("`px` is \"design\" or \"canvas\", got {word:?}"),
+        })?,
+        Some(other) => return Err(wrong(&escaped(at, "px"), "\"design\" or \"canvas\"", other)),
+    };
     let recipe_at = escaped(at, "recipe");
     let recipe = map.get("recipe").ok_or_else(|| Error::Format {
         pointer: at.to_owned(),
@@ -1007,7 +1015,7 @@ fn read_look(layer: Layer, value: &Value, at: &str, base: &Path) -> Result<Layer
         document.insert("format".to_owned(), format.clone());
     }
     layer
-        .look(&Value::Object(document).to_string())
+        .look_in(px, &Value::Object(document).to_string())
         .map_err(|error| match error {
             Error::Format { pointer, message } => Error::Format {
                 pointer: if pointer == "/look/format" {

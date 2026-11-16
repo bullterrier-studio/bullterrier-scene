@@ -123,7 +123,7 @@ impl Finish {
         }
         let mut total = 0_usize;
         for look in &self.looks {
-            match look.band_margin(canvas.0.max(canvas.1))? {
+            match look.band_margin(request)? {
                 Some(margin) => total = total.saturating_add(margin),
                 None => return Ok(None),
             }
@@ -192,10 +192,9 @@ impl Finish {
             return draw();
         }
         let density = request.density();
-        let canvas = request.looks_canvas();
         // only light shows the room: a layer that is not light keeps its source's alpha, so the halo would be cut, and a look
         // that blurs its edge would mix black in where image's own edge rule would have kept the picture's colour
-        let reach = if light { Look::room(&self.looks, canvas)? } else { None };
+        let reach = if light { Look::room(&self.looks, request)? } else { None };
         let kept = chain
             .filter(|_| self.looks.len() > 1)
             .map(|chain| self.stages(chain, reach))
@@ -262,7 +261,7 @@ impl Finish {
         for (at, look) in self.looks.iter().enumerate().skip(first) {
             #[cfg(test)]
             RAN.with(|ran| ran.set(ran.get() + 1));
-            looked = Arc::new(look.apply(&looked, &maps, canvas, light, request.rows, room)?);
+            looked = Arc::new(look.apply(&looked, &maps, request.canvas_of(look.px()), light, request.rows, room)?);
             if let Some(key) = kept.as_ref().and_then(|stages| stages.get(at)) {
                 let bytes =
                     size_of_val(looked.pixels()) + maps.values().map(|values| size_of_val(&values[..])).sum::<usize>();
