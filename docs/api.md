@@ -465,6 +465,16 @@ On a 400 by 300 canvas (background `#203050`, a disc `#ffe27a` of radius 44 draw
 (0.67, 0.62, 0.46) in both, against the background's (0.13, 0.19, 0.31). The sun needs an alpha (a drawing, or a picture
 with a matte): an opaque square picture masks the halo that falls inside its box (the pixel there stays the background).
 
+**One look on the whole scene.** A look runs on a layer, and a scene has none of its own. Put the scene in a group and give
+the group the look: it sees the finished picture.
+
+```python
+bts.Scene(W, H).add(bts.Layer.scene(inner).look(grade))
+```
+
+It equals the look applied to the flat render of `inner` (a `Layer.picture` of its pixels with the same look): on a 400 by
+300 canvas of a fill, a drawing and a text, with a `gradient_map`, the largest difference is 0.0.
+
 ## Data in
 
 | Layer | Takes | Scene needs of it |
