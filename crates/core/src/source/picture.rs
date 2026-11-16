@@ -12,9 +12,9 @@ use super::{Drawn, Given, Opened, Request, Rows, Source};
 use crate::cache::{Cache, Keyed};
 use crate::document::Form;
 use crate::files::{Fingerprint, Located, digest_bytes};
+use crate::finish::Px;
 use crate::geometry::Rect;
 use crate::parameters::{Parameter, Value as Setting};
-use crate::placement::Px;
 use crate::warp::{resize, resize_rows};
 use crate::{Error, Map, Raster};
 

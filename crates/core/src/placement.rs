@@ -54,45 +54,6 @@ impl FromStr for Fit {
     }
 }
 
-/// The unit of a look's `px` (the lengths of an image recipe).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Px {
-    /// Image's design pixels: 1/480 of the canvas's long side, so image's presets mean the same in any scene.
-    #[default]
-    Design,
-    /// The scene's own canvas pixels, as `dx`, `fit` boxes and `feather` count; inside a group, the group's inner scene's.
-    Canvas,
-}
-
-impl Px {
-    /// The word `from_str` reads.
-    pub(crate) fn name(self) -> &'static str {
-        match self {
-            Self::Design => "design",
-            Self::Canvas => "canvas",
-        }
-    }
-}
-
-impl FromStr for Px {
-    type Err = Error;
-
-    /// `"design"` or `"canvas"`.
-    ///
-    /// # Errors
-    /// [`Error::Invalid`] naming `px` for any other word.
-    fn from_str(word: &str) -> Result<Self, Error> {
-        match word {
-            "design" => Ok(Self::Design),
-            "canvas" => Ok(Self::Canvas),
-            other => Err(Error::invalid(
-                "px",
-                format!("\"design\" or \"canvas\" is wanted, got {other:?}"),
-            )),
-        }
-    }
-}
-
 /// An angle in degrees. Rotation is clockwise (the canvas has y down) and any size: it wraps.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Deg(pub f64);

@@ -3,6 +3,7 @@
 //! looks run at, and hands over the maps they use.
 
 use std::collections::BTreeMap;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::cache::{Cache, Key, Keyed};
@@ -12,6 +13,43 @@ use crate::geometry::{MAX_LOOKED_PIXELS, Rect};
 use crate::source::picture::Look;
 use crate::source::{Drawn, Request};
 use crate::{Error, Raster};
+
+/// The unit of a look's `px` (the lengths of an image recipe).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Px {
+    /// Image's design pixels: 1/480 of the canvas's long side, so image's presets mean the same in any scene.
+    #[default]
+    Design,
+    /// The scene's own canvas pixels, as `dx`, `fit` boxes and `feather` count; inside a group, the group's inner scene's.
+    Canvas,
+}
+
+impl Px {
+    const ALL: [Self; 2] = [Self::Design, Self::Canvas];
+
+    /// The word `from_str` reads.
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Design => "design",
+            Self::Canvas => "canvas",
+        }
+    }
+}
+
+impl FromStr for Px {
+    type Err = Error;
+
+    /// `"design"` or `"canvas"`.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `px` for any other word.
+    fn from_str(word: &str) -> Result<Self, Error> {
+        Self::ALL
+            .into_iter()
+            .find(|px| px.name() == word)
+            .ok_or_else(|| Error::invalid("px", format!("\"design\" or \"canvas\" is wanted, got {word:?}")))
+    }
+}
 
 /// A mask by one of a picture's maps, as the layer's `mask` call gave it.
 #[derive(Debug, Clone)]

@@ -10,10 +10,10 @@ use crate::budget::Budget;
 use crate::cache::{Cache, Keyed};
 use crate::document::Form;
 use crate::files::Located;
+use crate::finish::Px;
 use crate::finish::{Chain, Finish};
 use crate::geometry::{MAX_PIXELS, Rect, Scale, whole_up};
 use crate::parameters::{Parameter, Value};
-use crate::placement::Px;
 use crate::{Error, Map, Raster};
 
 pub(crate) mod drawing;
