@@ -20,6 +20,14 @@ Set 2026-11-14. The ecosystem view (three directions, order, library changes in 
 **Speed evidence.** A composed-world frame takes about 3 to 7 s. A blended full-canvas layer costs about 8 to 11 ns per pixel
 per layer (normal blend 0.7 ns). A bloom on a magnified perspective layer took 71 s per render before a workaround (the glow
 drawn in the drawing: 3 s). Sources: the 71 s in `bullterrier-demos/feedback/scene-m2.md`; the per-pixel figures were measured 2026-11-14 (C4a's own table in `api.md` has the blend-mode timings).
+WebAssembly and preview size (spike, 2026-11-16, nothing changed): the core, with image and vector at their pins, builds unchanged
+for `wasm32-unknown-unknown` and `wasm32-wasip1`, and a saved scene renders under WASI (Node's V8, one thread), text layers
+included. A 13-layer shirt print (a photo with a matte and image looks, vector rays and rings, text) at 1200 px long side,
+median of 5 on a heavily loaded M4: cold 683 ms native, 988 ms WASM; after one value changes, 102 to 179 ms native and
+182 to 287 ms WASM (grain on the top layer the cheapest, the photo's grade or dither the dearest); the same scene again,
+everything cached, 76 ms native and 117 ms WASM. That last figure is the composite of every layer, redone on each render:
+keeping the composite below the changed layer is the next step for a live slider. The scene's `.wasm` (scene, image and
+vector) is 8.9 MB after `wasm-opt`, 2.5 MB brotli.
 
 ## Batches still to do, in order
 
