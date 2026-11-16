@@ -388,8 +388,8 @@ Mask layers, Feather, Mask edge) is written there once.
 
 ### Looks
 
-`look(recipe)` runs an image look on the layer. `recipe` is an image `Recipe` (anything with `to_dict()`), the dict it
-writes, or a `Path` to a recipe file; a `str` is `TypeError` (pass `Path(...)`). Looks apply in call order. See "Data in".
+`look(recipe, px="design")` runs an image look on the layer. `recipe` is an image `Recipe` (anything with `to_dict()`), the dict it
+writes, or a `Path` to a recipe file; a `str` is `TypeError` (pass `Path(...)`). Looks apply in call order. `px` is the unit of the recipe's lengths: `"design"`, image's design pixel (1/480 of the canvas's long side), or `"canvas"`, the scene's own canvas pixel (inside a group, the inner scene's); another word is `InvalidError` naming `px`, a non-`str` a `TypeError`. Rust: `Layer::look_in(Px::Canvas, json)`, `look_file_in`. See "Data in".
 
 - **Space.** A look works on the layer's own fitted raster, not on the canvas: a vignette follows the layer's box, a
   centred warp its centre. A look on a group (`Layer.scene`) sees the whole group: its finished, isolated picture at the
@@ -503,7 +503,7 @@ give 3.56 and 3.58.
 
 | Layer | Takes | Scene needs of it |
 |---|---|---|
-| `look(recipe)` | an image `Recipe`; its `to_dict()`; a recipe file `Path` (read when called) | steps that are plain data, and no `size` or `frame`. A `Picture` or `Lut` parameter (`to_dict()` leaves the object) is `InvalidError` naming the step; give a path in a recipe file |
+| `look(recipe, px="design")` | an image `Recipe`; its `to_dict()`; a recipe file `Path` (read when called) | steps that are plain data, and no `size` or `frame`. A `Picture` or `Lut` parameter (`to_dict()` leaves the object) is `InvalidError` naming the step; give a path in a recipe file |
 | `Layer.drawing(source)` | a vector `Drawing`; its `to_json()` text or dict; a drawing file `Path` (read when called) | a frame (`size`). A bare `Path` of the vector kind has no `to_json`: `TypeError`, wrap it in `btvec.Drawing(path)` |
 | `Layer.picture(source)` | an array or a `Path` | in JSON a path with a digest |
 

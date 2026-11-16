@@ -54,7 +54,7 @@ package that knows both (each in one adapter file), and video builds on scene. P
 | Rendering in bands, caching per layer, output (picture, PNG, PDF) | Shapes, type, booleans → vector |
 | Describing every parameter of the scene | Values over time → control; footage, timeline, sound → video |
 
-Conventions that bind every batch (`docs/design.md`): a look's `px` is image's design pixel (1/480 of the canvas's long side), a scene's own lengths are canvas pixels; blend in sRGB values;
+Conventions that bind every batch (`docs/design.md`): a look's `px` is image's design pixel (1/480 of the canvas's long side) unless the look says `px="canvas"`, a scene's own lengths are canvas pixels; blend in sRGB values;
 straight alpha at the boundary, premultiplied inside; a light layer's room follows its looks' spread. A layer source answers one
 question ("draw this part of your box at this scale"); bands, caching and resampling stay behind `render`.
 

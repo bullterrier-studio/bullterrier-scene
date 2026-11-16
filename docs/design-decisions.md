@@ -575,6 +575,25 @@ Copied from the design of audio's measures by name (its A7), adapted to layer ki
   refused); the C5a test of a drawing at `scale` 2 now expects the doubled canvas, as it did the doubled picture.
 - **Room and light that spill** were built next, in C5c (below).
 
+## A look's `px` in canvas pixels (polish row 12, 2026-11-16)
+
+- **Two units, design by default.** A look's `px` are image's design pixels (1/480 of the canvas's long side) unless the look is
+  made in canvas pixels: `layer.look(recipe, px="canvas")`, Rust `Layer::look_in(Px::Canvas, json)` and `look_file_in`. Canvas
+  pixels are the scene's own length (`dx`, `fit` boxes, `feather`), inside a group the inner scene's. *Reason:* a value tuned on one
+  canvas carries to another, and a poster's story version (a taller group canvas) keeps its looks' sizes, with no `480 / long side`
+  or `H / h` by hand. *Kept:* design stays the default so image's presets mean the same everywhere.
+- **Mechanism: a canvas look is a design look on a canvas of 480 canvas pixels.** `Request::canvas_of(px)` is the canvas image is
+  handed: for design the layer's canvas (`looks_canvas`); for canvas pixels each side times `480 / canvas long side` (the scene
+  canvas before density), rounded, at least 1. Image's design scale of it is the output pixels per canvas pixel. Room (`Look::room`),
+  band margin and `Look::apply` take it per look, so a chain of two units adds each look's own room and margin. In a band, image gets
+  `with_window` (the real canvas: the place) and `with_canvas` (the unit's canvas: the scale; image's rule since `0f758b67`), so a
+  band is the whole render's rows. The rule that a looked layer bands only when its raster's long side is the canvas's stays about
+  the real canvas.
+- **Saved scene.** A design look is written as always, `{"format", "recipe"}`; a canvas look adds `"px": "canvas"` beside them (the
+  recipe is nested, so no recipe key can collide). `"px": "design"` is read and is the default; another value is a `FormatError`
+  at `.../px`. The unit is in the cache key (the look's document is) and in `==`. It is the look's structure, like its recipe, not
+  a parameter.
+
 ## C5c: room for light layers (2026-11-14)
 
 - **The room is image's declared spread, summed.** `Look::room` adds `Recipe::spread(presets, longest side)` of each look of the
