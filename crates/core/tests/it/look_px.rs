@@ -1,7 +1,7 @@
 //! A look's `px` in canvas pixels (`Layer::look_in(Px::Canvas, ..)`): the oracle is a stroke measured on the rendered pixels,
 //! not the formula that sizes it.
 
-use bullterrier_scene::{Error, Fit, Layer, Px, Raster, Scene};
+use bullterrier_scene::{Error, Fit, Layer, Px, Raster, Scene, Values};
 
 use crate::common::{Outcome, pixel, scene};
 
@@ -77,5 +77,15 @@ fn the_unit_is_part_of_what_the_cache_remembers() -> Outcome {
     let alone = ruled((300, 2700), Px::Canvas, 25.0)?.render(2700)?;
     assert_eq!(shared.pixels(), alone.pixels());
     assert_ne!(shared.pixels(), first.pixels());
+    Ok(())
+}
+
+/// Setting a number of a look (`with_values`) makes the same look with that number: its unit stays.
+#[test]
+fn a_look_keeps_its_unit_when_a_parameter_sets_one_of_its_numbers() -> Outcome {
+    let canvas = ruled((300, 2700), Px::Canvas, 25.0)?;
+    let set = canvas.with_values(&Values::new().set("layer1.look.scanlines.spacing", 30.0))?;
+    let found = period(&set.render(2700)?);
+    assert!(near(found, 30.0), "30 canvas pixels at 2700: {found}");
     Ok(())
 }
