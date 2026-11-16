@@ -383,7 +383,7 @@ class Layer:
         """
         return type(self)(self._core.as_light(_flag("on", on)))
 
-    def look(self, recipe: Any) -> Self:
+    def look(self, recipe: Any, px: str = "design") -> Self:
         """This layer with an image look run on it, after the looks it has.
 
         `recipe` is anything with `to_dict()` (an image `Recipe`), the dict it writes, or a `Path` to a recipe file read
@@ -391,9 +391,17 @@ class Layer:
         output size (a picture, a drawing, a text, a fill, a group's finished picture) and keeps its alpha. A recipe
         image refuses, or that sets `size` or `frame`, is an `InvalidError` in image's words; a recipe `format` the
         linked image crate does not read, a `FormatError`.
+
+        `px` is the unit of the recipe's lengths: `"design"` (the default) is image's design pixel, 1/480 of the
+        canvas's long side, so image's presets mean the same in any scene; `"canvas"` is the scene's own canvas
+        pixel (as `dx` and `feather` count), so a value tuned on one canvas carries to another, and inside a group
+        it is the inner scene's. Another word is an `InvalidError` naming `px`; a `px` that is not a `str` is a
+        `TypeError`.
         """
+        if not isinstance(px, str):
+            raise TypeError(f'px: "design" or "canvas" is wanted, got {type(px).__name__} {_shown(px)}')
         if isinstance(recipe, Path):
-            return type(self)(self._core.look_file(recipe))
+            return type(self)(self._core.look_file(recipe, px))
         if isinstance(recipe, str):
             raise TypeError(f"a look is a Recipe, its dict or a Path, got the text {recipe!r}: pass Path({recipe!r})")
         if not isinstance(recipe, Mapping):
@@ -402,4 +410,4 @@ class Layer:
                     f"a look is a Recipe (anything with to_dict()), its dict or a Path, got {type(recipe).__name__}"
                 )
             recipe = recipe.to_dict()
-        return type(self)(self._core.look(_document("look", recipe)))
+        return type(self)(self._core.look(_document("look", recipe), px))

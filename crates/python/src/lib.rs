@@ -11,7 +11,7 @@ use numpy::{Element, PyArray1, PyArray3, PyArrayMethods, PyReadonlyArrayDyn, PyU
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString, PyTuple};
 
-use bullterrier_scene::{Blend, Deg, Fit, Map, Mask, Parameter, Place, Raster, Text, Use, Value, Values};
+use bullterrier_scene::{Blend, Deg, Fit, Map, Mask, Parameter, Place, Px, Raster, Text, Use, Value, Values};
 
 /// bullterrier-scene's Rust core.
 #[pymodule]
@@ -492,14 +492,16 @@ impl Layer {
         wrap(py, self.0.clone().perspective(corners)).map(Self)
     }
 
-    /// This layer with the image look written as the recipe document `json`.
-    fn look(&self, py: Python<'_>, json: &str) -> PyResult<Self> {
-        wrap(py, self.0.clone().look(json)).map(Self)
+    /// This layer with the image look written as the recipe document `json`, its `px` in the unit named `px`.
+    fn look(&self, py: Python<'_>, json: &str, px: &str) -> PyResult<Self> {
+        let px: Px = wrap(py, px.parse())?;
+        wrap(py, self.0.clone().look_in(px, json)).map(Self)
     }
 
-    /// This layer with the look of the recipe file `path`, read now.
-    fn look_file(&self, py: Python<'_>, path: PathBuf) -> PyResult<Self> {
-        wrap(py, self.0.clone().look_file(path)).map(Self)
+    /// This layer with the look of the recipe file `path`, read now, its `px` in the unit named `px`.
+    fn look_file(&self, py: Python<'_>, path: PathBuf, px: &str) -> PyResult<Self> {
+        let px: Px = wrap(py, px.parse())?;
+        wrap(py, self.0.clone().look_file_in(px, path)).map(Self)
     }
 }
 

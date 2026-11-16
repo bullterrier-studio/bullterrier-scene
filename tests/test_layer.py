@@ -251,6 +251,33 @@ def test_a_look_leaves_the_layer_it_was_given_to_as_it_was():
     assert np.allclose(render(base, 2), [0.25, 0.25, 0.25, 1.0], atol=1e-6)
 
 
+def lines(spacing: float) -> dict:
+    return {"steps": [{"effect": "scanlines", "params": {"spacing": spacing, "thickness": 0.5, "darkness": 0.8}}]}
+
+
+def test_a_look_in_canvas_pixels_is_the_look_whose_design_pixels_are_that_many_canvas_pixels():
+    # on a canvas of 240 a design pixel is half a canvas pixel: 20 canvas pixels are 40 design pixels
+    on = lambda layer: Scene(240, 240).add(layer).render(240)  # noqa: E731
+    canvas = on(Layer.fill("#ffffff").look(lines(20.0), px="canvas"))
+    assert np.array_equal(canvas, on(Layer.fill("#ffffff").look(lines(40.0))))
+    assert not np.array_equal(canvas, on(Layer.fill("#ffffff").look(lines(20.0))))
+    assert np.array_equal(
+        on(Layer.fill("#ffffff").look(lines(20.0), px="design")), on(Layer.fill("#ffffff").look(lines(20.0)))
+    )
+
+
+@pytest.mark.parametrize("word", ["Canvas", "pixels", ""])
+def test_a_px_that_is_no_unit_is_refused_naming_px(word):
+    with pytest.raises(InvalidError, match="px"):
+        Layer.fill("#ffffff").look(lines(20.0), px=word)
+
+
+@pytest.mark.parametrize("value", [None, 3, b"canvas", True])
+def test_a_px_that_is_no_text_is_a_type_error_naming_px(value):
+    with pytest.raises(TypeError, match="px"):
+        Layer.fill("#ffffff").look(lines(20.0), px=value)
+
+
 @pytest.mark.parametrize("recipe", ["recipe.toml", 3, None, object(), ["grade"]])
 def test_a_look_of_another_type_is_a_type_error_and_a_text_names_the_fix(recipe):
     with pytest.raises(TypeError, match=r"the text.*Path" if isinstance(recipe, str) else None):
