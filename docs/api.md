@@ -640,7 +640,7 @@ fields, and no other); then `fit` (`{"box": [x, y, width, height], "how": "cover
 `blend` (a CSS name), `light`, `masks` and `looks`. **A mask** is `{"layer": {...}, "use": "luminance", "feather": 8, "invert": true}` (the mask layer
 is a layer document with no name) or `{"map": "subject", ...}`, in the order of the `mask` calls, whichever kind (`mask`,
 `mask#2`... are numbered by that order). **A look** is `{"format": 3, "recipe": {...}}`: image's own document, `format` the
-lowest image format the recipe needs.
+lowest image format the recipe needs; a look in canvas pixels adds `"px": "canvas"`.
 
 **Files.** A picture, a map or a font file is `{"path": ..., "sha256": ...}`. `to_json` writes the path as the scene holds it
 (relative to the working folder if it was given so, absolute if it was) and the digest of the file as it is now (so a path set

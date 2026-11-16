@@ -90,7 +90,7 @@ alpha. Those are hidden behind the one call; none is a public type.
 Image and vector each made sensible choices alone; a scene puts their output side by side, so the choices must meet.
 
 1. **Design scale.** A look's `px` is image's design pixel (1/480 of the canvas's long side), whatever the size of the layer it
-   belongs to. Grain of 2 px on a small inset photo is then as coarse as on the full-bleed photo behind it. Image derives the scale from the canvas it
+   belongs to. Grain of 2 px on a small inset photo is then as coarse as on the full-bleed photo behind it. A look may instead say `px="canvas"`: its lengths are then the scene's canvas pixels (inside a group, the inner scene's). Image derives the scale from the canvas it
    renders (the working picture's long side over 480) and carries it in the frame; a layer on a larger canvas needs image's
    `Options::with_canvas` (additive, asked for by C5).
 2. **Blending in sRGB values**, as vector and the W3C Compositing and Blending spec do, so a drawing looks the same alone and
