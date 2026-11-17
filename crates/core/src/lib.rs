@@ -48,7 +48,7 @@ pub use layer_kinds::{LayerKindFactory, LayerKinds};
 pub use map::Map;
 pub use mask::{Mask, MaskBy, Use};
 pub use parameters::{Kind, Parameter, Value, Values};
-pub use pdf::PdfOptions;
+pub use pdf::{BleedFill, PdfOptions};
 pub use placement::{Deg, Fit, Place};
 pub use raster::{Raster, WriteOptions};
 pub use render::BAND_PIXELS;

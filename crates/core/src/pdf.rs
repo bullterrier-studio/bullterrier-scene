@@ -8,6 +8,7 @@
 //! clipped to the bleed box.
 
 use std::fs::File;
+use std::collections::VecDeque;
 use std::io::{self, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
@@ -37,6 +38,34 @@ const MARK_LENGTH_MM: f64 = 5.0;
 /// The line width of a crop mark, in points (Adobe's default).
 const MARK_WIDTH_POINTS: f64 = 0.25;
 
+/// What fills the bleed, the strip past the trim that the knife may cut into.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BleedFill {
+    /// The edge pixels, repeated outward: a stretched edge, which suits a flat background.
+    #[default]
+    Repeat,
+    /// The picture folded at its edge: the pixel just past the edge is the edge pixel, the next the one inside it, and so on
+    /// (a picture narrower than its bleed folds back and forth). Keeps the grain, the dots and the tone of the edge, and
+    /// shows no stretched line; a detail at the edge shows twice.
+    Mirror,
+}
+
+impl BleedFill {
+    /// The pixel of a line of `length` pixels that fills the place `at`, which is outside the line when negative or `length` and
+    /// more (the bleed's pixels are `-bleed..0` and `length..length + bleed`).
+    fn source(self, at: isize, length: usize) -> usize {
+        let length = isize::try_from(length).unwrap_or(isize::MAX);
+        let within = match self {
+            Self::Repeat => at.clamp(0, length - 1),
+            Self::Mirror => {
+                let turn = at.rem_euclid(2 * length);
+                if turn < length { turn } else { 2 * length - 1 - turn }
+            }
+        };
+        usize::try_from(within).unwrap_or(0)
+    }
+}
+
 /// What `Raster::write_pdf` is asked for: the resolution that fixes the physical size, a bleed, crop marks, whether to
 /// flatten transparency, and a CMYK profile. Built by `new` and the setters, each checked where it is given.
 ///
@@ -47,6 +76,7 @@ const MARK_WIDTH_POINTS: f64 = 0.25;
 pub struct PdfOptions {
     dpi: f64,
     bleed_mm: f64,
+    bleed_fill: BleedFill,
     crop_marks: bool,
     flatten: bool,
     cmyk_profile: Option<PathBuf>,
@@ -62,6 +92,7 @@ impl PdfOptions {
         Ok(Self {
             dpi: DPI.check("dpi", dpi)?,
             bleed_mm: 0.0,
+            bleed_fill: BleedFill::Repeat,
             crop_marks: false,
             flatten: false,
             cmyk_profile: None,
@@ -78,6 +109,13 @@ impl PdfOptions {
     pub fn bleed_mm(mut self, mm: f64) -> Result<Self, Error> {
         self.bleed_mm = BLEED_MM.check("bleed_mm", mm)?;
         Ok(self)
+    }
+
+    /// How the bleed is filled: [`BleedFill::Repeat`] (the default) or [`BleedFill::Mirror`]. Has no effect without a bleed.
+    #[must_use]
+    pub fn bleed_fill(mut self, fill: BleedFill) -> Self {
+        self.bleed_fill = fill;
+        self
     }
 
     /// Draws crop marks (thin black lines, 0.25 pt wide and 5 mm long, as vector paths) at the four corners of the trim box,
@@ -202,7 +240,14 @@ pub(crate) struct PdfStream {
     /// The row as it is written, bleed included.
     colour_row: Vec<u8>,
     alpha_row: Vec<u8>,
+    /// The first and the last `min(bleed, rows)` rows as they are written (bleed columns included), held so that the bleed above
+    /// and below can be made of them: the last ones with the number of the row each follows.
+    first_rows: Vec<Written>,
+    last_rows: VecDeque<Written>,
 }
+
+/// A row as it is written: its colour and its alpha, the bleed columns included.
+type Written = (Vec<u8>, Vec<u8>);
 
 impl PdfStream {
     /// A PDF of a picture of `width` by `height` pixels written to `path`, under `options`; `limit` is the most pixels the image
@@ -251,6 +296,8 @@ impl PdfStream {
             opacity: Vec::with_capacity(width),
             colour_row: Vec::new(),
             alpha_row: Vec::new(),
+            first_rows: Vec::new(),
+            last_rows: VecDeque::new(),
         })
     }
 
@@ -290,30 +337,77 @@ impl PdfStream {
                 }
                 None => self.device.copy_from_slice(&self.rgb),
             }
-            // the picture's edge pixels are repeated outward: a row at the left and right ends of a line, and the first and last
-            // rows above and below
-            let last = (self.width - 1) * channels;
+            // the bleed's columns are made of the row's own pixels, as `bleed_fill` says
+            let fill = self.options.bleed_fill;
+            let pixels = self.width;
+            let columns = (-signed(bleed)..0)
+                .chain(0..signed(pixels))
+                .chain(signed(pixels)..signed(pixels + bleed))
+                .map(|at| fill.source(at, pixels));
             self.colour_row.clear();
-            self.colour_row.extend(self.device[..channels].repeat(bleed));
-            self.colour_row.extend_from_slice(&self.device);
-            self.colour_row.extend(self.device[last..].repeat(bleed));
             self.alpha_row.clear();
-            self.alpha_row.extend(std::iter::repeat_n(self.opacity[0], bleed));
-            self.alpha_row.extend_from_slice(&self.opacity);
-            self.alpha_row
-                .extend(std::iter::repeat_n(self.opacity[self.width - 1], bleed));
-            let times = 1 + bleed * (usize::from(self.rows == 0) + usize::from(self.rows + 1 == self.height));
-            for _ in 0..times {
-                self.colour
-                    .push(&self.colour_row)
-                    .map_err(|error| failed(&self.path, error))?;
-                if !flatten {
-                    self.alpha
-                        .push(&self.alpha_row)
-                        .map_err(|error| failed(&self.path, error))?;
+            for column in columns {
+                self.colour_row
+                    .extend_from_slice(&self.device[column * channels..(column + 1) * channels]);
+                self.alpha_row.push(self.opacity[column]);
+            }
+            self.keep_row()?;
+            self.rows += 1;
+        }
+        Ok(())
+    }
+
+    /// Writes the row just made (`colour_row`, `alpha_row`) in its place among the rows: the rows above it first when it is the
+    /// last of the top bleed's source, the bleed below when it is the picture's last row.
+    ///
+    /// # Errors
+    /// [`Error::Write`] naming the path if a stream cannot be kept.
+    fn keep_row(&mut self) -> Result<(), Error> {
+        let (bleed, height) = (self.layout.bleed_pixels, self.height);
+        let row = (std::mem::take(&mut self.colour_row), std::mem::take(&mut self.alpha_row));
+        let held = bleed.min(height);
+        if bleed == 0 {
+            self.write_row(&row)?;
+        } else {
+            if self.rows < held {
+                self.first_rows.push(row.clone());
+            }
+            if self.rows + 1 == held {
+                // the top bleed is made of the rows 0..held, now all here, and then those rows themselves go
+                let fill = self.options.bleed_fill;
+                for above in -signed(bleed)..0 {
+                    let source = self.first_rows[fill.source(above, height)].clone();
+                    self.write_row(&source)?;
+                }
+                for first in std::mem::take(&mut self.first_rows) {
+                    self.write_row(&first)?;
+                }
+            } else if self.rows >= held {
+                self.write_row(&row)?;
+            }
+            self.last_rows.push_back(row);
+            if self.last_rows.len() > held {
+                self.last_rows.pop_front();
+            }
+            if self.rows + 1 == height {
+                let fill = self.options.bleed_fill;
+                for below in signed(height)..signed(height + bleed) {
+                    let source = self.last_rows[fill.source(below, height) - (height - held)].clone();
+                    self.write_row(&source)?;
                 }
             }
-            self.rows += 1;
+        }
+        Ok(())
+    }
+
+    /// One row of the image into the two streams.
+    ///
+    /// # Errors
+    /// [`Error::Write`] naming the path if a stream cannot be kept.
+    fn write_row(&mut self, (colour, alpha): &Written) -> Result<(), Error> {
+        self.colour.push(colour).map_err(|error| failed(&self.path, error))?;
+        if !self.options.flatten {
+            self.alpha.push(alpha).map_err(|error| failed(&self.path, error))?;
         }
         Ok(())
     }
@@ -353,6 +447,11 @@ impl PdfStream {
         drop(file);
         part.commit()
     }
+}
+
+/// `count` as a signed place of a line.
+fn signed(count: usize) -> isize {
+    isize::try_from(count).unwrap_or(isize::MAX)
 }
 
 /// The crop marks: a horizontal and a vertical line at each corner of `trim`, outside `bleed_box`. Both are `[left, bottom,

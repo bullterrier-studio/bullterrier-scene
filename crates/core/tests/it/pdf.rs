@@ -6,7 +6,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use bullterrier_scene::{Error, Layer, LayerKind, PdfOptions, Raster};
+use bullterrier_scene::{BleedFill, Error, Layer, LayerKind, PdfOptions, Raster};
 use lopdf::content::{Content, Operation};
 use lopdf::{Document, Object, ObjectId, Stream};
 use serde_json::{Value, json};
@@ -842,5 +842,79 @@ fn a_pdf_render_that_fails_in_a_later_band_leaves_no_file_and_no_scratch_file() 
     assert!(scene_.render_to_pdf(4100, &pdf, &options).is_err());
     assert_eq!(std::fs::read(&pdf)?, b"old");
     assert_eq!(names(folder.path())?, ["late.pdf"], "the old file and no scratch one");
+    Ok(())
+}
+
+/// The `(red, green, blue, alpha)` bytes at (`x`, `y`) of the image of `page`.
+fn at(image: &Image, x: usize, y: usize) -> Result<[u8; 4], Box<dyn std::error::Error>> {
+    let place = y * image.width + x;
+    let mask = image.mask.as_ref().map_or(255, |mask| mask[place]);
+    Ok([image.colour[place * 3], image.colour[place * 3 + 1], image.colour[place * 3 + 2], mask])
+}
+
+/// What fills each place of a bleed, worked out by hand for a line of `n` pixels: the source column of each of `-bleed..n+bleed`.
+/// A bleed of 2 on 5 pixels a b c d e is `b a | a b c d e | e d`, and of 3 on 2 pixels a b it folds back and forth:
+/// `b b a | a b | b a a`.
+const MIRRORED_2_ON_5: [usize; 9] = [1, 0, 0, 1, 2, 3, 4, 4, 3];
+const MIRRORED_2_ON_3: [usize; 7] = [1, 0, 0, 1, 2, 2, 1];
+const MIRRORED_3_ON_2: [usize; 8] = [1, 1, 0, 0, 1, 1, 0, 0];
+
+#[test]
+fn a_mirrored_bleed_folds_the_picture_at_its_edge_and_folds_back_and_forth_past_a_narrow_one() -> Outcome {
+    let folder = tempfile::tempdir()?;
+    // 254 dpi: 0.2 mm is 2 pixels, 0.3 mm 3
+    let cases: [(usize, usize, f64, &[usize], &[usize]); 3] = [
+        (5, 3, 0.2, &MIRRORED_2_ON_5, &MIRRORED_2_ON_3),
+        (2, 2, 0.3, &MIRRORED_3_ON_2, &MIRRORED_3_ON_2),
+        // a one-pixel picture mirrors to itself everywhere
+        (1, 1, 0.3, &[0; 7], &[0; 7]),
+    ];
+    for (width, height, bleed, across, down) in cases {
+        let picture = picture(width, height, |x, y| 0.04 + 0.08 * f32::from(u8::try_from(x + 3 * y).unwrap_or(0)))?;
+        let path = folder.path().join("mirrored.pdf");
+        picture.write_pdf(&path, &PdfOptions::new(254.0)?.bleed_mm(bleed)?.bleed_fill(BleedFill::Mirror))?;
+        let image = Page::open(&path)?.image()?;
+        assert_eq!((image.width, image.height), (across.len(), down.len()));
+        for (y, from_y) in down.iter().enumerate() {
+            for (x, from_x) in across.iter().enumerate() {
+                let want = pixel(&picture, *from_x, *from_y).map(byte);
+                assert_eq!(
+                    at(&image, x, y)?,
+                    want,
+                    "{width}x{height} bleed {bleed}: place ({x}, {y}) mirrors ({from_x}, {from_y})"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn a_bleed_with_no_fill_given_repeats_and_a_mirrored_one_differs_from_it() -> Outcome {
+    let folder = tempfile::tempdir()?;
+    let picture = varied(6, 4)?;
+    let (repeated, mirrored) = (folder.path().join("repeated.pdf"), folder.path().join("mirrored.pdf"));
+    let options = PdfOptions::new(254.0)?.bleed_mm(0.2)?;
+    picture.write_pdf(&repeated, &options)?;
+    picture.write_pdf(&mirrored, &options.clone().bleed_fill(BleedFill::Mirror))?;
+    let (a, b) = (Page::open(&repeated)?.image()?, Page::open(&mirrored)?.image()?);
+    // place (0, 0) is the corner pixel repeated, and the mirror's is pixel (1, 1)
+    assert_eq!(at(&a, 0, 0)?, pixel(&picture, 0, 0).map(byte));
+    assert_eq!(at(&b, 0, 0)?, pixel(&picture, 1, 1).map(byte));
+    assert_eq!(options.clone().bleed_fill(BleedFill::Repeat), options);
+    Ok(())
+}
+
+#[test]
+fn a_mirrored_pdf_streamed_by_small_bands_is_the_pdf_of_the_picture_written_whole() -> Outcome {
+    let folder = tempfile::tempdir()?;
+    let scene = crate::bands::past_one_band()?;
+    let options = PdfOptions::new(300.0)?.bleed_mm(3.0)?.bleed_fill(BleedFill::Mirror);
+    let (streamed, whole) = (folder.path().join("streamed.pdf"), folder.path().join("whole.pdf"));
+    scene.render_to_pdf(4100, &streamed, &options)?;
+    scene.render(4100)?.write_pdf(&whole, &options)?;
+    let (a, b) = (Page::open(&streamed)?.image()?, Page::open(&whole)?.image()?);
+    assert_eq!((a.width, a.height, a.colour.len()), (b.width, b.height, b.colour.len()));
+    assert_eq!(a.colour.iter().zip(&b.colour).position(|(x, y)| x != y), None);
     Ok(())
 }
