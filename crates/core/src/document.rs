@@ -26,7 +26,7 @@ use crate::{Error, Layer, LayerKinds, Scene};
 const VERSION: i64 = 1;
 
 /// The keys of a layer, in the order they are written.
-const LAYER_KEYS: [&str; 21] = [
+const LAYER_KEYS: [&str; 22] = [
     "name",
     "picture",
     "maps",
@@ -46,6 +46,7 @@ const LAYER_KEYS: [&str; 21] = [
     "opacity",
     "blend",
     "light",
+    "inks",
     "masks",
     "looks",
 ];
@@ -248,6 +249,9 @@ fn layer_document(layer: &Layer, form: Form) -> Result<Map<String, Value>, Error
     }
     if join.light {
         found.insert("light".to_owned(), Value::Bool(true));
+    }
+    if !join.inks.is_empty() {
+        found.insert("inks".to_owned(), join.inks.iter().cloned().map(Value::String).collect());
     }
     for mask in &join.masks {
         let mut entry = Map::new();
@@ -757,6 +761,16 @@ fn read_layer(value: &Value, at: &str, base: &Path, kinds: &LayerKinds, depth: u
     }
     if let Some(light) = map.get("light") {
         layer = layer.as_light(flag(light, &member("light"))?);
+    }
+    if let Some(inks) = map.get("inks") {
+        let at = member("inks");
+        let items = inks.as_array().ok_or_else(|| wrong(&at, "a list of ink names", inks))?;
+        let names = items
+            .iter()
+            .enumerate()
+            .map(|(index, item)| text(item, &escaped(&at, &index.to_string()), "an ink name (text)"))
+            .collect::<Result<Vec<_>, _>>()?;
+        layer = layer.inks(names).map_err(|error| refused(&at, None, error))?;
     }
     if let Some(name) = map.get("name") {
         let at = member("name");

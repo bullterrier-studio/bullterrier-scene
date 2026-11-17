@@ -755,3 +755,25 @@ fn the_rust_cover_template_is_saved_read_back_and_filled_with_an_episode() -> Ou
     assert!(!same_bits(&episode, &template.render(1280)?));
     Ok(())
 }
+
+#[test]
+fn the_inks_of_a_layer_are_in_the_document_and_in_equality_and_read_back() -> Outcome {
+    let inked = scene(24, 16, [Layer::fill("#101018")?.named("band")?.inks(["black", "red"])?])?;
+    assert_eq!(
+        inked.to_json()?,
+        r##"{"version":1,"canvas":{"width":24,"height":16},"layers":[{"name":"band","fill":"#101018","inks":["black","red"]}]}"##
+    );
+    assert_eq!(read(&inked.to_json()?)?, inked);
+    let plain = scene(24, 16, [Layer::fill("#101018")?.named("band")?])?;
+    assert_ne!(inked, plain, "the inks are part of the layer");
+    let other = scene(24, 16, [Layer::fill("#101018")?.named("band")?.inks(["red", "black"])?])?;
+    assert_ne!(inked, other, "and their order is");
+    // a bad list names the member
+    let bad = r##"{"version":1,"canvas":{"width":24,"height":16},"layers":[{"fill":"#101018","inks":["a","a"]}]}"##;
+    let error = read(bad).err();
+    assert!(matches!(&error, Some(Error::Format { pointer, .. }) if pointer == "/layers/0/inks"), "{error:?}");
+    let bad = r##"{"version":1,"canvas":{"width":24,"height":16},"layers":[{"fill":"#101018","inks":"red"}]}"##;
+    let error = read(bad).err();
+    assert!(matches!(&error, Some(Error::Format { pointer, .. }) if pointer == "/layers/0/inks"), "{error:?}");
+    Ok(())
+}
