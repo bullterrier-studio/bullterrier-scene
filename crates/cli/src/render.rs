@@ -19,7 +19,8 @@ enum FillArg {
 pub(crate) struct Args {
     /// The saved scene (JSON).
     scene: PathBuf,
-    /// The picture to write: a PNG (`.png`) or a PDF (`.pdf`), by its extension.
+    /// The picture to write, by its extension: `.png`, `.jpg` or `.webp` (the last two only up to 2^24 pixels, an opaque picture
+    /// for a JPEG) or a PDF (`.pdf`).
     out: PathBuf,
     /// The picture's long side in pixels (default: the canvas's long side); 1 to 65,000.
     #[arg(long, value_name = "PIXELS")]
@@ -55,16 +56,18 @@ pub(crate) struct Args {
     cmyk_profile: Option<PathBuf>,
 }
 
+/// Whether `path` ends in `.{extension}`, in any case: the one place the format of the output is read from its name.
+fn has_extension(path: &std::path::Path, extension: &str) -> bool {
+    path.extension()
+        .is_some_and(|found| found.eq_ignore_ascii_case(extension))
+}
+
 /// The PDF options the flags give, or `None` for a picture that is not a PDF (its `--dpi` is [`file_options`]).
 ///
 /// # Errors
 /// [`Error::Invalid`] naming the first PDF flag given with an output that is not a PDF, or the one a value is wrong for.
 fn pdf_options(args: &Args) -> Result<Option<PdfOptions>, Error> {
-    let is_pdf = args
-        .out
-        .extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"));
-    if !is_pdf {
+    if !has_extension(&args.out, "pdf") {
         let given = [
             ("bleed", args.bleed.is_some()),
             ("bleed-fill", args.bleed_fill.is_some()),
@@ -148,10 +151,20 @@ pub(crate) fn command(args: &Args, out: &mut dyn std::io::Write) -> Result<(), E
         .unwrap_or_else(|| i64::from(scene.width().max(scene.height())));
     let (columns, rows) = scene.picture_size(size)?;
     if columns * rows > BAND_PIXELS {
-        // more than a band: drawn and written band by band, never held whole
+        // more than a band: drawn and written band by band, never held whole; only a PDF and a PNG can be written so, and a
+        // file of any other extension is refused here, not written as a PNG under a name that says otherwise
         match &pdf {
             Some(options) => scene.render_to_pdf(size, &args.out, options)?,
-            None => scene.render_to_png_with(size, &args.out, &file)?,
+            None if has_extension(&args.out, "png") => scene.render_to_png_with(size, &args.out, &file)?,
+            None => {
+                return Err(Error::Write {
+                    path: args.out.display().to_string(),
+                    message: format!(
+                        "a picture of {columns} x {rows} pixels is written band by band, which only a PNG or a PDF can be: \
+                         name the output `.png` or `.pdf`, or use a smaller --size"
+                    ),
+                });
+            }
         }
     } else {
         let picture = scene.render(size)?;

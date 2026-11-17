@@ -1,6 +1,6 @@
 //! `bt-scene render`: the picture it writes is the one the core renders, and a refusal is one line and exit 1.
 
-use bullterrier_scene::{BleedFill, PdfOptions, Raster, Value, Values, WriteOptions};
+use bullterrier_scene::{BleedFill, Layer, Scene, PdfOptions, Raster, Value, Values, WriteOptions};
 
 use crate::common::{Outcome, Project, bt, decoded, text};
 
@@ -381,5 +381,44 @@ fn a_pdf_flag_on_a_picture_that_is_not_a_pdf_and_a_bad_pdf_value_are_exit_1_nami
     let ran = bt(&["render", scene.as_str(), text(&out)]);
     assert_eq!(ran.code, 1);
     assert!(ran.err.contains("nowhere"), "{}", ran.err);
+    Ok(())
+}
+
+#[test]
+fn a_picture_past_a_band_is_a_png_or_refused_whatever_the_size_with_no_file() -> Outcome {
+    // 4100 x 4100 is more than the 2^24 pixels written band by band, which only a PNG can be; a plain colour keeps it cheap
+    let project = Project::new()?;
+    let big = Scene::new(4100, 4100)?.add([Layer::fill("#336699")?])?;
+    std::fs::write(project.file("big.json"), big.to_json()?)?;
+    let scene = text(&project.file("big.json")).to_owned();
+    for (name, flags) in [
+        ("big.jpg", vec!["--dpi", "300"]),
+        ("big.jpg", vec![]),
+        ("big.webp", vec!["--dpi", "300"]),
+        ("big.webp", vec![]),
+    ] {
+        let out = project.file(name);
+        let mut args = vec!["render", scene.as_str(), text(&out)];
+        args.extend(&flags);
+        let ran = bt(&args);
+        assert_eq!(ran.code, 1, "{name} {flags:?}: {}", ran.err);
+        assert!(ran.err.contains(name) && ran.err.contains("PNG"), "{name}: {}", ran.err);
+        assert!(!out.exists(), "{name}: a file was made");
+    }
+    let out = project.file("big.png");
+    let ran = bt(&["render", scene.as_str(), text(&out), "--dpi", "300"]);
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    let head = std::fs::read(&out)?;
+    assert_eq!(&head[1..4], b"PNG");
+    Ok(())
+}
+
+#[test]
+fn a_dpi_for_a_webp_is_refused_at_any_size() -> Outcome {
+    let project = Project::new()?;
+    let out = project.file("small.webp");
+    let ran = bt(&["render", text(&project.file("scene.json")), text(&out), "--dpi", "300"]);
+    assert_eq!(ran.code, 1, "{}", ran.err);
+    assert!(!out.exists());
     Ok(())
 }
