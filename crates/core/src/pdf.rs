@@ -19,24 +19,14 @@ use moxcms::{ColorProfile, DataColorSpace, Layout, Transform8BitExecutor, Transf
 use pdf_writer::Content;
 
 use crate::geometry::MAX_PIXELS;
+use crate::marks::{self, MARGIN_MM, MM_PER_INCH, POINTS_PER_INCH, WIDTH_POINTS, Which};
 use crate::ranges::{BLEED_MM, DPI};
 use crate::raster::eight_bit;
 use crate::stream::{Part, failed};
 use crate::{Error, Raster};
 
-/// Millimetres in an inch (exact, by definition).
-const MM_PER_INCH: f64 = 25.4;
-/// Points in an inch (the PDF unit, exact by definition).
-const POINTS_PER_INCH: f64 = 72.0;
 /// The largest page a PDF reader takes: 14,400 units, 200 in (PDF 1.7, Annex C, implementation limits).
 const MAX_PAGE_POINTS: f64 = 14_400.0;
-/// Crop marks start this far outside the bleed box, so no mark touches the bleed (common print practice: Adobe's default offset
-/// is 3 mm).
-const MARK_GAP_MM: f64 = 3.0;
-/// Each crop mark is this long.
-const MARK_LENGTH_MM: f64 = 5.0;
-/// The line width of a crop mark, in points (Adobe's default).
-const MARK_WIDTH_POINTS: f64 = 0.25;
 
 /// What fills the bleed, the strip past the trim that the knife may cut into.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -53,7 +43,7 @@ pub enum BleedFill {
 impl BleedFill {
     /// The pixel of a line of `length` pixels that fills the place `at`, which is outside the line when negative or `length` and
     /// more (the bleed's pixels are `-bleed..0` and `length..length + bleed`).
-    fn source(self, at: isize, length: usize) -> usize {
+    pub(crate) fn source(self, at: isize, length: usize) -> usize {
         let length = isize::try_from(length).unwrap_or(isize::MAX);
         let within = match self {
             Self::Repeat => at.clamp(0, length - 1),
@@ -78,6 +68,7 @@ pub struct PdfOptions {
     bleed_mm: f64,
     bleed_fill: BleedFill,
     crop_marks: bool,
+    registration_marks: bool,
     flatten: bool,
     cmyk_profile: Option<PathBuf>,
 }
@@ -94,6 +85,7 @@ impl PdfOptions {
             bleed_mm: 0.0,
             bleed_fill: BleedFill::Repeat,
             crop_marks: false,
+            registration_marks: false,
             flatten: false,
             cmyk_profile: None,
         })
@@ -126,6 +118,16 @@ impl PdfOptions {
         self
     }
 
+    /// Draws registration marks (a circle crossed by two lines, black, 0.25 pt wide and 5 mm across) centred in the margin on the
+    /// middle of each side of the trim, outside the bleed box: the page grows by 8 mm on every side to hold them, as for crop
+    /// marks (both may be on). Every plate of [`Plates`](crate::Plates) is marked at the same places, so that printed plates
+    /// can be lined up on them. Off by default.
+    #[must_use]
+    pub fn registration_marks(mut self, on: bool) -> Self {
+        self.registration_marks = on;
+        self
+    }
+
     /// Puts the picture over white paper (straight alpha, in sRGB values, in floats) instead of writing its alpha as a soft
     /// mask. Off by default: a picture with a pixel that is not opaque keeps its alpha.
     #[must_use]
@@ -141,6 +143,36 @@ impl PdfOptions {
     pub fn cmyk_profile(mut self, path: impl Into<PathBuf>) -> Self {
         self.cmyk_profile = Some(path.into());
         self
+    }
+}
+
+impl PdfOptions {
+    /// The resolution.
+    pub(crate) fn dpi(&self) -> f64 {
+        self.dpi
+    }
+
+    /// The bleed, in millimetres.
+    pub(crate) fn bleed_width(&self) -> f64 {
+        self.bleed_mm
+    }
+
+    /// What fills the bleed.
+    pub(crate) fn fill(&self) -> BleedFill {
+        self.bleed_fill
+    }
+
+    /// Whether a CMYK profile is asked for.
+    pub(crate) fn has_profile(&self) -> bool {
+        self.cmyk_profile.is_some()
+    }
+
+    /// The marks these options ask for.
+    pub(crate) fn marks(&self) -> Which {
+        Which {
+            crop: self.crop_marks,
+            registration: self.registration_marks,
+        }
     }
 }
 
@@ -218,6 +250,8 @@ impl Flate {
 /// picture, its 8-bit planes or the compressed streams. The scratch files are gone when the PDF is in place, or when this is
 /// dropped. [`Raster::write_pdf`] is one push of the whole picture.
 pub(crate) struct PdfStream {
+    /// Whether the image is one channel of grey (a plate).
+    grey: bool,
     path: PathBuf,
     options: PdfOptions,
     layout: Geometry,
@@ -257,6 +291,38 @@ impl PdfStream {
     /// As [`Raster::write_pdf`], for a profile and a size, and [`Error::Write`] naming `path` for a folder that is not there.
     pub(crate) fn create(
         path: &Path,
+        size: (usize, usize),
+        options: &PdfOptions,
+        limit: usize,
+    ) -> Result<Self, Error> {
+        Self::open(path, 0, false, size, options, limit)
+    }
+
+    /// Page `page` (from 0) of a PDF of plates: one channel of grey, the red of what is pushed. Its scratch files are named for
+    /// the page, so that the pages of one PDF can be made one after the other and held together.
+    ///
+    /// # Errors
+    /// As [`PdfStream::create`], and [`Error::Invalid`] naming `cmyk_profile` for options that ask for a profile: a plate is one ink.
+    pub(crate) fn plate(
+        path: &Path,
+        page: usize,
+        size: (usize, usize),
+        options: &PdfOptions,
+        limit: usize,
+    ) -> Result<Self, Error> {
+        if options.cmyk_profile.is_some() {
+            return Err(Error::invalid(
+                "cmyk_profile",
+                "a plate is one ink in grey: a CMYK profile has nothing to convert",
+            ));
+        }
+        Self::open(path, page, true, size, options, limit)
+    }
+
+    fn open(
+        path: &Path,
+        page: usize,
+        grey: bool,
         (width, height): (usize, usize),
         options: &PdfOptions,
         limit: usize,
@@ -276,10 +342,12 @@ impl PdfStream {
                     format!("no conversion from sRGB to the profile: {error}"),
                 )
             })?;
-        let channels = if profile.is_some() { 4 } else { 3 };
-        let (colour_part, colour_file) = Part::scratch(path, "colour")?;
-        let (alpha_part, alpha_file) = Part::scratch(path, "alpha")?;
+        let channels = channels(profile.is_some(), grey);
+        let tag = |kind: &str| if page == 0 { kind.to_owned() } else { format!("{kind}{page}") };
+        let (colour_part, colour_file) = Part::scratch(path, &tag("colour"))?;
+        let (alpha_part, alpha_file) = Part::scratch(path, &tag("alpha"))?;
         Ok(Self {
+            grey,
             path: path.to_path_buf(),
             options: options.clone(),
             layout,
@@ -308,7 +376,7 @@ impl PdfStream {
     /// kept.
     pub(crate) fn push(&mut self, band: &Raster) -> Result<(), Error> {
         let flatten = self.options.flatten;
-        let channels = if self.profile.is_some() { 4 } else { 3 };
+        let channels = channels(self.profile.is_some(), self.grey);
         let bleed = self.layout.bleed_pixels;
         for line in band.pixels().chunks_exact(self.width * 4) {
             self.opacity.clear();
@@ -334,6 +402,11 @@ impl PdfStream {
                     convert
                         .transform(&self.rgb, &mut self.device)
                         .map_err(|error| Error::invalid("cmyk_profile", format!("the conversion failed: {error}")))?;
+                }
+                None if self.grey => {
+                    for (grey, rgb) in self.device.iter_mut().zip(self.rgb.as_chunks::<3>().0) {
+                        *grey = rgb[0];
+                    }
                 }
                 None => self.device.copy_from_slice(&self.rgb),
             }
@@ -412,19 +485,20 @@ impl PdfStream {
         Ok(())
     }
 
-    /// The end of the picture: the PDF is written, and in place.
+    /// The end of the picture: its streams closed, ready to go in a PDF.
     ///
     /// # Errors
-    /// [`Error::Write`] naming the path if it cannot be written.
-    pub(crate) fn finish(self) -> Result<(), Error> {
+    /// [`Error::Write`] naming the path if a stream cannot be closed.
+    pub(crate) fn into_page(self, label: Option<String>) -> Result<Page, Error> {
         let Self {
+            grey,
             path,
             options,
             layout,
-            profile,
             colour,
             alpha,
             translucent,
+            _scratch,
             ..
         } = self;
         let colour = colour.finish().map_err(|error| failed(&path, error))?;
@@ -432,20 +506,66 @@ impl PdfStream {
             .then(|| alpha.finish())
             .transpose()
             .map_err(|error| failed(&path, error))?;
-        let (part, file) = Part::create(&path)?;
-        let mut file = BufWriter::new(file);
-        document(
-            &mut file,
-            &layout,
-            &options,
-            profile.as_ref().map(|(bytes, _)| bytes.as_slice()),
+        Ok(Page {
+            layout,
+            grey,
+            label,
             colour,
             alpha,
-        )
+            _scratch,
+        })
+    }
+
+    /// The end of the picture: the PDF is written, and in place.
+    ///
+    /// # Errors
+    /// [`Error::Write`] naming the path if it cannot be written.
+    pub(crate) fn finish(self) -> Result<(), Error> {
+        let (path, options) = (self.path.clone(), self.options.clone());
+        let profile = self.profile.as_ref().map(|(bytes, _)| bytes.clone());
+        let page = self.into_page(None)?;
+        write_document(&path, &options, profile.as_deref(), vec![page])
+    }
+}
+
+/// A page of a PDF with its image written: the image's streams are in scratch files that go when the page is dropped.
+pub(crate) struct Page {
+    layout: Geometry,
+    grey: bool,
+    /// The name the page goes by in a PDF reader (a plate's ink).
+    label: Option<String>,
+    colour: (File, u64),
+    alpha: Option<(File, u64)>,
+    _scratch: [Part; 2],
+}
+
+/// The PDF of `pages` written to `path`, in place when whole.
+///
+/// # Errors
+/// [`Error::Write`] naming `path` if it cannot be written.
+pub(crate) fn write_document(
+    path: &Path,
+    options: &PdfOptions,
+    profile: Option<&[u8]>,
+    pages: Vec<Page>,
+) -> Result<(), Error> {
+    let (part, file) = Part::create(path)?;
+    let mut file = BufWriter::new(file);
+    document(&mut file, options, profile, pages)
         .and_then(|()| file.flush())
-        .map_err(|error| failed(&path, error))?;
-        drop(file);
-        part.commit()
+        .map_err(|error| failed(path, error))?;
+    drop(file);
+    part.commit()
+}
+
+/// The channels of the image: four through a CMYK profile, one for grey, else three.
+fn channels(profiled: bool, grey: bool) -> usize {
+    if profiled {
+        4
+    } else if grey {
+        1
+    } else {
+        3
     }
 }
 
@@ -454,43 +574,34 @@ fn signed(count: usize) -> isize {
     isize::try_from(count).unwrap_or(isize::MAX)
 }
 
-/// The crop marks: a horizontal and a vertical line at each corner of `trim`, outside `bleed_box`. Both are `[left, bottom,
-/// right, top]`.
-fn crop_marks(content: &mut Content, trim: [f64; 4], bleed_box: [f64; 4]) {
-    let gap = MARK_GAP_MM / MM_PER_INCH * POINTS_PER_INCH;
-    let length = MARK_LENGTH_MM / MM_PER_INCH * POINTS_PER_INCH;
-    content.set_stroke_gray(0.0).set_line_width(points(MARK_WIDTH_POINTS));
-    for (edge, outward) in [(bleed_box[0], -1.0), (bleed_box[2], 1.0)] {
-        for y in [trim[1], trim[3]] {
-            let (near, far) = (edge + outward * gap, edge + outward * (gap + length));
-            content
-                .move_to(points(near), points(y))
-                .line_to(points(far), points(y))
-                .stroke();
+/// The marks `which` of a page, each a stroked polyline, outside the bleed of `bleed_mm`.
+fn draw_marks(content: &mut Content, trim: [f64; 4], bleed_mm: f64, which: Which) {
+    content.set_stroke_gray(0.0).set_line_width(points(WIDTH_POINTS));
+    for mark in marks::lines(trim, bleed_mm, POINTS_PER_INCH / MM_PER_INCH, which) {
+        let mut corners = mark.iter();
+        if let Some(first) = corners.next() {
+            content.move_to(points(first[0]), points(first[1]));
         }
-    }
-    for (edge, outward) in [(bleed_box[1], -1.0), (bleed_box[3], 1.0)] {
-        for x in [trim[0], trim[2]] {
-            let (near, far) = (edge + outward * gap, edge + outward * (gap + length));
-            content
-                .move_to(points(x), points(near))
-                .line_to(points(x), points(far))
-                .stroke();
+        for corner in corners {
+            content.line_to(points(corner[0]), points(corner[1]));
         }
+        content.stroke();
     }
 }
 
 /// Where everything lies, in whole pixels and PDF points; each box is `[left, bottom, right, top]` from the page's lower left.
-struct Geometry {
+pub(crate) struct Geometry {
     /// Pixels of edge repeated on each side: the bleed rounded up.
-    bleed_pixels: usize,
+    pub(crate) bleed_pixels: usize,
+    /// Pixels of margin for the marks outside the bleed: the margin rounded up (0 with no marks).
+    pub(crate) margin_pixels: usize,
     /// The size of the image with its bleed, in pixels.
-    image: (usize, usize),
+    pub(crate) image: (usize, usize),
     /// Points a pixel covers.
-    per_pixel: f64,
-    page: [f64; 4],
-    bleed_box: [f64; 4],
-    trim: [f64; 4],
+    pub(crate) per_pixel: f64,
+    pub(crate) page: [f64; 4],
+    pub(crate) bleed_box: [f64; 4],
+    pub(crate) trim: [f64; 4],
 }
 
 /// `count` as a double: a side is under 2^27 pixels once the image is checked, which a double holds exactly.
@@ -507,7 +618,7 @@ fn float(count: usize) -> f64 {
 ///
 /// # Errors
 /// As [`Raster::write_pdf`] for a size.
-fn geometry((width, height): (usize, usize), options: &PdfOptions, limit: usize) -> Result<Geometry, Error> {
+pub(crate) fn geometry((width, height): (usize, usize), options: &PdfOptions, limit: usize) -> Result<Geometry, Error> {
     #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
@@ -528,11 +639,17 @@ fn geometry((width, height): (usize, usize), options: &PdfOptions, limit: usize)
     let per_pixel = POINTS_PER_INCH / options.dpi;
     let trim_size = (float(width) * per_pixel, float(height) * per_pixel);
     let bleed = options.bleed_mm / MM_PER_INCH * POINTS_PER_INCH;
-    let margin = if options.crop_marks {
-        (MARK_GAP_MM + MARK_LENGTH_MM) / MM_PER_INCH * POINTS_PER_INCH
+    let margin = if options.marks().crop || options.marks().registration {
+        MARGIN_MM / MM_PER_INCH * POINTS_PER_INCH
     } else {
         0.0
     };
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a margin of 8 mm at 2400 dpi is under 760 pixels"
+    )]
+    let margin_pixels = ((margin / POINTS_PER_INCH * options.dpi * 1e6).round() / 1e6).ceil() as usize;
     let page = [
         0.0,
         0.0,
@@ -550,6 +667,7 @@ fn geometry((width, height): (usize, usize), options: &PdfOptions, limit: usize)
     }
     Ok(Geometry {
         bleed_pixels,
+        margin_pixels,
         image,
         per_pixel,
         page,
@@ -635,89 +753,115 @@ fn rectangle([left, bottom, right, top]: [f64; 4]) -> String {
     )
 }
 
-/// Writes the PDF of an image whose compressed colour is `colour` and alpha `alpha` (if it has one), each a stream and its
-/// length, laid out as `layout` says, with the ICC profile bytes `profile` of a CMYK image: the header, the objects, the
-/// cross-reference table and the trailer. The streams are copied from where they are, so the PDF is never held.
+/// Writes the PDF of `pages`, each an image whose compressed colour and alpha (if it has one) are streams with their lengths,
+/// laid out as its `layout` says, with the ICC profile bytes `profile` of a CMYK image: the header, the objects, the
+/// cross-reference table and the trailer. The streams are copied from where they are, so the PDF is never held. A page that
+/// has a label is named by it in a PDF reader (`PageLabels`).
 ///
-/// The objects are numbered from 1 in the order they are written: the catalog, the page tree, the page, its content, the image,
-/// then the image's soft mask and the profile if there are any.
+/// The objects are numbered from 1 in the order they are written: the catalog, the page tree, then for each page the page, its
+/// content, its image and the image's soft mask if there is one, and last the profile if there is one.
 ///
 /// # Errors
 /// What `out` or a stream's file refuses.
-fn document(
-    out: impl Write,
-    layout: &Geometry,
-    options: &PdfOptions,
-    profile: Option<&[u8]>,
-    colour: (File, u64),
-    alpha: Option<(File, u64)>,
-) -> io::Result<()> {
+fn document(out: impl Write, options: &PdfOptions, profile: Option<&[u8]>, pages: Vec<Page>) -> io::Result<()> {
     let mut out = Counted { inner: out, at: 0 };
     let mut offsets = Vec::new();
     out.write_all(b"%PDF-1.7\n%\x80\x80\x80\x80\n")?;
 
+    // the number of each page's first object, known before any is written
+    let mut first = Vec::new();
+    let mut next = 3;
+    for page in &pages {
+        first.push(next);
+        next += 3 + usize::from(page.alpha.is_some());
+    }
+    let profile_id = next;
+
+    let labels: String = pages
+        .iter()
+        .enumerate()
+        .filter_map(|(at, page)| page.label.as_ref().map(|label| format!("{at} << /P ({label}) >>\n")))
+        .collect();
+    let labels = if labels.is_empty() {
+        String::new()
+    } else {
+        format!("/PageLabels << /Nums [\n{labels}] >>\n")
+    };
     begin(&mut out, &mut offsets)?;
-    write!(out, "<<\n/Type /Catalog\n/Pages 2 0 R\n>>\nendobj\n")?;
-    begin(&mut out, &mut offsets)?;
-    write!(out, "<<\n/Type /Pages\n/Kids [3 0 R]\n/Count 1\n>>\nendobj\n")?;
+    write!(out, "<<\n/Type /Catalog\n/Pages 2 0 R\n{labels}>>\nendobj\n")?;
+    let kids: Vec<String> = first.iter().map(|id| format!("{id} 0 R")).collect();
     begin(&mut out, &mut offsets)?;
     write!(
         out,
-        "<<\n/Type /Page\n/Parent 2 0 R\n/MediaBox {}\n/BleedBox {}\n/TrimBox {}\n/Contents 4 0 R\n\
-         /Resources <<\n/XObject <<\n/Picture 5 0 R\n>>\n>>\n>>\nendobj\n",
-        rectangle(layout.page),
-        rectangle(layout.bleed_box),
-        rectangle(layout.trim)
+        "<<\n/Type /Pages\n/Kids [{}]\n/Count {}\n>>\nendobj\n",
+        kids.join(" "),
+        pages.len()
     )?;
 
-    // the image's lower left corner is the trim box's, moved out by the bleed pixels; the clip is the bleed box
-    let outward = float(layout.bleed_pixels) * layout.per_pixel;
-    let [left, bottom, right, top] = layout.bleed_box;
-    let mut content = Content::new();
-    content
-        .save_state()
-        .rect(points(left), points(bottom), points(right - left), points(top - bottom))
-        .clip_nonzero()
-        .end_path()
-        .transform([
-            points(float(layout.image.0) * layout.per_pixel),
-            0.0,
-            0.0,
-            points(float(layout.image.1) * layout.per_pixel),
-            points(layout.trim[0] - outward),
-            points(layout.trim[1] - outward),
-        ])
-        .x_object(pdf_writer::Name(b"Picture"))
-        .restore_state();
-    if options.crop_marks {
-        crop_marks(&mut content, layout.trim, layout.bleed_box);
-    }
-    let content = content.finish();
-    stream(&mut out, &mut offsets, "", &*content, content.len() as u64)?;
+    for (page, id) in pages.into_iter().zip(first) {
+        let layout = &page.layout;
+        begin(&mut out, &mut offsets)?;
+        write!(
+            out,
+            "<<\n/Type /Page\n/Parent 2 0 R\n/MediaBox {}\n/BleedBox {}\n/TrimBox {}\n/Contents {} 0 R\n\
+             /Resources <<\n/XObject <<\n/Picture {} 0 R\n>>\n>>\n>>\nendobj\n",
+            rectangle(layout.page),
+            rectangle(layout.bleed_box),
+            rectangle(layout.trim),
+            id + 1,
+            id + 2,
+        )?;
 
-    let (width, height) = layout.image;
-    let (mask, profile_id) = (6, 6 + usize::from(alpha.is_some()));
-    let space = if profile.is_some() {
-        format!("[/ICCBased {profile_id} 0 R]")
-    } else {
-        "/DeviceRGB".to_string()
-    };
-    let soft_mask = if alpha.is_some() {
-        format!("/SMask {mask} 0 R\n")
-    } else {
-        String::new()
-    };
-    let image = format!(
-        "/Type /XObject\n/Subtype /Image\n/Filter /FlateDecode\n/Width {width}\n/Height {height}\n/BitsPerComponent 8\n\
-         /ColorSpace {space}\n{soft_mask}"
-    );
-    stream(&mut out, &mut offsets, &image, colour.0, colour.1)?;
-    if let Some((coverage, length)) = alpha {
-        let gray = format!(
+        // the image's lower left corner is the trim box's, moved out by the bleed pixels; the clip is the bleed box
+        let outward = float(layout.bleed_pixels) * layout.per_pixel;
+        let [left, bottom, right, top] = layout.bleed_box;
+        let mut content = Content::new();
+        content
+            .save_state()
+            .rect(points(left), points(bottom), points(right - left), points(top - bottom))
+            .clip_nonzero()
+            .end_path()
+            .transform([
+                points(float(layout.image.0) * layout.per_pixel),
+                0.0,
+                0.0,
+                points(float(layout.image.1) * layout.per_pixel),
+                points(layout.trim[0] - outward),
+                points(layout.trim[1] - outward),
+            ])
+            .x_object(pdf_writer::Name(b"Picture"))
+            .restore_state();
+        if options.marks().crop || options.marks().registration {
+            draw_marks(&mut content, layout.trim, options.bleed_mm, options.marks());
+        }
+        let content = content.finish();
+        stream(&mut out, &mut offsets, "", &*content, content.len() as u64)?;
+
+        let (width, height) = layout.image;
+        let space = if profile.is_some() {
+            format!("[/ICCBased {profile_id} 0 R]")
+        } else if page.grey {
+            "/DeviceGray".to_string()
+        } else {
+            "/DeviceRGB".to_string()
+        };
+        let soft_mask = if page.alpha.is_some() {
+            format!("/SMask {} 0 R\n", id + 3)
+        } else {
+            String::new()
+        };
+        let image = format!(
             "/Type /XObject\n/Subtype /Image\n/Filter /FlateDecode\n/Width {width}\n/Height {height}\n/BitsPerComponent 8\n\
-             /ColorSpace /DeviceGray\n"
+             /ColorSpace {space}\n{soft_mask}"
         );
-        stream(&mut out, &mut offsets, &gray, coverage, length)?;
+        stream(&mut out, &mut offsets, &image, page.colour.0, page.colour.1)?;
+        if let Some((coverage, length)) = page.alpha {
+            let gray = format!(
+                "/Type /XObject\n/Subtype /Image\n/Filter /FlateDecode\n/Width {width}\n/Height {height}\n/BitsPerComponent 8\n\
+                 /ColorSpace /DeviceGray\n"
+            );
+            stream(&mut out, &mut offsets, &gray, coverage, length)?;
+        }
     }
     if let Some(bytes) = profile {
         stream(

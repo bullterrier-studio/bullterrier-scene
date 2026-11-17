@@ -5,7 +5,7 @@ use std::path::Path;
 
 use bullterrier_scene::{Error, Fit, Layer, Raster, WriteOptions};
 
-use crate::common::{Outcome, made, scene, varied};
+use crate::common::{Outcome, made, physical, scene, varied};
 
 /// `level` (a multiple of 1/255 or near it) as its 8-bit number.
 #[expect(
@@ -142,23 +142,6 @@ fn a_file_that_cannot_be_written_is_a_write_error_naming_it_and_no_file_is_made(
         assert!(!path.exists(), "{what}: a file was made");
     }
     Ok(())
-}
-
-/// The pixels per metre a PNG's `pHYs` chunk says, read from the bytes by hand: a chunk is a 4-byte length, a 4-byte type, the
-/// data and a 4-byte checksum, and `pHYs` holds two 4-byte counts and a unit byte (1 is the metre).
-fn physical(path: &Path) -> Result<Option<(u32, u32, u8)>, std::io::Error> {
-    let bytes = std::fs::read(path)?;
-    let mut at = 8;
-    while at + 8 <= bytes.len() {
-        let length = u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]) as usize;
-        let data = at + 8;
-        if &bytes[at + 4..at + 8] == b"pHYs" {
-            let count = |from: usize| u32::from_be_bytes([bytes[from], bytes[from + 1], bytes[from + 2], bytes[from + 3]]);
-            return Ok(Some((count(data), count(data + 4), bytes[data + 8])));
-        }
-        at = data + length + 4;
-    }
-    Ok(None)
 }
 
 /// The JFIF density of a JPEG, read by hand: the `APP0` segment after the start marker is `JFIF\0`, a version, the unit

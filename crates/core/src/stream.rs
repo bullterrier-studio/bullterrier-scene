@@ -150,3 +150,35 @@ impl PngStream {
         part.commit()
     }
 }
+
+/// An 8-bit grey PNG of `columns` by `rows` pixels (`bytes`, row after row) written to `path`, in place when whole, with the
+/// resolution `dpi` if there is one.
+///
+/// # Errors
+/// [`Error::Write`] naming `path` for a path that cannot be written.
+pub(crate) fn write_grey_png(
+    path: &Path,
+    (columns, rows): (usize, usize),
+    bytes: &[u8],
+    dpi: Option<f64>,
+) -> Result<(), Error> {
+    let side = |count: usize| u32::try_from(count).map_err(|error| failed(path, error));
+    let (part, file) = Part::create(path)?;
+    let mut encoder = png::Encoder::new(BufWriter::new(file), side(columns)?, side(rows)?);
+    encoder.set_color(png::ColorType::Grayscale);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder.set_compression(png::Compression::Balanced);
+    encoder.set_filter(png::Filter::Adaptive);
+    if let Some(dpi) = dpi {
+        let per_metre = pixels_per_metre(dpi);
+        encoder.set_pixel_dims(Some(png::PixelDimensions {
+            xppu: per_metre,
+            yppu: per_metre,
+            unit: png::Unit::Meter,
+        }));
+    }
+    let mut writer = encoder.write_header().map_err(|error| failed(path, error))?;
+    writer.write_image_data(bytes).map_err(|error| failed(path, error))?;
+    writer.finish().map_err(|error| failed(path, error))?;
+    part.commit()
+}

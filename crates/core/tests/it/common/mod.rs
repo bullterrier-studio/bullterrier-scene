@@ -120,3 +120,20 @@ pub(crate) fn made(width: usize, height: usize, pixel_of: impl Fn(usize, usize) 
             .collect::<Vec<_>>(),
     )
 }
+
+/// The pixels per metre a PNG's `pHYs` chunk says, read from the bytes by hand: a chunk is a 4-byte length, a 4-byte type, the
+/// data and a 4-byte checksum, and `pHYs` holds two 4-byte counts and a unit byte (1 is the metre).
+pub(crate) fn physical(path: &Path) -> Result<Option<(u32, u32, u8)>, std::io::Error> {
+    let bytes = std::fs::read(path)?;
+    let mut at = 8;
+    while at + 8 <= bytes.len() {
+        let length = u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]) as usize;
+        let data = at + 8;
+        if &bytes[at + 4..at + 8] == b"pHYs" {
+            let count = |from: usize| u32::from_be_bytes([bytes[from], bytes[from + 1], bytes[from + 2], bytes[from + 3]]);
+            return Ok(Some((count(data), count(data + 4), bytes[data + 8])));
+        }
+        at = data + length + 4;
+    }
+    Ok(None)
+}

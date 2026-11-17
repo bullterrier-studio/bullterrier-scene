@@ -918,3 +918,46 @@ fn a_mirrored_pdf_streamed_by_small_bands_is_the_pdf_of_the_picture_written_whol
     assert_eq!(a.colour.iter().zip(&b.colour).position(|(x, y)| x != y), None);
     Ok(())
 }
+
+#[test]
+fn registration_marks_are_four_targets_centred_in_the_margin_on_the_middle_of_each_side() -> Outcome {
+    let folder = tempfile::tempdir()?;
+    let path = folder.path().join("marked.pdf");
+    // 3 mm of bleed and 8 mm of margin on a picture of 40 by 30 pixels at 300 dpi (9.6 by 7.2 pt)
+    varied(40, 30)?.write_pdf(&path, &PdfOptions::new(300.0)?.bleed_mm(3.0)?.registration_marks(true))?;
+    let page = Page::open(&path)?;
+    let (media, trim) = (page.boxed("MediaBox")?, page.boxed("TrimBox")?);
+    let margin = 8.0 * POINTS_PER_MM;
+    assert!(close(media, [0.0, 0.0, 9.6 + 2.0 * (3.0 + 8.0) * POINTS_PER_MM, 7.2 + 2.0 * (3.0 + 8.0) * POINTS_PER_MM]));
+    assert!(close(trim, [margin + 3.0 * POINTS_PER_MM, margin + 3.0 * POINTS_PER_MM, margin + 3.0 * POINTS_PER_MM + 9.6, margin + 3.0 * POINTS_PER_MM + 7.2]));
+    // each target is drawn as two lines through its centre and a circle: the centres are the middles of the lines
+    let strokes: Vec<Vec<[f64; 2]>> = {
+        let mut all = Vec::new();
+        let mut current: Vec<[f64; 2]> = Vec::new();
+        for operation in page.operations()? {
+            match operation.operator.as_str() {
+                "m" | "l" => current.push([number(&operation.operands[0]), number(&operation.operands[1])]),
+                "S" => all.push(std::mem::take(&mut current)),
+                _ => {}
+            }
+        }
+        all
+    };
+    assert_eq!(strokes.len(), 12);
+    let centre = (trim[0] + trim[2]) / 2.0;
+    let middle = (trim[1] + trim[3]) / 2.0;
+    // 3 mm bleed + 3 mm gap + 2.5 mm to the middle of the 5 mm mark
+    let out = 8.5 * POINTS_PER_MM;
+    let expected = [[trim[0] - out, middle], [trim[2] + out, middle], [centre, trim[1] - out], [centre, trim[3] + out]];
+    for want in expected {
+        let found = strokes.iter().filter(|line| line.len() == 2).any(|line| {
+            let mid = [(line[0][0] + line[1][0]) / 2.0, (line[0][1] + line[1][1]) / 2.0];
+            (mid[0] - want[0]).abs() < 2e-3 && (mid[1] - want[1]).abs() < 2e-3
+        });
+        assert!(found, "no cross line through {want:?}");
+    }
+    // the circle round the first target closes on its first corner
+    let circle = strokes.iter().find(|line| line.len() > 2).ok_or("no circle")?;
+    assert_eq!(circle.first(), circle.last());
+    Ok(())
+}
