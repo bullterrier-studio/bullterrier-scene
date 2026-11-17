@@ -165,7 +165,7 @@ pub(crate) fn draw(layers: &[Layer], target: &Target) -> Result<Vec<f32>, Error>
         if let Some(key) = keys.get(index).filter(|_| (keys.len() - 1 - index) % 2 == 0) {
             target
                 .cache
-                .put(key.clone(), joined.clone(), size_of_val(joined.as_slice()), true);
+                .put(*key, joined.clone(), size_of_val(joined.as_slice()), true);
         }
     }
     Ok(joined)
@@ -217,7 +217,7 @@ fn lay(layer: &Layer, target: &Target, joined: &mut [f32]) -> Result<(), Error> 
                 over(chunk, landed.unmoved_pixels(rows), opacity);
             } else {
                 landed.each_in(rows, &mut |at, above| {
-                    over_pixel(&mut chunk[at * 4..at * 4 + 4], above, opacity)
+                    over_pixel(&mut chunk[at * 4..at * 4 + 4], above, opacity);
                 });
             }
         });
@@ -303,7 +303,7 @@ mod tests {
     fn a_render_of_more_pixels_than_a_join_may_be_kept_for_keeps_none() -> Result<(), Error> {
         // 3,000 by 1,500 pixels
         let scene = four((20, 10))?;
-        assert!(3_000 * 1_500 > PREFIX_PIXELS);
+        const { assert!(3_000 * 1_500 > PREFIX_PIXELS) };
         assert_eq!(laid(&scene, 3_000)?, 4);
         assert_eq!(laid(&scene, 3_000)?, 4, "nothing was kept");
         Ok(())
