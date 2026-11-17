@@ -160,7 +160,9 @@ pub(crate) fn draw(layers: &[Layer], target: &Target) -> Result<Vec<f32>, Error>
     for (index, layer) in layers.iter().enumerate().skip(first) {
         let name = layer.name.clone().unwrap_or_else(|| format!("layer{}", index + 1));
         lay(layer, target, &mut joined).map_err(|error| error.in_layer(&name))?;
-        if let Some(key) = keys.get(index) {
+        // shortcut: every other join is kept (the top one first), halving the copies of a first render; a change to a layer
+        // whose join is not kept lays one layer more. Upgrade: keep each if a measurement shows the copies are cheap
+        if let Some(key) = keys.get(index).filter(|_| (keys.len() - 1 - index) % 2 == 0) {
             target
                 .cache
                 .put(key.clone(), joined.clone(), size_of_val(joined.as_slice()), true);
@@ -283,12 +285,13 @@ mod tests {
     }
 
     #[test]
-    fn a_change_redoes_the_layer_and_those_over_it_and_nothing_below() -> Result<(), Error> {
+    fn a_change_redoes_the_layer_and_those_over_it_and_not_those_under_a_kept_join() -> Result<(), Error> {
         let scene = four((20, 10))?;
         assert_eq!(laid(&scene, 20)?, 4, "the first render lays every layer");
         assert_eq!(laid(&scene, 20)?, 0, "the same scene again lays none");
         let top = scene.with_values(&Values::new().set("top.opacity", 0.5))?;
-        assert_eq!(laid(&top, 20)?, 1);
+        // every other join is kept: the one under the top layer is not, so the layer below it is laid too
+        assert_eq!(laid(&top, 20)?, 2);
         let bottom = scene.with_values(&Values::new().set("bottom.opacity", 0.5))?;
         assert_eq!(laid(&bottom, 20)?, 4);
         assert_eq!(laid(&bottom, 20)?, 0);

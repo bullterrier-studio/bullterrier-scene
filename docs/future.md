@@ -25,8 +25,8 @@ for `wasm32-unknown-unknown` and `wasm32-wasip1`, and a saved scene renders unde
 included. A 13-layer shirt print (a photo with a matte and image looks, vector rays and rings, text) at 1200 px long side,
 median of 5 on a heavily loaded M4: cold 683 ms native, 988 ms WASM; after one value changes, 102 to 179 ms native and
 182 to 287 ms WASM (grain on the top layer the cheapest, the photo's grade or dither the dearest); the same scene again,
-everything cached, 76 ms native and 117 ms WASM. That last figure is every layer's placement and the composite, which
-the cache does not keep (not profiled): keeping the composite below the changed layer is the next step for a live slider. The scene's `.wasm` (scene, image and
+everything cached, 76 ms native and 117 ms WASM. That last figure was every layer's placement and the composite. **Done 2026-11-17 (P2):** the composite below the changed layer is kept
+(every other join of a whole render up to 2^22 pixels) and layers are laid on all cores. A similar 13-layer poster at 1,200 px long side, native, release, Apple M4, load average 3 to 7, median of 15: cold 164 ms before, 179 ms after; the same scene again 68 to 2 ms; a top layer's slider 70 to 4 ms; the bottom layer's slider 65 to 20 ms; an A3 poster in bands 2.4 to 2.6 s to 1.6 to 1.8 s; the pictures are the same bit for bit (`api.md`, "Limits, measured"). The WASM figures above were not measured again; `wasm32-wasip1` still builds. The scene's `.wasm` (scene, image and
 vector) is 8.9 MB after `wasm-opt`, 2.5 MB brotli.
 
 ## Batches still to do, in order
