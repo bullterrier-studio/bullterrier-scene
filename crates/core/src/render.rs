@@ -6,7 +6,7 @@ use std::ops::Range;
 use rayon::prelude::*;
 
 use crate::blend::{Blend, join, lit};
-use crate::cache::Cache;
+use crate::cache::{Cache, Keyed};
 use crate::geometry::{MAX_PIXELS, Rect, Scale};
 use crate::landing::{Target, land};
 use crate::layer::Join;
@@ -24,6 +24,10 @@ pub const BAND_PIXELS: usize = MAX_PIXELS / 8;
 /// The pixels of a chunk of rows that one thread lays: 2^14 (256 KiB of float32 RGBA), so a thumbnail is one chunk and a poster
 /// is dozens.
 const CHUNK_PIXELS: usize = 1 << 14;
+
+/// The most pixels of a whole render whose joins are kept: 2^22 (64 MiB of float32 RGBA a join, a picture of 2,400 by 1,750), so a
+/// stack of a dozen layers holds under a gigabyte. A larger render draws every layer each time.
+const PREFIX_PIXELS: usize = 1 << 22;
 
 /// The columns and rows of the picture a canvas of `width` by `height` design pixels makes at `size` on its long side.
 ///
@@ -124,11 +128,43 @@ fn band(
 
 /// `layers` drawn one over the other on `target`: premultiplied red, green, blue and alpha of each of its pixels. The one
 /// entry that draws a stack, for the whole canvas ([`render`]) and for a scene used as a layer.
+///
+/// A whole render of at most [`PREFIX_PIXELS`] pixels keeps the join after each layer in the cache (expendable), found by what
+/// the layers up to it and the target are made of: a render starts from the highest of them it finds and lays only the layers
+/// above, so a change to one layer redoes that layer and those over it.
 pub(crate) fn draw(layers: &[Layer], target: &Target) -> Result<Vec<f32>, Error> {
-    let mut joined = vec![0.0_f32; target.drawn_size().0 * target.drawn_size().1 * 4];
-    for (index, layer) in layers.iter().enumerate() {
+    let (columns, rows) = target.drawn_size();
+    let mut joined = vec![0.0_f32; columns * rows * 4];
+    let mut first = 0;
+    let mut keys = Vec::new();
+    if !target.is_band() && target.held == 0 && columns * rows <= PREFIX_PIXELS {
+        let mut key = Keyed::new("composite");
+        target.keyed(&mut key);
+        for layer in layers {
+            // a layer that cannot be written into a key is drawn, and refused, as it is without the cache
+            if layer.keyed(&mut key).is_err() {
+                break;
+            }
+            keys.push(key.clone().finish());
+        }
+        if let Some((at, hit)) = keys
+            .iter()
+            .enumerate()
+            .rev()
+            .find_map(|(at, key)| target.cache.get::<Vec<f32>>(key).map(|hit| (at, hit)))
+        {
+            joined.copy_from_slice(&hit);
+            first = at + 1;
+        }
+    }
+    for (index, layer) in layers.iter().enumerate().skip(first) {
         let name = layer.name.clone().unwrap_or_else(|| format!("layer{}", index + 1));
         lay(layer, target, &mut joined).map_err(|error| error.in_layer(&name))?;
+        if let Some(key) = keys.get(index) {
+            target
+                .cache
+                .put(key.clone(), joined.clone(), size_of_val(joined.as_slice()), true);
+        }
     }
     Ok(joined)
 }
@@ -137,6 +173,8 @@ pub(crate) fn draw(layers: &[Layer], target: &Target) -> Result<Vec<f32>, Error>
 /// of which is blended where it lands. A layer that is not moved is blended as it is. Where the layer has masks, each pixel
 /// is blended at its mask's value too. A layer at opacity 0 is not drawn: in no blend mode can it change what is below.
 fn lay(layer: &Layer, target: &Target, joined: &mut [f32]) -> Result<(), Error> {
+    #[cfg(test)]
+    LAID.with(|laid| laid.set(laid.get() + 1));
     if layer.join.opacity == 0.0 {
         return Ok(());
     }
@@ -214,4 +252,57 @@ pub(crate) fn straight(mut joined: Vec<f32>) -> Vec<f32> {
         }
     }
     joined
+}
+
+// Inline, because no public route counts the layers a render lays: a prefix of the join kept in the cache is read with no
+// layer drawn, and the picture is the same bit for bit (the oracles of `tests/it/cache.rs`).
+#[cfg(test)]
+thread_local! {
+    static LAID: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{LAID, PREFIX_PIXELS};
+    use crate::{Error, Layer, Scene, Values};
+
+    fn four(canvas: (u32, u32)) -> Result<Scene, Error> {
+        Scene::new(canvas.0, canvas.1)?.add([
+            Layer::fill("#204080")?.named("bottom")?,
+            Layer::fill("#ff8000")?.named("lower")?.opacity(0.5)?,
+            Layer::fill("#00ff80")?.named("upper")?.opacity(0.5)?,
+            Layer::fill("#ffffff")?.named("top")?.opacity(0.25)?,
+        ])
+    }
+
+    /// The layers `scene` lays to render at `size`.
+    fn laid(scene: &Scene, size: u32) -> Result<usize, Error> {
+        let before = LAID.with(std::cell::Cell::get);
+        scene.render(size)?;
+        Ok(LAID.with(std::cell::Cell::get) - before)
+    }
+
+    #[test]
+    fn a_change_redoes_the_layer_and_those_over_it_and_nothing_below() -> Result<(), Error> {
+        let scene = four((20, 10))?;
+        assert_eq!(laid(&scene, 20)?, 4, "the first render lays every layer");
+        assert_eq!(laid(&scene, 20)?, 0, "the same scene again lays none");
+        let top = scene.with_values(&Values::new().set("top.opacity", 0.5))?;
+        assert_eq!(laid(&top, 20)?, 1);
+        let bottom = scene.with_values(&Values::new().set("bottom.opacity", 0.5))?;
+        assert_eq!(laid(&bottom, 20)?, 4);
+        assert_eq!(laid(&bottom, 20)?, 0);
+        assert_eq!(laid(&scene, 21)?, 4, "another size is another picture");
+        Ok(())
+    }
+
+    #[test]
+    fn a_render_of_more_pixels_than_a_join_may_be_kept_for_keeps_none() -> Result<(), Error> {
+        // 3,000 by 1,500 pixels
+        let scene = four((20, 10))?;
+        assert!(3_000 * 1_500 > PREFIX_PIXELS);
+        assert_eq!(laid(&scene, 3_000)?, 4);
+        assert_eq!(laid(&scene, 3_000)?, 4, "nothing was kept");
+        Ok(())
+    }
 }
