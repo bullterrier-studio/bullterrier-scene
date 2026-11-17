@@ -360,7 +360,7 @@ expressions, no `anchor`, no `inside`); anything richer is built with vector and
 ## One in-process cache, shared by derived scenes (2026-11-13)
 
 Scenes derived by `add` and `with_values` share a bounded cache of what each layer drew; the result depends only on the scene,
-its values, the size and the content of the files. *Reason:* a frame loop changes one value and must redo only what depends
+its values, the size and the content of the files, not on the cache's state, on renders running at once or on the number of threads (2026-11-17). *Reason:* a frame loop changes one value and must redo only what depends
 on it (C7); the cache cannot belong to a scene value, which is immutable, nor to the caller. *Consequence:* a file is keyed by
 path, size and modification time and its digest is computed at `to_json`; the cache is tested through a plugin layer that
 counts its `draw` calls (`Layer::make`, built in C7: "The cache", below).

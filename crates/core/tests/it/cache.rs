@@ -515,11 +515,13 @@ fn scenes_that_share_a_cache_drawn_by_several_threads_draw_what_cold_scenes_draw
                 .map_err(Into::into)
         })
         .collect::<Result<_, Box<dyn std::error::Error>>>()?;
+    let start = std::sync::Barrier::new(4);
     std::thread::scope(|threads| {
         let handles: Vec<_> = (0..4_usize)
             .map(|which| {
-                let (frames, cold) = (&frames, &cold);
+                let (frames, cold, start) = (&frames, &cold, &start);
                 threads.spawn(move || {
+                    start.wait();
                     (0..12_usize).all(|turn| {
                         let n = (turn * (which + 1)) % 6;
                         frames[n].render(SIZE).is_ok_and(|drawn| same_bits(&drawn, &cold[n]))
