@@ -8,7 +8,7 @@ from typing import Literal, Self
 import numpy as np
 import numpy.typing as npt
 
-from ._native import _core
+from ._native._core import Plates as _NativePlates
 
 __all__ = ["PdfOptions", "Plates", "Underbase"]
 
@@ -62,13 +62,14 @@ class Plates:
     """
 
     __slots__ = ("_core",)
+    _core: _NativePlates
 
     def __init__(self) -> None:
         """Plates are made by `Scene.plates`."""
         raise TypeError("Plates are made by Scene.plates(size)")
 
     @classmethod
-    def _of(cls, core: _core.Plates) -> Self:
+    def _of(cls, core: _NativePlates) -> Self:
         made = cls.__new__(cls)
         made._core = core  # noqa: SLF001  (a new instance of this class)
         return made

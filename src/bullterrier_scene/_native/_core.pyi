@@ -99,24 +99,8 @@ class Plates:
     @property
     def height(self) -> int: ...
     def plane(self, name: str) -> npt.NDArray[np.float32]: ...
-    def write_png(
-        self,
-        stem: str | PathLike[str],
-        dpi: float,
-        bleed_mm: float,
-        fill: str,
-        crop_marks: bool,
-        registration_marks: bool,
-    ) -> list[str]: ...
-    def write_pdf(
-        self,
-        path: str | PathLike[str],
-        dpi: float,
-        bleed_mm: float,
-        fill: str,
-        crop_marks: bool,
-        registration_marks: bool,
-    ) -> None: ...
+    def write_png(self, stem: str | PathLike[str], options: tuple[float, float, str, bool, bool]) -> list[str]: ...
+    def write_pdf(self, path: str | PathLike[str], options: tuple[float, float, str, bool, bool]) -> None: ...
 
 @final
 class Scene:
