@@ -265,13 +265,13 @@ fn draw_rows(
     Ok(drawn)
 }
 
-/// A layer whose map shrinks its raster past 2x has the raster averaged down first (`warp`): on a band, that is the same average
-/// for each band, so it is made once, kept in the cache and found by the next band. The layer lands from the averaged raster, as
+/// A layer whose map shrinks its raster past 2x has the raster averaged down first (`warp`): that is the same average
+/// for each band (and for each render), so it is made once, kept in the cache and found by the next band or render. The layer lands from the averaged raster, as
 /// the warp would have made it, so a pixel is the same.
 ///
 /// # Errors
 /// A source or look that cannot be written into a key.
-fn reduced_for_bands(
+fn reduced(
     body: &Body,
     request: &Request,
     target: &Target,
@@ -282,7 +282,7 @@ fn reduced_for_bands(
         return Ok((drawn, map, clip));
     };
     let from = (drawn.raster.width(), drawn.raster.height());
-    let Some(to) = target.is_band().then(|| reduction(from, affine)).flatten() else {
+    let Some(to) = reduction(from, affine) else {
         return Ok((drawn, map, clip));
     };
     // what the reduction is of: the source and its looks and masks (they make the raster) at this request, and the size
@@ -411,7 +411,7 @@ pub(crate) fn land(body: &Body, target: &Target, light: bool) -> Result<Landed, 
         opened.draw(request, &body.finish, light, target.cache, None)?
     };
     let (map, clip) = placed(drawn.shape());
-    let (drawn, map, clip) = reduced_for_bands(body, &request, target, light, (drawn, map, clip))?;
+    let (drawn, map, clip) = reduced(body, &request, target, light, (drawn, map, clip))?;
     let total = drawn.raster.height();
     Ok(Landed {
         drawn,
@@ -440,6 +440,17 @@ mod tests {
             Fit::Cover,
             [0.5, 0.5],
         )?])
+    }
+
+    #[test]
+    fn a_whole_render_averages_a_shrunk_picture_down_once() -> Result<(), Error> {
+        let scene = Scene::new(40, 30)?.add([Layer::picture(Raster::rgba(401, 307, vec![0.5; 401 * 307 * 4])?)
+            .fit([0.0, 0.0, 40.0, 30.0], Fit::Cover, [0.5, 0.5])?])?;
+        let before = reductions_of((401, 307));
+        scene.render(40)?;
+        scene.render(40)?;
+        assert_eq!(reductions_of((401, 307)) - before, 1);
+        Ok(())
     }
 
     #[test]
