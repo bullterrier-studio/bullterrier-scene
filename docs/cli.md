@@ -5,7 +5,7 @@ Rust (`crates/cli`); the Python console script `bt-scene` and `python -m bullter
 
 ```
 bt-scene render SCENE OUT.png|OUT.pdf [--size PIXELS] [--set ADDRESS=VALUE]... [--base DIR]
-                [--dpi N] [--bleed MM] [--crop-marks] [--flatten] [--cmyk-profile FILE.icc]
+                [--dpi N] [--bleed MM] [--bleed-fill repeat|mirror] [--crop-marks] [--registration-marks] [--flatten] [--cmyk-profile FILE.icc]
 bt-scene parameters SCENE [--json] [--base DIR]
 bt-scene validate SCENE [--base DIR]
 bt-scene --version | --help
@@ -30,7 +30,7 @@ Results go to stdout, errors to stderr.
   chunk, a whole one image's profile) and in the compression, not in a pixel.
 - **PDF flags** (any of them with an output that is not `.pdf` is exit 1 naming the flag): `--dpi N` pixels per inch, so the page is
   the picture's size over N inches (1 to 2400, default 300); `--bleed MM` 0 to 50 mm of bleed, the rendered edge repeated outward
-  (default 0); `--crop-marks` marks outside the bleed; `--flatten` the picture over white instead of a soft mask; `--cmyk-profile FILE.icc`
+  (default 0); `--bleed-fill mirror` folds the picture at its edge for the bleed (default `repeat`); `--crop-marks` and `--registration-marks` marks outside the bleed; `--dpi` also writes the resolution into a PNG or JPEG (1 to 65,535); `--flatten` the picture over white instead of a soft mask; `--cmyk-profile FILE.icc`
   CMYK through the caller's output profile, embedded (none is bundled). A canvas of A3's proportions at `--size 4961 --dpi 300` is a
   297 by 420 mm page.
 - **`--set`** sets a parameter by address before rendering (`parameters` lists them). VALUE is read by the address's kind: a

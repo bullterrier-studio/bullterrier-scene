@@ -203,7 +203,16 @@ fn a_streamed_png_says_the_same_dpi_as_a_written_one() -> Outcome {
 
 #[test]
 fn a_dpi_that_is_not_a_number_from_1_to_65535_is_refused_naming_dpi() {
-    for value in [0.0, -300.0, 0.99, 65536.0, 1e300, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+    for value in [
+        0.0,
+        -300.0,
+        0.99,
+        65536.0,
+        1e300,
+        f64::NAN,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+    ] {
         let error = WriteOptions::new().dpi(value).err();
         assert!(
             matches!(&error, Some(Error::Invalid { address, .. }) if address == "dpi"),
@@ -217,9 +226,7 @@ fn a_dpi_that_is_not_a_number_from_1_to_65535_is_refused_naming_dpi() {
 fn a_webp_holds_no_resolution_and_a_dpi_for_it_is_refused_with_no_file() -> Outcome {
     let folder = tempfile::tempdir()?;
     let path = folder.path().join("printed.webp");
-    let error = varied(4, 4)?
-        .write_with(&path, &WriteOptions::new().dpi(300.0)?)
-        .err();
+    let error = varied(4, 4)?.write_with(&path, &WriteOptions::new().dpi(300.0)?).err();
     assert!(matches!(&error, Some(Error::Write { .. })), "{error:?}");
     assert!(!path.exists());
     Ok(())

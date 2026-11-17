@@ -41,7 +41,11 @@ fn dpi_on_a_png_is_the_core_writers_dpi() -> Outcome {
         .scene()?
         .render(64)?
         .write_with(&expected, &WriteOptions::new().dpi(300.0)?)?;
-    assert_eq!(std::fs::read(&out)?, std::fs::read(&expected)?, "the core's file with its dpi");
+    assert_eq!(
+        std::fs::read(&out)?,
+        std::fs::read(&expected)?,
+        "the core's file with its dpi"
+    );
     Ok(())
 }
 
@@ -331,7 +335,12 @@ fn a_pdf_flag_on_a_picture_that_is_not_a_pdf_and_a_bad_pdf_value_are_exit_1_nami
         ("dpi 65536 on a PNG", "never.png", vec!["--dpi", "65536"], "dpi"),
         ("bleed on a PNG", "never.png", vec!["--bleed", "3"], "bleed"),
         ("crop marks on a PNG", "never.png", vec!["--crop-marks"], "crop-marks"),
-        ("bleed fill on a PNG", "never.png", vec!["--bleed-fill", "mirror"], "bleed-fill"),
+        (
+            "bleed fill on a PNG",
+            "never.png",
+            vec!["--bleed-fill", "mirror"],
+            "bleed-fill",
+        ),
         (
             "registration marks on a PNG",
             "never.png",

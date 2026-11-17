@@ -7,7 +7,7 @@ code that already catches that builtin keeps working.
 Dependency direction: the bottom layer. It imports nothing from bullterrier_scene, so every layer may raise them.
 """
 
-__all__ = ["BullterrierSceneError", "FormatError", "InvalidError", "ReadError"]
+__all__ = ["BullterrierSceneError", "FormatError", "InvalidError", "ReadError", "WriteError"]
 
 
 class BullterrierSceneError(Exception):
@@ -27,3 +27,8 @@ class FormatError(BullterrierSceneError, ValueError):
 class ReadError(BullterrierSceneError, OSError):
     """A file the scene names cannot be read, or is not the file the scene was saved with (its SHA-256 differs): the
     message names the layer, the file and the reason."""
+
+
+class WriteError(BullterrierSceneError, OSError):
+    """A file cannot be written: the folder is not there, the path cannot be written to, or the file is no format the
+    writer knows (the message names the path and the reason). No file is made."""

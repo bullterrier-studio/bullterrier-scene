@@ -373,6 +373,18 @@ class Layer:
             )
         return type(self)(self._core.blend(mode))
 
+    def inks(self, *names: str) -> Self:
+        """This layer printed in the inks `names`, which `Scene.plates` gathers into one plate each. A layer whose last
+        look separates inks (`halftone` or `dither` with a `separation`) names one ink for each plane, in the order the
+        look makes them (`separation="spot"`: the order of its `inks`); a layer with no look is one shape in one ink,
+        where its alpha is. A name is letters, digits and `_`, starting with a letter; one to eight names, each once
+        (`InvalidError` naming `inks`; a name that is not a `str` is a `TypeError`). The picture does not change.
+        """
+        for name in names:
+            if not isinstance(name, str):
+                raise TypeError(f"inks: ink names (text) are wanted, got {type(name).__name__} {_shown(name)}")
+        return type(self)(self._core.inks(list(names)))
+
     def as_light(self, on: bool = True) -> Self:
         """This layer made light (`on=True`, the default), or not (`on=False`, which is no call).
 

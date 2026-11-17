@@ -24,7 +24,10 @@ fn halftone(inks: &[&str], paper: &str) -> String {
 /// A 24 by 16 picture whose colour changes across it, so that each ink has some coverage nearly everywhere.
 fn photo() -> Result<Raster, Error> {
     made(24, 16, |x, y| {
-        let (u, v) = (f32::from(u8::try_from(x).unwrap_or(0)) / 23.0, f32::from(u8::try_from(y).unwrap_or(0)) / 15.0);
+        let (u, v) = (
+            f32::from(u8::try_from(x).unwrap_or(0)) / 23.0,
+            f32::from(u8::try_from(y).unwrap_or(0)) / 15.0,
+        );
         [0.35 + 0.5 * u, 0.4 + 0.4 * v, 0.55 + 0.3 * (1.0 - u), 1.0]
     })
 }
@@ -51,7 +54,10 @@ fn plates_laid_over_the_paper_by_the_overprint_rule_are_the_composite() -> Outco
     let composite = drawn.render(24)?;
     let plates = drawn.plates(24)?;
     assert_eq!(plates.names(), ["pink", "blue"]);
-    assert_eq!((plates.width(), plates.height()), (composite.width(), composite.height()));
+    assert_eq!(
+        (plates.width(), plates.height()),
+        (composite.width(), composite.height())
+    );
     let (pink, blue) = (plane(&plates, "pink")?, plane(&plates, "blue")?);
     assert_eq!((pink.len(), blue.len()), (24 * 16, 24 * 16));
     let mut worst = 0.0_f32;
@@ -60,7 +66,8 @@ fn plates_laid_over_the_paper_by_the_overprint_rule_are_the_composite() -> Outco
         for channel in 0..3 {
             // an ink over its own paper is the ink's colour: it lets the share `ink / paper` of the light through
             let through = |ink: [f32; 3]| ink[channel] / PAPER[channel];
-            let expected = PAPER[channel] * (1.0 - pink[at] * (1.0 - through(PINK))) * (1.0 - blue[at] * (1.0 - through(BLUE)));
+            let expected =
+                PAPER[channel] * (1.0 - pink[at] * (1.0 - through(PINK))) * (1.0 - blue[at] * (1.0 - through(BLUE)));
             worst = worst.max((pixel[channel] - expected).abs());
         }
         pink_total += pink[at];
@@ -82,7 +89,9 @@ fn a_layer_with_no_look_is_one_shape_in_one_ink_and_shapes_in_one_ink_overprint_
         16,
         10,
         [
-            Layer::fill("#123456")?.fit([2.0, 2.0, 8.0, 4.0], Fit::Stretch, [0.5, 0.5])?.inks(["black"])?,
+            Layer::fill("#123456")?
+                .fit([2.0, 2.0, 8.0, 4.0], Fit::Stretch, [0.5, 0.5])?
+                .inks(["black"])?,
             Layer::fill("#abcdef")?
                 .fit([6.0, 4.0, 8.0, 4.0], Fit::Stretch, [0.5, 0.5])?
                 .opacity(0.5)?
@@ -105,15 +114,18 @@ fn a_layer_with_no_look_is_one_shape_in_one_ink_and_shapes_in_one_ink_overprint_
         let full = (2..10).contains(&x) && (2..6).contains(&y);
         let half = (6..14).contains(&x) && (4..8).contains(&y);
         match (full, half) {
-            (true, true) => 1.0,
-            (true, false) => 1.0,
+            (true, _) => 1.0,
             (false, true) => 0.5,
             (false, false) => 0.0,
         }
     };
     for y in 0..10 {
         for x in 0..16 {
-            assert!((black[at(x, y)] - expected(x, y)).abs() < 1e-6, "black at ({x}, {y}): {}", black[at(x, y)]);
+            assert!(
+                (black[at(x, y)] - expected(x, y)).abs() < 1e-6,
+                "black at ({x}, {y}): {}",
+                black[at(x, y)]
+            );
         }
     }
     let red = plane(&drawn, "red")?;
@@ -121,7 +133,11 @@ fn a_layer_with_no_look_is_one_shape_in_one_ink_and_shapes_in_one_ink_overprint_
         for x in 0..16 {
             let inside = (12..14).contains(&x) && (4..6).contains(&y);
             let want = if inside { 0.75 } else { 0.0 };
-            assert!((red[at(x, y)] - want).abs() < 1e-6, "red at ({x}, {y}): {}", red[at(x, y)]);
+            assert!(
+                (red[at(x, y)] - want).abs() < 1e-6,
+                "red at ({x}, {y}): {}",
+                red[at(x, y)]
+            );
         }
     }
     Ok(())
@@ -135,7 +151,11 @@ fn plates_and_the_composite_are_the_same_whichever_is_drawn_first() -> Outcome {
     // the other order, on a scene made apart (its own cache)
     let second = print()?;
     assert_eq!(second.plates(24)?, plates, "plates first");
-    assert_eq!(second.render(24)?, composite, "then the composite, which the plates' draws must not have changed");
+    assert_eq!(
+        second.render(24)?,
+        composite,
+        "then the composite, which the plates' draws must not have changed"
+    );
     // and the same scene again, its cache full
     assert_eq!(first.plates(24)?, plates);
     assert_eq!(first.render(24)?, composite);
@@ -203,16 +223,18 @@ fn a_size_that_is_wrong_or_would_hold_too_many_values_is_refused_naming_size_bef
     let drawn = print()?;
     for size in [0_i64, -5, 65_001, i64::MAX] {
         let error = drawn.plates(size).err();
-        assert!(matches!(&error, Some(Error::Invalid { address, .. }) if address == "size"), "{size}: {error:?}");
+        assert!(
+            matches!(&error, Some(Error::Invalid { address, .. }) if address == "size"),
+            "{size}: {error:?}"
+        );
     }
     // 65,000 by 43,333 pixels is 2.8e9 values of one plate: past what plates hold, said before a pixel is drawn
-    let wide = scene(
-        65_000,
-        43_333,
-        [Layer::fill("#000000")?.inks(["a"])?],
-    )?;
+    let wide = scene(65_000, 43_333, [Layer::fill("#000000")?.inks(["a"])?])?;
     let error = wide.plates(65_000).err();
-    assert!(matches!(&error, Some(Error::Invalid { address, .. }) if address == "size"), "{error:?}");
+    assert!(
+        matches!(&error, Some(Error::Invalid { address, .. }) if address == "size"),
+        "{error:?}"
+    );
     Ok(())
 }
 
@@ -228,14 +250,12 @@ use crate::common::physical;
 /// A canvas of 4 by 2 with a `black` shape in column 0 and a half-strength `red` one in column 3, drawn at size 4 (a pixel
 /// each): the plates are `black` 1 0 0 0 and `red` 0 0 0 0.5 on both rows.
 fn two_columns() -> Result<Plates, Box<dyn std::error::Error>> {
-    let shape = |at: f64| Layer::fill("#123456").and_then(|layer| layer.fit([at, 0.0, 1.0, 2.0], Fit::Stretch, [0.5, 0.5]));
+    let shape =
+        |at: f64| Layer::fill("#123456").and_then(|layer| layer.fit([at, 0.0, 1.0, 2.0], Fit::Stretch, [0.5, 0.5]));
     Ok(scene(
         4,
         2,
-        [
-            shape(0.0)?.inks(["black"])?,
-            shape(3.0)?.opacity(0.5)?.inks(["red"])?,
-        ],
+        [shape(0.0)?.inks(["black"])?, shape(3.0)?.opacity(0.5)?.inks(["red"])?],
     )?
     .plates(4)?)
 }
@@ -252,6 +272,11 @@ const BLACK_REPEATED: [u8; 8] = [0, 0, 0, 255, 255, 255, 255, 255];
 const RED_MIRRORED: [u8; 8] = [255, 255, 255, 255, 255, 127, 127, 255];
 const RED_REPEATED: [u8; 8] = [255, 255, 255, 255, 255, 127, 127, 127];
 
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "a level rounded to 0..=255"
+)]
 /// The grey a PNG holds at each pixel (its colour type is checked to be grey, 8 bits) with its size.
 fn grey(path: &Path) -> Result<(usize, usize, Vec<u8>), Box<dyn std::error::Error>> {
     let bytes = std::fs::read(path)?;
@@ -265,7 +290,7 @@ fn grey(path: &Path) -> Result<(usize, usize, Vec<u8>), Box<dyn std::error::Erro
         height,
         values
             .chunks(step)
-            .map(|pixel| u8::try_from((pixel[0] * 255.0).round() as i64).unwrap_or(0))
+            .map(|pixel| (pixel[0] * 255.0).round() as u8)
             .collect(),
     ))
 }
@@ -280,7 +305,11 @@ fn a_plate_png_is_grey_with_ink_black_and_a_mirrored_bleed_folded_at_the_edge() 
         let written = two_columns()?.write_png(&folder.path().join("poster"), &bled(fill)?)?;
         let names: Vec<String> = written
             .iter()
-            .map(|path| path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default())
+            .map(|path| {
+                path.file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default()
+            })
             .collect();
         assert_eq!(names, ["poster-black.png", "poster-red.png"]);
         for (path, row) in written.iter().zip([black, red]) {
@@ -309,7 +338,11 @@ fn registration_marks_lie_at_the_same_pixels_on_every_plate_and_nowhere_else() -
     let side = 4 + 2 * (2 + 80);
     let rows = 2 + 2 * (2 + 80);
     let (black, red) = (grey(&with[0])?, grey(&with[1])?);
-    assert_eq!((black.0, black.1), (side, rows), "the plate, its bleed and 8 mm of margin on each side");
+    assert_eq!(
+        (black.0, black.1),
+        (side, rows),
+        "the plate, its bleed and 8 mm of margin on each side"
+    );
     // every pixel outside the picture and its bleed is the same on both plates: the marks, and only the marks
     let inside = |at: usize| {
         let (x, y) = (at % side, at / side);
@@ -342,8 +375,11 @@ fn registration_marks_lie_at_the_same_pixels_on_every_plate_and_nowhere_else() -
     Ok(())
 }
 
+/// A page of a PDF of plates: its image's width, height and grey, and the operations of its content.
+type PdfPage = (usize, usize, Vec<u8>, Vec<lopdf::content::Operation>);
+
 /// A PDF of plates read back: the page tree's image streams, as grey bytes, and the labels of the pages.
-fn pdf_pages(path: &Path) -> Result<Vec<(usize, usize, Vec<u8>, Vec<lopdf::content::Operation>)>, Box<dyn std::error::Error>> {
+fn pdf_pages(path: &Path) -> Result<Vec<PdfPage>, Box<dyn std::error::Error>> {
     let document = Document::load(path)?;
     let mut found = Vec::new();
     for id in document.get_pages().values() {
@@ -364,7 +400,12 @@ fn pdf_pages(path: &Path) -> Result<Vec<(usize, usize, Vec<u8>, Vec<lopdf::conte
             Ok(usize::try_from(image.dict.get(key)?.as_i64()?)?)
         };
         let operations = lopdf::content::Content::decode(&document.get_page_content(*id))?.operations;
-        found.push((side(b"Width")?, side(b"Height")?, image.decompressed_content()?, operations));
+        found.push((
+            side(b"Width")?,
+            side(b"Height")?,
+            image.decompressed_content()?,
+            operations,
+        ));
     }
     Ok(found)
 }
@@ -415,7 +456,11 @@ fn a_plate_pdf_has_a_page_for_each_ink_named_by_it_with_the_grey_of_the_png_and_
     };
     let (first, second) = (strokes(&pages[0].3), strokes(&pages[1].3));
     assert_eq!(first, second);
-    assert_eq!(first.iter().filter(|line| line.starts_with('S')).count(), 12, "three strokes at each of four targets");
+    assert_eq!(
+        first.iter().filter(|line| line.starts_with('S')).count(),
+        12,
+        "three strokes at each of four targets"
+    );
     Ok(())
 }
 
@@ -425,17 +470,32 @@ fn plate_files_are_refused_naming_the_argument_and_leave_no_file() -> Outcome {
     let plates = two_columns()?;
     let profile = PdfOptions::new(254.0)?.cmyk_profile("x.icc");
     let error = plates.write_pdf(&folder.path().join("a.pdf"), &profile).err();
-    assert!(matches!(&error, Some(Error::Invalid { address, .. }) if address == "cmyk_profile"), "{error:?}");
+    assert!(
+        matches!(&error, Some(Error::Invalid { address, .. }) if address == "cmyk_profile"),
+        "{error:?}"
+    );
     let error = plates.write_png(&folder.path().join("a"), &profile).err();
-    assert!(matches!(&error, Some(Error::Invalid { address, .. }) if address == "cmyk_profile"), "{error:?}");
+    assert!(
+        matches!(&error, Some(Error::Invalid { address, .. }) if address == "cmyk_profile"),
+        "{error:?}"
+    );
     // a page past what a reader takes: the dpi is named, as for a picture's PDF
     // 300 pixels at 1 dpi are 300 in, past the 200 in of a PDF page
     let wide = scene(300, 10, [Layer::fill("#000000")?.inks(["a"])?])?.plates(300)?;
-    let error = wide.write_pdf(&folder.path().join("b.pdf"), &PdfOptions::new(1.0)?).err();
-    assert!(matches!(&error, Some(Error::Invalid { address, .. }) if address == "dpi"), "{error:?}");
-    let error = plates.write_png(&folder.path().join("nowhere").join("a"), &bled(BleedFill::Repeat)?).err();
+    let error = wide
+        .write_pdf(&folder.path().join("b.pdf"), &PdfOptions::new(1.0)?)
+        .err();
+    assert!(
+        matches!(&error, Some(Error::Invalid { address, .. }) if address == "dpi"),
+        "{error:?}"
+    );
+    let error = plates
+        .write_png(&folder.path().join("nowhere").join("a"), &bled(BleedFill::Repeat)?)
+        .err();
     assert!(matches!(&error, Some(Error::Write { .. })), "{error:?}");
-    let error = plates.write_pdf(&folder.path().join("nowhere").join("a.pdf"), &bled(BleedFill::Repeat)?).err();
+    let error = plates
+        .write_pdf(&folder.path().join("nowhere").join("a.pdf"), &bled(BleedFill::Repeat)?)
+        .err();
     assert!(matches!(&error, Some(Error::Write { .. })), "{error:?}");
     assert_eq!(std::fs::read_dir(folder.path())?.count(), 0, "nothing is left");
     Ok(())
@@ -449,9 +509,10 @@ use bullterrier_scene::Underbase;
 /// `sigma` makes of a step, worked out outside the blur.
 fn normal_cdf(x: f64) -> f64 {
     let t = 1.0 / (1.0 + 0.327_591_1 * (x.abs() / std::f64::consts::SQRT_2));
-    let poly = t * (0.254_829_592 + t * (-0.284_496_736 + t * (1.421_413_741 + t * (-1.453_152_027 + t * 1.061_405_429))));
+    let poly =
+        t * (0.254_829_592 + t * (-0.284_496_736 + t * (1.421_413_741 + t * (-1.453_152_027 + t * 1.061_405_429))));
     let erf = 1.0 - poly * (-(x * x) / 2.0).exp();
-    0.5 * (1.0 + if x >= 0.0 { erf } else { -erf })
+    f64::midpoint(1.0, if x >= 0.0 { erf } else { -erf })
 }
 
 const GARMENT: &str = "#202020";
@@ -463,7 +524,9 @@ fn red_box() -> Result<Scene, Error> {
         9,
         [
             Layer::fill(GARMENT)?,
-            Layer::fill("#ff0000")?.fit([2.0, 2.0, 5.0, 5.0], Fit::Stretch, [0.5, 0.5])?.inks(["red"])?,
+            Layer::fill("#ff0000")?
+                .fit([2.0, 2.0, 5.0, 5.0], Fit::Stretch, [0.5, 0.5])?
+                .inks(["red"])?,
         ],
     )
 }
@@ -485,7 +548,11 @@ fn the_underbase_is_the_union_of_the_inks_choked_by_a_width_and_comes_first() ->
             } else {
                 1.0
             };
-            assert!((white[y * 9 + x] - want).abs() < 1e-6, "({x}, {y}): {}", white[y * 9 + x]);
+            assert!(
+                (white[y * 9 + x] - want).abs() < 1e-6,
+                "({x}, {y}): {}",
+                white[y * 9 + x]
+            );
         }
     }
     // the inks are the plates the scene makes, unchanged
@@ -506,8 +573,12 @@ fn two_boxes(dark: &str) -> Result<Scene, Error> {
         6,
         [
             Layer::fill(GARMENT)?,
-            Layer::fill("#ff0000")?.fit([1.0, 1.0, 4.0, 4.0], Fit::Stretch, [0.5, 0.5])?.inks(["red"])?,
-            Layer::fill(dark)?.fit([7.0, 1.0, 4.0, 4.0], Fit::Stretch, [0.5, 0.5])?.inks(["dark"])?,
+            Layer::fill("#ff0000")?
+                .fit([1.0, 1.0, 4.0, 4.0], Fit::Stretch, [0.5, 0.5])?
+                .inks(["red"])?,
+            Layer::fill(dark)?
+                .fit([7.0, 1.0, 4.0, 4.0], Fit::Stretch, [0.5, 0.5])?
+                .inks(["dark"])?,
         ],
     )
 }
@@ -520,7 +591,11 @@ fn the_underbase_is_knocked_out_where_the_colour_is_the_garments_within_the_tole
     let white = plane(&exact, "white")?;
     for y in 0..6 {
         for x in 0..12 {
-            let want = if (1..5).contains(&x) && (1..5).contains(&y) { 1.0 } else { 0.0 };
+            let want = if (1..5).contains(&x) && (1..5).contains(&y) {
+                1.0
+            } else {
+                0.0
+            };
             assert_eq!(white[y * 12 + x], want, "exact: ({x}, {y})");
         }
     }
@@ -529,7 +604,11 @@ fn the_underbase_is_knocked_out_where_the_colour_is_the_garments_within_the_tole
         let plates = near.plates_with_underbase(12, &Underbase::new(GARMENT)?.tolerance(tolerance)?)?;
         Ok(plane(&plates, "white")?[2 * 12 + 9])
     };
-    assert_eq!(covered(0.01)?, 1.0, "a tolerance under the distance keeps the underbase");
+    assert_eq!(
+        covered(0.01)?,
+        1.0,
+        "a tolerance under the distance keeps the underbase"
+    );
     assert_eq!(covered(0.02)?, 0.0, "a tolerance over the distance knocks it out");
     Ok(())
 }
@@ -543,8 +622,12 @@ fn the_feather_softens_the_edge_of_the_knockout_as_a_blur_of_that_many_pixels() 
         4,
         [
             Layer::fill(GARMENT)?,
-            Layer::fill("#ff0000")?.fit([1.0, 0.0, 5.0, 4.0], Fit::Stretch, [0.5, 0.5])?.inks(["red"])?,
-            Layer::fill(GARMENT)?.fit([6.0, 0.0, 5.0, 4.0], Fit::Stretch, [0.5, 0.5])?.inks(["dark"])?,
+            Layer::fill("#ff0000")?
+                .fit([1.0, 0.0, 5.0, 4.0], Fit::Stretch, [0.5, 0.5])?
+                .inks(["red"])?,
+            Layer::fill(GARMENT)?
+                .fit([6.0, 0.0, 5.0, 4.0], Fit::Stretch, [0.5, 0.5])?
+                .inks(["dark"])?,
         ],
     )?;
     let plates = scene.plates_with_underbase(12, &Underbase::new(GARMENT)?.feather(1.0)?)?;
@@ -553,7 +636,7 @@ fn the_feather_softens_the_edge_of_the_knockout_as_a_blur_of_that_many_pixels() 
     for x in [3_usize, 4, 5, 6, 7, 8] {
         // the knockout is a step up at 6.0 and the pixel's centre is at x + 0.5: the blur has taken the share the normal curve has
         // below that distance from the step, and the underbase is what is left
-        let want = 1.0 - normal_cdf(x as f64 + 0.5 - 6.0);
+        let want = 1.0 - normal_cdf(f64::from(u8::try_from(x)?) + 0.5 - 6.0);
         assert!((row(x) - want).abs() < 0.05, "column {x}: {} against {want}", row(x));
     }
     Ok(())
@@ -566,10 +649,22 @@ fn underbase_options_that_are_not_allowed_are_refused_naming_the_argument() -> O
         ("a choke below 0", Underbase::new(GARMENT)?.choke(-1.0), "choke"),
         ("a choke that is NaN", Underbase::new(GARMENT)?.choke(f64::NAN), "choke"),
         ("a choke of 1e300", Underbase::new(GARMENT)?.choke(1e300), "choke"),
-        ("a tolerance over 1", Underbase::new(GARMENT)?.tolerance(1.5), "tolerance"),
-        ("a tolerance that is NaN", Underbase::new(GARMENT)?.tolerance(f64::NAN), "tolerance"),
+        (
+            "a tolerance over 1",
+            Underbase::new(GARMENT)?.tolerance(1.5),
+            "tolerance",
+        ),
+        (
+            "a tolerance that is NaN",
+            Underbase::new(GARMENT)?.tolerance(f64::NAN),
+            "tolerance",
+        ),
         ("a feather below 0", Underbase::new(GARMENT)?.feather(-0.1), "feather"),
-        ("a feather of infinity", Underbase::new(GARMENT)?.feather(f64::INFINITY), "feather"),
+        (
+            "a feather of infinity",
+            Underbase::new(GARMENT)?.feather(f64::INFINITY),
+            "feather",
+        ),
         ("a name with a slash", Underbase::new(GARMENT)?.name("a/b"), "name"),
     ];
     for (what, made, named) in rows {
@@ -580,9 +675,19 @@ fn underbase_options_that_are_not_allowed_are_refused_naming_the_argument() -> O
         );
     }
     // the underbase's name is an ink's: the scene is refused, as is one that names no ink
-    let error = red_box()?.plates_with_underbase(9, &Underbase::new(GARMENT)?.name("red")?).err();
-    assert!(matches!(&error, Some(Error::Invalid { address, .. }) if address == "name"), "{error:?}");
-    let error = scene(4, 4, [Layer::fill(GARMENT)?])?.plates_with_underbase(4, &Underbase::new(GARMENT)?).err();
-    assert!(matches!(&error, Some(Error::Invalid { address, .. }) if address == "inks"), "{error:?}");
+    let error = red_box()?
+        .plates_with_underbase(9, &Underbase::new(GARMENT)?.name("red")?)
+        .err();
+    assert!(
+        matches!(&error, Some(Error::Invalid { address, .. }) if address == "name"),
+        "{error:?}"
+    );
+    let error = scene(4, 4, [Layer::fill(GARMENT)?])?
+        .plates_with_underbase(4, &Underbase::new(GARMENT)?)
+        .err();
+    assert!(
+        matches!(&error, Some(Error::Invalid { address, .. }) if address == "inks"),
+        "{error:?}"
+    );
     Ok(())
 }

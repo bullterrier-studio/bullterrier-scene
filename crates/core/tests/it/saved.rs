@@ -771,9 +771,15 @@ fn the_inks_of_a_layer_are_in_the_document_and_in_equality_and_read_back() -> Ou
     // a bad list names the member
     let bad = r##"{"version":1,"canvas":{"width":24,"height":16},"layers":[{"fill":"#101018","inks":["a","a"]}]}"##;
     let error = read(bad).err();
-    assert!(matches!(&error, Some(Error::Format { pointer, .. }) if pointer == "/layers/0/inks"), "{error:?}");
+    assert!(
+        matches!(&error, Some(Error::Format { pointer, .. }) if pointer == "/layers/0/inks"),
+        "{error:?}"
+    );
     let bad = r##"{"version":1,"canvas":{"width":24,"height":16},"layers":[{"fill":"#101018","inks":"red"}]}"##;
     let error = read(bad).err();
-    assert!(matches!(&error, Some(Error::Format { pointer, .. }) if pointer == "/layers/0/inks"), "{error:?}");
+    assert!(
+        matches!(&error, Some(Error::Format { pointer, .. }) if pointer == "/layers/0/inks"),
+        "{error:?}"
+    );
     Ok(())
 }

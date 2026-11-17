@@ -374,7 +374,12 @@ impl Look {
             .enumerate()
             .flat_map(|(at, (&[red, green, blue], pixel))| {
                 let alpha = if light { 1.0 } else { pixel[3] };
-                [red, green, blue, alpha * coverage.as_ref().map_or(1.0, |plane| plane[at])]
+                [
+                    red,
+                    green,
+                    blue,
+                    alpha * coverage.as_ref().map_or(1.0, |plane| plane[at]),
+                ]
             })
             .collect();
         Ok(Raster::made(layer.width(), layer.height(), pixels))

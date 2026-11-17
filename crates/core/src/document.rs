@@ -251,7 +251,10 @@ fn layer_document(layer: &Layer, form: Form) -> Result<Map<String, Value>, Error
         found.insert("light".to_owned(), Value::Bool(true));
     }
     if !join.inks.is_empty() {
-        found.insert("inks".to_owned(), join.inks.iter().cloned().map(Value::String).collect());
+        found.insert(
+            "inks".to_owned(),
+            join.inks.iter().cloned().map(Value::String).collect(),
+        );
     }
     for mask in &join.masks {
         let mut entry = Map::new();

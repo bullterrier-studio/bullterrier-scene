@@ -3,14 +3,14 @@
 use std::path::{Path, PathBuf};
 
 use crate::blend::Blend;
-use crate::geometry::MAX_PIXELS;
 use crate::feather;
+use crate::geometry::MAX_PIXELS;
 use crate::layer::{Base, check_name};
-use crate::ranges::{CHOKE, FEATHER, TOLERANCE};
-use crate::source::fill::Fill;
 use crate::marks::{self, MM_PER_INCH, POINTS_PER_INCH, WIDTH_POINTS};
 use crate::pdf::{Geometry, PdfStream, geometry, write_document};
+use crate::ranges::{CHOKE, FEATHER, TOLERANCE};
 use crate::raster::eight_bit;
+use crate::source::fill::Fill;
 use crate::stream::{failed, write_grey_png};
 use crate::{Error, Layer, PdfOptions, Raster, Scene, render};
 
@@ -156,14 +156,21 @@ impl Scene {
         if ink_names(self.drawn()).contains(&underbase.name.as_str()) {
             return Err(Error::invalid(
                 "name",
-                format!("{:?} is the name of an ink of the scene as well as of the underbase", underbase.name),
+                format!(
+                    "{:?} is the name of an ink of the scene as well as of the underbase",
+                    underbase.name
+                ),
             ));
         }
         let mut plates = make_with(self, size, 1)?;
         let (columns, rows) = (plates.columns, plates.rows);
         let scale = float(columns.max(rows)) / f64::from(self.width().max(self.height()));
         let sigma = underbase.feather * scale;
-        feather::fits("feather", (columns, rows), (feather::reach(sigma), feather::reach(sigma)))?;
+        feather::fits(
+            "feather",
+            (columns, rows),
+            (feather::reach(sigma), feather::reach(sigma)),
+        )?;
         let picture = self.render(size)?;
         let mut union = vec![1.0_f32; columns * rows];
         for (_, plane) in &plates.planes {
@@ -214,7 +221,10 @@ impl Scene {
 }
 
 /// `count` as a double: a side is far under 2^52.
-#[expect(clippy::cast_precision_loss, reason = "a side of a picture is under 2^27, exact in a double")]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "a side of a picture is under 2^27, exact in a double"
+)]
 fn float(count: usize) -> f64 {
     count as f64
 }
@@ -239,10 +249,18 @@ fn distance_to_bare((columns, rows): (usize, usize), covered: &[bool]) -> Vec<f3
         }
     }
     for y in 0..rows {
-        along(&squared[y * columns..(y + 1) * columns], &mut made[..columns], &mut parabolas, &mut bounds);
+        along(
+            &squared[y * columns..(y + 1) * columns],
+            &mut made[..columns],
+            &mut parabolas,
+            &mut bounds,
+        );
         squared[y * columns..(y + 1) * columns].copy_from_slice(&made[..columns]);
     }
-    #[expect(clippy::cast_possible_truncation, reason = "a distance in a picture is far under what a float holds")]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a distance in a picture is far under what a float holds"
+    )]
     squared.iter().map(|square| square.sqrt() as f32).collect()
 }
 
@@ -367,6 +385,11 @@ impl Plates {
     }
 
     /// The page of one plate as a PNG holds it: its size and the grey of each pixel.
+    #[expect(
+        clippy::cast_possible_wrap,
+        clippy::cast_precision_loss,
+        reason = "a side of a plate is under 2^27 pixels: exact in a double and in a signed place"
+    )]
     fn page(&self, plane: &[f32], options: &PdfOptions, layout: &Geometry) -> ((usize, usize), Vec<u8>) {
         let pad = layout.bleed_pixels + layout.margin_pixels;
         let (width, height) = (self.columns + 2 * pad, self.rows + 2 * pad);
@@ -387,7 +410,12 @@ impl Plates {
         }
         // the marks, in pixels from the page's lower left (y up), drawn black
         let per_mm = options.dpi() / MM_PER_INCH;
-        let trim = [pad as f64, pad as f64, (pad + self.columns) as f64, (pad + self.rows) as f64];
+        let trim = [
+            pad as f64,
+            pad as f64,
+            (pad + self.columns) as f64,
+            (pad + self.rows) as f64,
+        ];
         let half = WIDTH_POINTS / POINTS_PER_INCH * options.dpi() / 2.0;
         for mark in marks::lines(trim, options.bleed_width(), per_mm, options.marks()) {
             for segment in mark.windows(2) {
@@ -401,6 +429,12 @@ impl Plates {
 
 /// Black over `grey` (`width` pixels a row) along the segment from `from` to `to`, `half` pixels either side: each pixel gets
 /// the share of ink that its distance from the segment leaves it (a pixel `half` away has half, one `half + 0.5` away none).
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    reason = "pixel places are under 2^27 and the share of ink is held between 0 and 1"
+)]
 fn stroke(grey: &mut [u8], width: usize, from: [f64; 2], to: [f64; 2], half: f64) {
     let reach = half + 1.0;
     let height = grey.len() / width;
@@ -414,7 +448,8 @@ fn stroke(grey: &mut [u8], width: usize, from: [f64; 2], to: [f64; 2], half: f64
             let along = if length_squared == 0.0 {
                 0.0
             } else {
-                (((centre[0] - from[0]) * direction[0] + (centre[1] - from[1]) * direction[1]) / length_squared).clamp(0.0, 1.0)
+                (((centre[0] - from[0]) * direction[0] + (centre[1] - from[1]) * direction[1]) / length_squared)
+                    .clamp(0.0, 1.0)
             };
             let nearest = [from[0] + along * direction[0], from[1] + along * direction[1]];
             let distance = (centre[0] - nearest[0]).hypot(centre[1] - nearest[1]);
@@ -444,14 +479,11 @@ fn ink_names(drawn: &[Layer]) -> Vec<&str> {
 ///
 /// # Errors
 /// [`Error::Invalid`] naming `<layer>.inks` for a layer that is light, or that cannot hand its inks on.
-fn for_ink(layer: &Layer, place: usize, ink: &str) -> Result<Option<Layer>, Error> {
+fn for_ink(layer: &Layer, at: usize, ink: &str) -> Result<Option<Layer>, Error> {
     let Some(index) = layer.join.inks.iter().position(|name| name == ink) else {
         return Ok(None);
     };
-    let label = layer
-        .name
-        .clone()
-        .unwrap_or_else(|| format!("layer{}", place + 1));
+    let label = layer.name.clone().unwrap_or_else(|| format!("layer{}", at + 1));
     let refused = |error: Error| error.in_layer(&label);
     if layer.join.light {
         return Err(refused(Error::invalid(
@@ -463,10 +495,7 @@ fn for_ink(layer: &Layer, place: usize, ink: &str) -> Result<Option<Layer>, Erro
     let Base::Body(body) = &mut plate.base else {
         return Err(refused(Error::invalid("inks", "the layer was not resolved by a scene")));
     };
-    body.finish = body
-        .finish
-        .for_plate(index, layer.join.inks.len())
-        .map_err(refused)?;
+    body.finish = body.finish.for_plate(index, layer.join.inks.len()).map_err(refused)?;
     plate.join.blend = Blend::Normal;
     Ok(Some(plate))
 }
@@ -507,10 +536,16 @@ pub(crate) fn make_with(scene: &Scene, size: i128, extra: usize) -> Result<Plate
             .drawn()
             .iter()
             .enumerate()
-            .filter_map(|(place, layer)| for_ink(layer, place, ink).transpose())
+            .filter_map(|(at, layer)| for_ink(layer, at, ink).transpose())
             .collect::<Result<Vec<_>, _>>()?;
         let picture = scene.drawing(layers).render(size)?;
-        let coverage = picture.pixels().as_chunks::<4>().0.iter().map(|pixel| pixel[3]).collect();
+        let coverage = picture
+            .pixels()
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|pixel| pixel[3])
+            .collect();
         planes.push((ink.to_owned(), coverage));
     }
     Ok(Plates { columns, rows, planes })

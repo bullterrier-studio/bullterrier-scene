@@ -7,8 +7,8 @@
 //! the picture at its physical size. The picture is drawn with its bleed (the edge pixels repeated outward, whole pixels) and
 //! clipped to the bleed box.
 
-use std::fs::File;
 use std::collections::VecDeque;
+use std::fs::File;
 use std::io::{self, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
@@ -289,12 +289,7 @@ impl PdfStream {
     ///
     /// # Errors
     /// As [`Raster::write_pdf`], for a profile and a size, and [`Error::Write`] naming `path` for a folder that is not there.
-    pub(crate) fn create(
-        path: &Path,
-        size: (usize, usize),
-        options: &PdfOptions,
-        limit: usize,
-    ) -> Result<Self, Error> {
+    pub(crate) fn create(path: &Path, size: (usize, usize), options: &PdfOptions, limit: usize) -> Result<Self, Error> {
         Self::open(path, 0, false, size, options, limit)
     }
 
@@ -343,7 +338,13 @@ impl PdfStream {
                 )
             })?;
         let channels = channels(profile.is_some(), grey);
-        let tag = |kind: &str| if page == 0 { kind.to_owned() } else { format!("{kind}{page}") };
+        let tag = |kind: &str| {
+            if page == 0 {
+                kind.to_owned()
+            } else {
+                format!("{kind}{page}")
+            }
+        };
         let (colour_part, colour_file) = Part::scratch(path, &tag("colour"))?;
         let (alpha_part, alpha_file) = Part::scratch(path, &tag("alpha"))?;
         Ok(Self {
@@ -437,7 +438,10 @@ impl PdfStream {
     /// [`Error::Write`] naming the path if a stream cannot be kept.
     fn keep_row(&mut self) -> Result<(), Error> {
         let (bleed, height) = (self.layout.bleed_pixels, self.height);
-        let row = (std::mem::take(&mut self.colour_row), std::mem::take(&mut self.alpha_row));
+        let row = (
+            std::mem::take(&mut self.colour_row),
+            std::mem::take(&mut self.alpha_row),
+        );
         let held = bleed.min(height);
         if bleed == 0 {
             self.write_row(&row)?;
@@ -498,7 +502,7 @@ impl PdfStream {
             colour,
             alpha,
             translucent,
-            _scratch,
+            _scratch: scratch,
             ..
         } = self;
         let colour = colour.finish().map_err(|error| failed(&path, error))?;
@@ -512,7 +516,7 @@ impl PdfStream {
             label,
             colour,
             alpha,
-            _scratch,
+            _scratch: scratch,
         })
     }
 
@@ -763,6 +767,10 @@ fn rectangle([left, bottom, right, top]: [f64; 4]) -> String {
 ///
 /// # Errors
 /// What `out` or a stream's file refuses.
+#[expect(
+    clippy::too_many_lines,
+    reason = "the objects of the file in the order they are written"
+)]
 fn document(out: impl Write, options: &PdfOptions, profile: Option<&[u8]>, pages: Vec<Page>) -> io::Result<()> {
     let mut out = Counted { inner: out, at: 0 };
     let mut offsets = Vec::new();

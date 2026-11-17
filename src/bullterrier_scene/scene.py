@@ -10,6 +10,7 @@ import numpy.typing as npt
 from ._native import _core
 from .layer import Layer
 from .parameter import Parameter
+from .plates import Plates, Underbase
 
 __all__ = ["Scene"]
 
@@ -164,6 +165,22 @@ class Scene:
         drawing its sibling crate refuses at this size (naming the layer); `ReadError` for a file that cannot be read.
         """
         return self._core.render(size)
+
+    def plates(self, size: int, *, underbase: Underbase | None = None) -> Plates:
+        """The plates at `size` (the long side in output pixels, as `render`): one plane of ink coverage for each ink
+        the
+        layers name (`Layer.inks`), in the order the inks first appear, bottom layer first. Plate `i` is what the scene
+        draws with only the layers of ink `i` on it, each as the shape of its ink (the plane its look separates, or its
+        alpha), placed, masked and faded as in the picture, and joined over the others of that ink as an overprint
+        (`a` over `b` is `a + b (1 - a)`); a layer's blend mode is not asked. Laid over the paper by the overprint
+        rule the
+        plates are the picture. With `underbase` a white plate comes first. Planes of more than 2^27 values in all
+        (columns times rows times inks) are refused before anything is drawn. `InvalidError` naming `size`, or `inks`
+        for a scene that names no ink, a light layer, a layer with no look naming more than one ink and a look that
+        separates no inks or another number than the names, or `name` for an underbase named as an ink.
+        """
+        arguments = None if underbase is None else underbase._arguments()  # noqa: SLF001
+        return Plates._of(self._core.plates(size, arguments))  # noqa: SLF001
 
     def render_bands(self, size: int, band_rows: int, sink: Callable[[int, npt.NDArray[np.float32]], object]) -> None:
         """The picture of `render`, drawn a band of rows at a time, so that the whole picture is never held.

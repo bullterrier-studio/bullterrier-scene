@@ -7,11 +7,14 @@ mod kinds;
 
 use std::path::PathBuf;
 
-use numpy::{Element, PyArray1, PyArray3, PyArrayMethods, PyReadonlyArrayDyn, PyUntypedArrayMethods};
+use numpy::{Element, PyArray1, PyArray2, PyArray3, PyArrayMethods, PyReadonlyArrayDyn, PyUntypedArrayMethods};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString, PyTuple};
 
-use bullterrier_scene::{Blend, Deg, Fit, Map, Mask, Parameter, Place, Px, Raster, Text, Use, Value, Values};
+use bullterrier_scene::{
+    BleedFill, Blend, Deg, Fit, Map, Mask, Parameter, PdfOptions, Place, Px, Raster, Text, Underbase, Use, Value,
+    Values,
+};
 
 /// bullterrier-scene's Rust core.
 #[pymodule]
@@ -19,7 +22,7 @@ mod _core {
     #[pymodule_export]
     use super::kinds::{Snapshot, layer_kinds, register_layer, registry_restore, registry_snapshot};
     #[pymodule_export]
-    use super::{Held, Layer, Scene, main};
+    use super::{Held, Layer, Plates, Scene, main};
 
     /// The most layers a scene holds.
     #[pymodule_export]
@@ -297,6 +300,33 @@ struct Layer(bullterrier_scene::Layer);
 #[derive(PartialEq)]
 struct Scene(bullterrier_scene::Scene);
 
+/// The plates of a scene: one plane of ink coverage for each ink. It never changes.
+#[pyclass(frozen, eq, name = "Plates", module = "bullterrier_scene._native._core")]
+#[derive(PartialEq)]
+struct Plates(bullterrier_scene::Plates);
+
+/// The print page of `dpi`, `bleed_mm`, the bleed's `fill` ("repeat" or "mirror") and the marks.
+fn page_options(
+    py: Python<'_>,
+    (dpi, bleed_mm, fill, crop_marks, registration_marks): (f64, f64, String, bool, bool),
+) -> PyResult<PdfOptions> {
+    let fill = match fill.as_str() {
+        "repeat" => BleedFill::Repeat,
+        "mirror" => BleedFill::Mirror,
+        other => {
+            return Err(error::invalid(
+                py,
+                format!("bleed_fill: \"repeat\" or \"mirror\" is wanted, got {other:?}"),
+            ));
+        }
+    };
+    let options = PdfOptions::new(dpi).and_then(|options| options.bleed_mm(bleed_mm));
+    Ok(wrap(py, options)?
+        .bleed_fill(fill)
+        .crop_marks(crop_marks)
+        .registration_marks(registration_marks))
+}
+
 /// `result` with a refusal of the core raised as the package's exception.
 fn wrap<T>(py: Python<'_>, result: Result<T, bullterrier_scene::Error>) -> PyResult<T> {
     result.map_err(|failure| error::raised(py, &failure))
@@ -435,6 +465,12 @@ impl Layer {
     fn blend(&self, py: Python<'_>, mode: &str) -> PyResult<Self> {
         let mode: Blend = wrap(py, mode.parse())?;
         Ok(Self(self.0.clone().blend(mode)))
+    }
+
+    /// This layer printed in the inks `names`, one for each plane its last look separates (one for a layer with no look).
+    #[expect(clippy::needless_pass_by_value, reason = "pyo3 hands the extracted list over")]
+    fn inks(&self, py: Python<'_>, names: Vec<String>) -> PyResult<Self> {
+        wrap(py, self.0.clone().inks(names.iter().map(String::as_str))).map(Self)
     }
 
     /// This layer made light (`on`), or not.
@@ -584,6 +620,31 @@ impl Scene {
         PyArray1::from_vec(py, raster.into_pixels()).reshape([height, width, 4])
     }
 
+    /// The plates at `size`: one plane for each ink the layers name. `underbase` is (garment, choke, tolerance, feather, name) for
+    /// a white plate first, or `None`.
+    fn plates(
+        &self,
+        py: Python<'_>,
+        size: i128,
+        underbase: Option<(String, f64, f64, f64, String)>,
+    ) -> PyResult<Plates> {
+        let made = match underbase {
+            None => py.detach(|| self.0.plates(size)),
+            Some((garment, choke, tolerance, feather, name)) => {
+                let underbase = wrap(
+                    py,
+                    Underbase::new(&garment)
+                        .and_then(|underbase| underbase.choke(choke))
+                        .and_then(|underbase| underbase.tolerance(tolerance))
+                        .and_then(|underbase| underbase.feather(feather))
+                        .and_then(|underbase| underbase.name(&name)),
+                )?;
+                py.detach(|| self.0.plates_with_underbase(size, &underbase))
+            }
+        };
+        wrap(py, made).map(Plates)
+    }
+
     /// The picture a band of rows at a time: `sink(first_row, band)` is called with each band's first row and its float32 array
     /// (rows, width, 4), top to bottom. An exception of `sink` ends the render and is raised as it is.
     fn render_bands(&self, py: Python<'_>, size: i128, band_rows: usize, sink: &Bound<'_, PyAny>) -> PyResult<()> {
@@ -611,5 +672,56 @@ impl Scene {
             Some(failure) => Err(failure),
             None => wrap(py, outcome),
         }
+    }
+}
+
+#[pymethods]
+impl Plates {
+    /// The inks, in plate order.
+    #[getter]
+    fn names(&self) -> Vec<String> {
+        self.0.names().into_iter().map(str::to_owned).collect()
+    }
+
+    /// The number of columns.
+    #[getter]
+    fn width(&self) -> usize {
+        self.0.width()
+    }
+
+    /// The number of rows.
+    #[getter]
+    fn height(&self) -> usize {
+        self.0.height()
+    }
+
+    /// How much of the ink `name` lies on each pixel, as a new float32 array (height, width), 0 to 1.
+    fn plane<'py>(&self, py: Python<'py>, name: &str) -> PyResult<Bound<'py, PyArray2<f32>>> {
+        let plane = self.0.plane(name).ok_or_else(|| {
+            error::invalid(
+                py,
+                format!("name: no plate {name:?}; the plates are {}", self.0.names().join(", ")),
+            )
+        })?;
+        PyArray1::from_slice(py, plane).reshape([self.0.height(), self.0.width()])
+    }
+
+    /// Writes each plate as a grey PNG, `<stem>-<ink>.png`, and returns the paths.
+    #[expect(clippy::needless_pass_by_value, reason = "pyo3 extracts a path by value")]
+    fn write_png(
+        &self,
+        py: Python<'_>,
+        stem: PathBuf,
+        options: (f64, f64, String, bool, bool),
+    ) -> PyResult<Vec<PathBuf>> {
+        let options = page_options(py, options)?;
+        wrap(py, py.detach(|| self.0.write_png(&stem, &options)))
+    }
+
+    /// Writes the plates as one PDF with a page for each, named by its ink.
+    #[expect(clippy::needless_pass_by_value, reason = "pyo3 extracts a path by value")]
+    fn write_pdf(&self, py: Python<'_>, path: PathBuf, options: (f64, f64, String, bool, bool)) -> PyResult<()> {
+        let options = page_options(py, options)?;
+        wrap(py, py.detach(|| self.0.write_pdf(&path, &options)))
     }
 }

@@ -55,13 +55,19 @@ pub(crate) fn lines(trim: [f64; 4], bleed_mm: f64, per_mm: f64, which: Which) ->
         }
     }
     if which.registration {
-        let middle = [(left + right) / 2.0, (bottom + top) / 2.0];
+        let middle = [f64::midpoint(left, right), f64::midpoint(bottom, top)];
         let centre = GAP_MM + LENGTH_MM / 2.0;
         let half = LENGTH_MM / 2.0 * per_mm;
         let mut centres = Vec::new();
         for outward in [-1.0, 1.0] {
-            centres.push([middle[0], if outward < 0.0 { bottom } else { top } + outward * out(centre)]);
-            centres.push([if outward < 0.0 { left } else { right } + outward * out(centre), middle[1]]);
+            centres.push([
+                middle[0],
+                if outward < 0.0 { bottom } else { top } + outward * out(centre),
+            ]);
+            centres.push([
+                if outward < 0.0 { left } else { right } + outward * out(centre),
+                middle[1],
+            ]);
         }
         for [x, y] in centres {
             marks.push(vec![[x - half, y], [x + half, y]]);

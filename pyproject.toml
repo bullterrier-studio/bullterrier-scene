@@ -80,6 +80,7 @@ dev = [
     "jsonschema>=4.26.0",
     "mypy>=2.4.0",
     "packaging>=26.3",
+    "pillow>=13.0.0",
     "pip-audit>=2.10.1",
     "poethepoet>=0.49.0",
     "pre-commit>=4.7.0",
@@ -335,7 +336,7 @@ DEP004 = ["packaging"]
 root_package = "bullterrier_scene"
 
 [[tool.importlinter.contracts]]
-name = "Layers: __main__ > cli > scene > layer > parameter > plugin > _native > errors"
+name = "Layers: __main__ > cli > scene > layer > plates > parameter > plugin > _native > errors"
 type = "layers"
 containers = ["bullterrier_scene"]
 exhaustive = true  # a new top-level module must be placed in a layer here
@@ -344,6 +345,7 @@ layers = [
     "cli",  # app: the command line
     "scene",  # the scene: a canvas and its stack of layers
     "layer",  # the layer: what it takes of the objects the sibling packages write (looks, drawings) and gives the core
+    "plates",  # the plates a scene makes and the print page they are written on: a value over the core, no layer
     "parameter",  # what a scene says of one value a caller may set: a plain record, it imports nothing
     # the author-facing module: the decorator and the loader of entry-point plugins. The extension calls its `_load` when
     # the registry is first asked (a call at run time, not an import: the extension still imports nothing of the package)

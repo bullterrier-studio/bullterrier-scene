@@ -130,7 +130,8 @@ pub(crate) fn physical(path: &Path) -> Result<Option<(u32, u32, u8)>, std::io::E
         let length = u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]) as usize;
         let data = at + 8;
         if &bytes[at + 4..at + 8] == b"pHYs" {
-            let count = |from: usize| u32::from_be_bytes([bytes[from], bytes[from + 1], bytes[from + 2], bytes[from + 3]]);
+            let count =
+                |from: usize| u32::from_be_bytes([bytes[from], bytes[from + 1], bytes[from + 2], bytes[from + 3]]);
             return Ok(Some((count(data), count(data + 4), bytes[data + 8])));
         }
         at = data + length + 4;

@@ -12,6 +12,7 @@ pub(crate) fn raised(py: Python<'_>, error: &Error) -> PyErr {
         Error::Invalid { .. } => "InvalidError",
         Error::Format { .. } => "FormatError",
         Error::Read { .. } => "ReadError",
+        Error::Write { .. } => "WriteError",
         // the enum is non-exhaustive: a variant added to the core without a class here is a bug to see
         _ => return PyRuntimeError::new_err(error.to_string()),
     };
