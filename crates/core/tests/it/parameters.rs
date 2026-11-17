@@ -823,13 +823,13 @@ fn a_look_takes_the_rules_between_its_numbers_and_its_whole_numbers_from_image()
             .is_err()
     );
     // a whole number
-    let halftone = r#"{"steps": [{"effect": "halftone", "params": {"cell": 4}}]}"#;
-    let dots = scene(6, 4, [Layer::picture(numbered(6, 4)?).look(halftone)?.named("p")?])?;
-    let listed = dots.parameters();
-    let cell = at(&listed, "p.look.halftone.cell")?;
-    assert_eq!(cell.kind, Kind::Int);
-    dots.with_values(&Values::new().set("p.look.halftone.cell", 6.0))?;
-    let message = refusal(&dots, "p.look.halftone.cell", 3.5)?;
+    let bloom = r#"{"steps": [{"effect": "bloom", "params": {"octaves": 4}}]}"#;
+    let glow = scene(6, 4, [Layer::picture(numbered(6, 4)?).look(bloom)?.named("p")?])?;
+    let listed = glow.parameters();
+    let octaves = at(&listed, "p.look.bloom.octaves")?;
+    assert_eq!(octaves.kind, Kind::Int);
+    glow.with_values(&Values::new().set("p.look.bloom.octaves", 6.0))?;
+    let message = refusal(&glow, "p.look.bloom.octaves", 3.5)?;
     assert!(message.contains("whole"), "{message}");
     Ok(())
 }
