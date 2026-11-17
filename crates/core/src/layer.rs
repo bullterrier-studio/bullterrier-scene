@@ -78,7 +78,7 @@ pub(crate) struct Join {
 pub(crate) const MAX_INKS: usize = 8;
 
 /// `name` if it is letters, digits and `_`, starting with a letter: the one rule of a layer's name and a map's.
-fn check_name(field: &str, name: &str) -> Result<(), Error> {
+pub(crate) fn check_name(field: &str, name: &str) -> Result<(), Error> {
     let mut characters = name.chars();
     let starts = characters.next().is_some_and(|first| first.is_ascii_alphabetic());
     if starts && characters.all(|next| next.is_ascii_alphanumeric() || next == '_') {

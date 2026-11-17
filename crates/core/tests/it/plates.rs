@@ -440,3 +440,149 @@ fn plate_files_are_refused_naming_the_argument_and_leave_no_file() -> Outcome {
     assert_eq!(std::fs::read_dir(folder.path())?.count(), 0, "nothing is left");
     Ok(())
 }
+
+// ---- the white underbase ------------------------------------------------------------------------------------------------
+
+use bullterrier_scene::Underbase;
+
+/// The standard normal's cumulative distribution (Abramowitz and Stegun 7.1.26: an error under 1.5e-7): what a feather of
+/// `sigma` makes of a step, worked out outside the blur.
+fn normal_cdf(x: f64) -> f64 {
+    let t = 1.0 / (1.0 + 0.327_591_1 * (x.abs() / std::f64::consts::SQRT_2));
+    let poly = t * (0.254_829_592 + t * (-0.284_496_736 + t * (1.421_413_741 + t * (-1.453_152_027 + t * 1.061_405_429))));
+    let erf = 1.0 - poly * (-(x * x) / 2.0).exp();
+    0.5 * (1.0 + if x >= 0.0 { erf } else { -erf })
+}
+
+const GARMENT: &str = "#202020";
+
+/// A garment of `GARMENT`, a red 5 by 5 box at (2, 2) of a 9 by 9 canvas, printed in the ink `red`.
+fn red_box() -> Result<Scene, Error> {
+    scene(
+        9,
+        9,
+        [
+            Layer::fill(GARMENT)?,
+            Layer::fill("#ff0000")?.fit([2.0, 2.0, 5.0, 5.0], Fit::Stretch, [0.5, 0.5])?.inks(["red"])?,
+        ],
+    )
+}
+
+#[test]
+fn the_underbase_is_the_union_of_the_inks_choked_by_a_width_and_comes_first() -> Outcome {
+    // a pixel of the box is as many pixels from the nearest bare pixel as its distance to it: 1 on the rim, 2 inside it, 3 in
+    // the middle; choked by 1 pixel the underbase is clamp(distance - 1 + 0.5): half on the rim, whole inside
+    let plates = red_box()?.plates_with_underbase(9, &Underbase::new(GARMENT)?.choke(1.0)?)?;
+    assert_eq!(plates.names(), ["white", "red"]);
+    let white = plane(&plates, "white")?;
+    for y in 0..9 {
+        for x in 0..9 {
+            let in_box = (2..7).contains(&x) && (2..7).contains(&y);
+            let want = if !in_box {
+                0.0
+            } else if x == 2 || x == 6 || y == 2 || y == 6 {
+                0.5
+            } else {
+                1.0
+            };
+            assert!((white[y * 9 + x] - want).abs() < 1e-6, "({x}, {y}): {}", white[y * 9 + x]);
+        }
+    }
+    // the inks are the plates the scene makes, unchanged
+    assert_eq!(plane(&plates, "red")?, plane(&red_box()?.plates(9)?, "red")?);
+    // no choke: the underbase is the union itself; a choke past the shape leaves none
+    let whole = red_box()?.plates_with_underbase(9, &Underbase::new(GARMENT)?)?;
+    assert_eq!(plane(&whole, "white")?, plane(&whole, "red")?);
+    let gone = red_box()?.plates_with_underbase(9, &Underbase::new(GARMENT)?.choke(10.0)?)?;
+    assert!(plane(&gone, "white")?.iter().all(|value| *value == 0.0));
+    Ok(())
+}
+
+/// A 12 by 6 canvas of `GARMENT` with a red box at columns 1 to 5 and a box of `dark` at columns 7 to 11, in the inks `red`
+/// and `dark`.
+fn two_boxes(dark: &str) -> Result<Scene, Error> {
+    scene(
+        12,
+        6,
+        [
+            Layer::fill(GARMENT)?,
+            Layer::fill("#ff0000")?.fit([1.0, 1.0, 4.0, 4.0], Fit::Stretch, [0.5, 0.5])?.inks(["red"])?,
+            Layer::fill(dark)?.fit([7.0, 1.0, 4.0, 4.0], Fit::Stretch, [0.5, 0.5])?.inks(["dark"])?,
+        ],
+    )
+}
+
+#[test]
+fn the_underbase_is_knocked_out_where_the_colour_is_the_garments_within_the_tolerance() -> Outcome {
+    // the dark box prints the garment's own colour: nothing under it. (#242424 is 4 levels off in each channel: a distance of
+    // 4 * sqrt(3) / 255 = 0.0272 of the 1.732 the cube's diagonal is, so 0.0157 on the unit scale)
+    let exact = two_boxes(GARMENT)?.plates_with_underbase(12, &Underbase::new(GARMENT)?)?;
+    let white = plane(&exact, "white")?;
+    for y in 0..6 {
+        for x in 0..12 {
+            let want = if (1..5).contains(&x) && (1..5).contains(&y) { 1.0 } else { 0.0 };
+            assert_eq!(white[y * 12 + x], want, "exact: ({x}, {y})");
+        }
+    }
+    let near = two_boxes("#242424")?;
+    let covered = |tolerance: f64| -> Result<f32, Box<dyn std::error::Error>> {
+        let plates = near.plates_with_underbase(12, &Underbase::new(GARMENT)?.tolerance(tolerance)?)?;
+        Ok(plane(&plates, "white")?[2 * 12 + 9])
+    };
+    assert_eq!(covered(0.01)?, 1.0, "a tolerance under the distance keeps the underbase");
+    assert_eq!(covered(0.02)?, 0.0, "a tolerance over the distance knocks it out");
+    Ok(())
+}
+
+#[test]
+fn the_feather_softens_the_edge_of_the_knockout_as_a_blur_of_that_many_pixels() -> Outcome {
+    // a red box from column 1 to 6 and a box of the garment's colour from 6 to 11: the knockout is a step at column 6, blurred by
+    // sigma 1 pixel: the pixel centre 0.5 before the step has the share the normal curve gives 0.5 sigma before its middle
+    let scene = scene(
+        12,
+        4,
+        [
+            Layer::fill(GARMENT)?,
+            Layer::fill("#ff0000")?.fit([1.0, 0.0, 5.0, 4.0], Fit::Stretch, [0.5, 0.5])?.inks(["red"])?,
+            Layer::fill(GARMENT)?.fit([6.0, 0.0, 5.0, 4.0], Fit::Stretch, [0.5, 0.5])?.inks(["dark"])?,
+        ],
+    )?;
+    let plates = scene.plates_with_underbase(12, &Underbase::new(GARMENT)?.feather(1.0)?)?;
+    let white = plane(&plates, "white")?;
+    let row = |x: usize| f64::from(white[2 * 12 + x]);
+    for x in [3_usize, 4, 5, 6, 7, 8] {
+        // the knockout is a step up at 6.0 and the pixel's centre is at x + 0.5: the blur has taken the share the normal curve has
+        // below that distance from the step, and the underbase is what is left
+        let want = 1.0 - normal_cdf(x as f64 + 0.5 - 6.0);
+        assert!((row(x) - want).abs() < 0.05, "column {x}: {} against {want}", row(x));
+    }
+    Ok(())
+}
+
+#[test]
+fn underbase_options_that_are_not_allowed_are_refused_naming_the_argument() -> Outcome {
+    let rows: Vec<(&str, Result<Underbase, Error>, &str)> = vec![
+        ("a colour that is not one", Underbase::new("garment"), "garment"),
+        ("a choke below 0", Underbase::new(GARMENT)?.choke(-1.0), "choke"),
+        ("a choke that is NaN", Underbase::new(GARMENT)?.choke(f64::NAN), "choke"),
+        ("a choke of 1e300", Underbase::new(GARMENT)?.choke(1e300), "choke"),
+        ("a tolerance over 1", Underbase::new(GARMENT)?.tolerance(1.5), "tolerance"),
+        ("a tolerance that is NaN", Underbase::new(GARMENT)?.tolerance(f64::NAN), "tolerance"),
+        ("a feather below 0", Underbase::new(GARMENT)?.feather(-0.1), "feather"),
+        ("a feather of infinity", Underbase::new(GARMENT)?.feather(f64::INFINITY), "feather"),
+        ("a name with a slash", Underbase::new(GARMENT)?.name("a/b"), "name"),
+    ];
+    for (what, made, named) in rows {
+        let error = made.err();
+        assert!(
+            matches!(&error, Some(Error::Invalid { address, .. }) if address == named),
+            "{what}: {error:?}"
+        );
+    }
+    // the underbase's name is an ink's: the scene is refused, as is one that names no ink
+    let error = red_box()?.plates_with_underbase(9, &Underbase::new(GARMENT)?.name("red")?).err();
+    assert!(matches!(&error, Some(Error::Invalid { address, .. }) if address == "name"), "{error:?}");
+    let error = scene(4, 4, [Layer::fill(GARMENT)?])?.plates_with_underbase(4, &Underbase::new(GARMENT)?).err();
+    assert!(matches!(&error, Some(Error::Invalid { address, .. }) if address == "inks"), "{error:?}");
+    Ok(())
+}

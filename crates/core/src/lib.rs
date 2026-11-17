@@ -52,7 +52,7 @@ pub use mask::{Mask, MaskBy, Use};
 pub use parameters::{Kind, Parameter, Value, Values};
 pub use pdf::{BleedFill, PdfOptions};
 pub use placement::{Deg, Fit, Place};
-pub use plates::Plates;
+pub use plates::{Plates, Underbase};
 pub use raster::{Raster, WriteOptions};
 pub use render::BAND_PIXELS;
 pub use scene::Scene;

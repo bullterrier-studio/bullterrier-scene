@@ -49,6 +49,18 @@ pub(crate) const FILE_DPI: Range = Range {
     high: 65535.0,
     unit: " dots per inch",
 };
+/// `choke` of an underbase: design pixels, past what any print needs.
+pub(crate) const CHOKE: Range = Range {
+    low: 0.0,
+    high: 10_000.0,
+    unit: " design pixels",
+};
+/// `tolerance` of an underbase: a distance between colours, as a share of the longest there is (black to white).
+pub(crate) const TOLERANCE: Range = Range {
+    low: 0.0,
+    high: 1.0,
+    unit: "",
+};
 /// `bleed_mm` of a PDF: the print shop's usual 3 mm, up to 50 mm for a large format.
 pub(crate) const BLEED_MM: Range = Range {
     low: 0.0,

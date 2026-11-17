@@ -4,7 +4,10 @@ use std::path::{Path, PathBuf};
 
 use crate::blend::Blend;
 use crate::geometry::MAX_PIXELS;
-use crate::layer::Base;
+use crate::feather;
+use crate::layer::{Base, check_name};
+use crate::ranges::{CHOKE, FEATHER, TOLERANCE};
+use crate::source::fill::Fill;
 use crate::marks::{self, MM_PER_INCH, POINTS_PER_INCH, WIDTH_POINTS};
 use crate::pdf::{Geometry, PdfStream, geometry, write_document};
 use crate::raster::eight_bit;
@@ -58,6 +61,222 @@ impl Plates {
             .iter()
             .find(|(found, _)| found == name)
             .map(|(_, values)| values.as_slice())
+    }
+}
+
+/// A white plate for the inks to print on, for a dark garment or film: where ink is, a flood of white is laid first so that the
+/// inks show their own colours, except where the garment's own colour is what the picture means to show. Built by `new` and the
+/// setters, each checked where it is given.
+///
+/// ```text
+/// Underbase::new("#1b1b1b")?.choke(1.5)?.tolerance(0.04)?.feather(1.0)?
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+pub struct Underbase {
+    garment: [f32; 3],
+    choke: f64,
+    tolerance: f64,
+    feather: f64,
+    name: String,
+}
+
+impl Underbase {
+    /// An underbase for a garment of the colour `garment` (`#rrggbb`): under all the ink, no choke, knocked out only where the
+    /// picture is exactly the garment's colour, no feather, the plate named `white`.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `garment` for a colour that is not `#rrggbb`.
+    pub fn new(garment: &str) -> Result<Self, Error> {
+        let rgba = Fill::parse(garment).map_err(|error| error.about("garment"))?.rgba();
+        Ok(Self {
+            garment: [rgba[0], rgba[1], rgba[2]],
+            choke: 0.0,
+            tolerance: 0.0,
+            feather: 0.0,
+            name: "white".to_owned(),
+        })
+    }
+
+    /// The white is drawn in from the edge of the ink by `px` design pixels, so that no white shows past the ink where the
+    /// plates are a little out of register: a pixel of the white is how far it lies from the nearest bare pixel, less `px`, and a
+    /// half, held between 0 and 1 (an edge one pixel wide). The ink is where the plates' union is at least half; the edge of the
+    /// canvas is not bare, so art that runs off the page is not choked there. 0 is no choke.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `choke` unless it is a number from 0 to 10,000.
+    pub fn choke(mut self, px: f64) -> Result<Self, Error> {
+        self.choke = CHOKE.check("choke", px)?;
+        Ok(self)
+    }
+
+    /// Where the picture, laid over the garment, is within `value` of the garment's colour there is no white: the garment shows.
+    /// The distance is the straight one between two sRGB colours, as a share of the longest there is (black to white), so 0
+    /// is the exact colour, 0.02 about five levels in each channel and 1 everything. Default 0.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `tolerance` unless it is a number from 0 to 1.
+    pub fn tolerance(mut self, value: f64) -> Result<Self, Error> {
+        self.tolerance = TOLERANCE.check("tolerance", value)?;
+        Ok(self)
+    }
+
+    /// The edge of the knocked-out part is blurred by `px` design pixels (the standard deviation of the blur, as for a mask's
+    /// `feather`), so the white fades out where it meets the garment's colour. 0 is a hard edge.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `feather` unless it is a number from 0 to 1,000,000.
+    pub fn feather(mut self, px: f64) -> Result<Self, Error> {
+        self.feather = FEATHER.check("feather", px)?;
+        Ok(self)
+    }
+
+    /// The plate is called `name` (default `white`): an ink's name, so it is letters, digits and `_`, starting with a letter.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `name` for one that is not allowed.
+    pub fn name(mut self, name: &str) -> Result<Self, Error> {
+        check_name("name", name)?;
+        name.clone_into(&mut self.name);
+        Ok(self)
+    }
+}
+
+impl Scene {
+    /// The [`plates`](Scene::plates) of the scene with a white plate before them, first, the one printed first: its coverage is
+    /// the union of the inks' (where it is at least half) choked by the underbase's width, times one minus the knockout, where
+    /// the picture of the scene laid over the garment's colour is within the tolerance of that colour, blurred by the feather.
+    /// A scene that is the garment's colour, as a layer, and the art over it has the picture to compare; with no layer for the
+    /// garment, what the scene leaves transparent is the garment's colour.
+    ///
+    /// # Errors
+    /// As [`plates`](Scene::plates), counting the white plate in the values; [`Error::Invalid`] naming `name` for an underbase
+    /// named as one of the inks, and `feather` for a blur whose working plane would hold more than 2^27 values.
+    pub fn plates_with_underbase(&self, size: impl Into<i128>, underbase: &Underbase) -> Result<Plates, Error> {
+        let size = size.into();
+        if ink_names(self.drawn()).contains(&underbase.name.as_str()) {
+            return Err(Error::invalid(
+                "name",
+                format!("{:?} is the name of an ink of the scene as well as of the underbase", underbase.name),
+            ));
+        }
+        let mut plates = make_with(self, size, 1)?;
+        let (columns, rows) = (plates.columns, plates.rows);
+        let scale = float(columns.max(rows)) / f64::from(self.width().max(self.height()));
+        let sigma = underbase.feather * scale;
+        feather::fits("feather", (columns, rows), (feather::reach(sigma), feather::reach(sigma)))?;
+        let picture = self.render(size)?;
+        let mut union = vec![1.0_f32; columns * rows];
+        for (_, plane) in &plates.planes {
+            for (value, coverage) in union.iter_mut().zip(plane) {
+                *value *= 1.0 - coverage;
+            }
+        }
+        let covered: Vec<bool> = union.iter().map(|rest| 1.0 - rest >= 0.5).collect();
+        let reach = underbase.choke * scale;
+        let mut white = distance_to_bare((columns, rows), &covered);
+        for (value, covered) in white.iter_mut().zip(&covered) {
+            *value = if *covered {
+                #[expect(clippy::cast_possible_truncation, reason = "a share from 0 to 1 is held as a float")]
+                {
+                    (f64::from(*value) - reach + 0.5).clamp(0.0, 1.0) as f32
+                }
+            } else {
+                0.0
+            };
+        }
+        let garment = underbase.garment.map(f64::from);
+        let mut knock: Vec<f32> = picture
+            .pixels()
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|pixel| {
+                let alpha = f64::from(pixel[3]);
+                let apart: f64 = (0..3)
+                    .map(|channel| {
+                        let laid = f64::from(pixel[channel]) * alpha + garment[channel] * (1.0 - alpha);
+                        (laid - garment[channel]).powi(2)
+                    })
+                    .sum();
+                // the longest distance between two colours is the cube's diagonal, the square root of 3
+                f32::from(u8::from(apart.sqrt() / 3.0_f64.sqrt() <= underbase.tolerance))
+            })
+            .collect();
+        if sigma > 0.0 {
+            feather::blur(&mut knock, (columns, rows), (sigma, sigma));
+        }
+        for (value, knocked) in white.iter_mut().zip(&knock) {
+            *value *= 1.0 - knocked;
+        }
+        plates.planes.insert(0, (underbase.name.clone(), white));
+        Ok(plates)
+    }
+}
+
+/// `count` as a double: a side is far under 2^52.
+#[expect(clippy::cast_precision_loss, reason = "a side of a picture is under 2^27, exact in a double")]
+fn float(count: usize) -> f64 {
+    count as f64
+}
+
+/// How far each pixel lies from the nearest bare (not `covered`) pixel centre, in pixels, 0 for a bare pixel; very large where
+/// nothing is bare. Exact: the squared distance transform of Felzenszwalb and Huttenlocher (2012), along the columns and then the
+/// rows, each line in time linear in its length.
+fn distance_to_bare((columns, rows): (usize, usize), covered: &[bool]) -> Vec<f32> {
+    /// Stands for no bare pixel in a line: far past any distance in a picture, small enough that its square is a number.
+    const FAR: f64 = 1e20;
+    let mut squared: Vec<f64> = covered.iter().map(|covered| if *covered { FAR } else { 0.0 }).collect();
+    let longest = columns.max(rows);
+    let (mut line, mut made) = (vec![0.0; longest], vec![0.0; longest]);
+    let (mut parabolas, mut bounds) = (vec![0_usize; longest], vec![0.0; longest + 1]);
+    for x in 0..columns {
+        for y in 0..rows {
+            line[y] = squared[y * columns + x];
+        }
+        along(&line[..rows], &mut made[..rows], &mut parabolas, &mut bounds);
+        for y in 0..rows {
+            squared[y * columns + x] = made[y];
+        }
+    }
+    for y in 0..rows {
+        along(&squared[y * columns..(y + 1) * columns], &mut made[..columns], &mut parabolas, &mut bounds);
+        squared[y * columns..(y + 1) * columns].copy_from_slice(&made[..columns]);
+    }
+    #[expect(clippy::cast_possible_truncation, reason = "a distance in a picture is far under what a float holds")]
+    squared.iter().map(|square| square.sqrt() as f32).collect()
+}
+
+/// The lower envelope of the parabolas `(q - p)^2 + from[p]`: at each place `q`, the least of them, into `to`. `parabolas` and
+/// `bounds` are room for the envelope (at least `from.len()` and one more).
+fn along(from: &[f64], to: &mut [f64], parabolas: &mut [usize], bounds: &mut [f64]) {
+    let mut last = 0;
+    parabolas[0] = 0;
+    bounds[0] = f64::NEG_INFINITY;
+    bounds[1] = f64::INFINITY;
+    for q in 1..from.len() {
+        let at = |place: usize| float(place);
+        let mut meet;
+        loop {
+            let held = parabolas[last];
+            meet = ((from[q] + at(q) * at(q)) - (from[held] + at(held) * at(held))) / (2.0 * at(q) - 2.0 * at(held));
+            if meet <= bounds[last] {
+                last -= 1;
+            } else {
+                break;
+            }
+        }
+        last += 1;
+        parabolas[last] = q;
+        bounds[last] = meet;
+        bounds[last + 1] = f64::INFINITY;
+    }
+    let mut at = 0;
+    for (q, slot) in to.iter_mut().enumerate() {
+        while bounds[at + 1] < float(q) {
+            at += 1;
+        }
+        let held = parabolas[at];
+        *slot = (float(q) - float(held)).powi(2) + from[held];
     }
 }
 
@@ -257,6 +476,14 @@ fn for_ink(layer: &Layer, place: usize, ink: &str) -> Result<Option<Layer>, Erro
 /// # Errors
 /// As [`Scene::plates`].
 pub(crate) fn make(scene: &Scene, size: i128) -> Result<Plates, Error> {
+    make_with(scene, size, 0)
+}
+
+/// The plates of `scene` at `size`, with room counted for `extra` more planes that the caller adds.
+///
+/// # Errors
+/// As [`Scene::plates`].
+pub(crate) fn make_with(scene: &Scene, size: i128, extra: usize) -> Result<Plates, Error> {
     let (columns, rows) = scene.picture_size(size)?;
     let names = ink_names(scene.drawn());
     if names.is_empty() {
@@ -265,12 +492,12 @@ pub(crate) fn make(scene: &Scene, size: i128) -> Result<Plates, Error> {
             "no layer names an ink: `Layer::inks` says what each layer prints in",
         ));
     }
-    if columns.saturating_mul(rows).saturating_mul(names.len()) > MAX_VALUES {
+    if columns.saturating_mul(rows).saturating_mul(names.len() + extra) > MAX_VALUES {
         return Err(Error::invalid(
             "size",
             format!(
                 "{columns} x {rows} pixels in {} plates are more than the {MAX_VALUES} values plates hold",
-                names.len()
+                names.len() + extra
             ),
         ));
     }

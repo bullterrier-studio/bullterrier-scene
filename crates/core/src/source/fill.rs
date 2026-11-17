@@ -20,6 +20,11 @@ pub(crate) struct Fill {
 }
 
 impl Fill {
+    /// The red, green, blue and alpha, each 0 to 1.
+    pub(crate) fn rgba(&self) -> [f32; 4] {
+        self.rgba
+    }
+
     /// The fill of `color`: `#rrggbb` or `#rrggbbaa`, upper or lower case.
     pub(crate) fn parse(color: &str) -> Result<Self, Error> {
         let refuse = || {
