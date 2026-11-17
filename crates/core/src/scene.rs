@@ -9,7 +9,7 @@ use crate::budget::Budget;
 use crate::cache::Cache;
 use crate::pdf::PdfStream;
 use crate::stream::PngStream;
-use crate::{Error, Layer, PdfOptions, Raster, WriteOptions, reference, render};
+use crate::{Error, Layer, PdfOptions, Plates, Raster, WriteOptions, plates, reference, render};
 
 /// The longest a canvas side is, in design pixels.
 const MAX_CANVAS: u32 = 100_000;
@@ -80,6 +80,19 @@ impl Scene {
         }
     }
 
+    /// A scene of the same canvas that draws `drawn`, layers already resolved, with this scene's cache: what a plate draws.
+    pub(crate) fn drawing(&self, drawn: Vec<Layer>) -> Self {
+        Self {
+            drawn,
+            ..self.emptied()
+        }
+    }
+
+    /// The layers as they are drawn, references resolved.
+    pub(crate) fn drawn(&self) -> &[Layer] {
+        &self.drawn
+    }
+
     /// This scene with `layers` on top of its stack, the first lowest.
     ///
     /// A reference ([`Layer::of`]) names a layer of the scene that is there already or is in `layers`, whichever comes
@@ -143,6 +156,24 @@ impl Scene {
             budget,
             cache: Arc::clone(&self.cache),
         })
+    }
+
+    /// The plates of the scene at `size`: one plane of ink coverage for each ink its layers name ([`Layer::inks`]), in the order
+    /// the inks first appear, bottom layer first. Plate `i` is what the scene draws when only the layers that print in ink `i`
+    /// are on it, each as the shape of its ink (the plane its look separates, or its alpha), placed, masked and faded as it is
+    /// in the picture, and joined over the others of the same ink as an overprint: where two shapes of one ink meet, `a` over `b`
+    /// is `a + b (1 - a)`. A layer's blend mode is not asked (ink on ink is an overprint whatever the blend); the plates
+    /// say what each ink prints, and they make the picture where the layers of different inks are laid one over the other as
+    /// inks are, by multiplying (`paper * prod (1 - coverage * (1 - ink / paper))`: an ink over its own paper is its colour). Layers that name no ink, the paper among them, are
+    /// not on a plate. Inks inside a group (a layer that is a scene) are not handed on; the group is one shape.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `size` for a size outside 1 to 65,000, or planes of more than 2^27 values in all (the columns
+    /// times the rows times the inks; said before anything is drawn); `inks` for a scene whose layers name no ink, a layer that
+    /// is light, a layer with no look that names more than one ink, and a look that makes no ink planes or a number of them that
+    /// is not the number of names; whatever a layer cannot draw, as for [`render`](Scene::render).
+    pub fn plates(&self, size: impl Into<i128>) -> Result<Plates, Error> {
+        plates::make(self, size.into())
     }
 
     /// The layers, bottom first.

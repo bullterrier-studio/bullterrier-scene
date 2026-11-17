@@ -28,6 +28,7 @@ mod pdf;
 mod perspective;
 mod picture;
 mod placement;
+mod plates;
 mod plugin;
 mod references;
 mod room;

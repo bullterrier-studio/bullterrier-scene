@@ -42,6 +42,8 @@ pub(crate) struct Picture {
 #[derive(Debug, Clone)]
 pub(crate) struct Look {
     recipe: Recipe,
+    /// What the look makes: the picture, or (in the scene that draws a plate, never in a saved one) the ink it separates.
+    output: Output,
     presets: Arc<Presets>,
     /// The numbers of the recipe that can be set, as image lists them now.
     numbers: Arc<[Number]>,
@@ -49,6 +51,17 @@ pub(crate) struct Look {
     px: Px,
     /// The digest of the look's document, made when first asked for: a look is never changed, `with_values` makes another.
     fingerprint: OnceLock<Fingerprint>,
+}
+
+/// What a look hands on: its picture, or the data of a plate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Output {
+    /// The picture the recipe makes.
+    Picture,
+    /// The coverage of ink `index` of the `of` that the recipe's last step separates, as white with that alpha.
+    Plane { index: usize, of: usize },
+    /// The shape of what was drawn: white where it has alpha, the alpha kept.
+    Solid,
 }
 
 /// The numbers of `recipe` that can be set. Image lists the frame's too, whether the recipe sets a frame or not; a look sets no
@@ -119,10 +132,27 @@ impl Look {
         Ok(Self {
             numbers: numbers_of(&recipe)?,
             recipe,
+            output: Output::Picture,
             px,
             presets: Arc::new(presets),
             fingerprint: OnceLock::new(),
         })
+    }
+
+    /// The look that keeps only the shape of what it is given: a plate's solid ink. Its recipe is never run (a recipe needs a step,
+    /// and `grade` with no parameter is one that reaches no further than its pixel).
+    pub(crate) fn solid() -> Result<Self, Error> {
+        let mut look = Self::new(&json!({"steps": [{"effect": "grade"}]}), Px::Design)?;
+        look.output = Output::Solid;
+        Ok(look)
+    }
+
+    /// This look making plane `index` of `of` instead of its picture.
+    pub(crate) fn plane(&self, index: usize, of: usize) -> Self {
+        Self {
+            output: Output::Plane { index, of },
+            ..self.clone()
+        }
     }
 
     /// The numbers of this look as parameters, at image's own addresses: the unit, range, meaning and whole or cyclic nature
@@ -159,6 +189,7 @@ impl Look {
         Ok(Self {
             numbers: numbers_of(&recipe)?,
             recipe,
+            output: self.output,
             px: self.px,
             presets: Arc::clone(&self.presets),
             fingerprint: OnceLock::new(),
@@ -193,6 +224,7 @@ impl Look {
             *self.fingerprint.get_or_init(|| digest_bytes(text.as_bytes()))
         };
         key.digest(&fingerprint);
+        key.debug(&self.output);
         Ok(())
     }
 
@@ -298,22 +330,52 @@ impl Look {
         // one thread for each core: image keeps one pool of that size for the process, so renders running at once share it, and the
         // picture is the same at any count
         let options = options.with_threads(0);
-        let image = photo
-            .render(&self.recipe, &self.presets, options)
-            .map_err(|error| refused(&error))?;
-        let mut graded = image.into_values();
-        if !(graded.iter().all(|value| value.is_finite()) && into_range(&mut graded)) {
-            return Err(Error::invalid(
-                "look",
-                "image gave a value that is not a number: the picture is refused",
-            ));
-        }
+        // the colour of each pixel (three values) and, for a plate, how much ink each has
+        let (graded, coverage) = match self.output {
+            Output::Picture => {
+                let image = photo
+                    .render(&self.recipe, &self.presets, options)
+                    .map_err(|error| refused(&error))?;
+                let mut graded = image.into_values();
+                if !(graded.iter().all(|value| value.is_finite()) && into_range(&mut graded)) {
+                    return Err(Error::invalid(
+                        "look",
+                        "image gave a value that is not a number: the picture is refused",
+                    ));
+                }
+                (graded, None)
+            }
+            Output::Plane { index, of } => {
+                let planes = photo
+                    .ink_planes(&self.recipe, &self.presets, options)
+                    .map_err(|error| Error::invalid("inks", error.to_string()))?;
+                if planes.len() != of {
+                    return Err(Error::invalid(
+                        "inks",
+                        format!("the layer names {of} inks and its look separates {}", planes.len()),
+                    ));
+                }
+                let mut coverage = planes[index].values().to_vec();
+                if !(coverage.iter().all(|value| value.is_finite()) && into_range(&mut coverage)) {
+                    return Err(Error::invalid(
+                        "look",
+                        "image gave a value that is not a number: the plate is refused",
+                    ));
+                }
+                (vec![1.0; coverage.len() * 3], Some(coverage))
+            }
+            Output::Solid => (vec![1.0; layer.width() * layer.height() * 3], None),
+        };
         let pixels = graded
             .as_chunks::<3>()
             .0
             .iter()
             .zip(layer.pixels().as_chunks::<4>().0)
-            .flat_map(|(&[red, green, blue], pixel)| [red, green, blue, if light { 1.0 } else { pixel[3] }])
+            .enumerate()
+            .flat_map(|(at, (&[red, green, blue], pixel))| {
+                let alpha = if light { 1.0 } else { pixel[3] };
+                [red, green, blue, alpha * coverage.as_ref().map_or(1.0, |plane| plane[at])]
+            })
             .collect();
         Ok(Raster::made(layer.width(), layer.height(), pixels))
     }

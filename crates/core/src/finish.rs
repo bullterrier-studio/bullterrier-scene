@@ -99,6 +99,26 @@ impl Finish {
         }
     }
 
+    /// This finish as a plate draws it: the last look hands on plane `index` of the `of` it separates, or, with no look, the
+    /// layer is one shape in the one ink (`of` is 1).
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `inks` for a layer with no look that names more than one ink.
+    pub(crate) fn for_plate(&self, index: usize, of: usize) -> Result<Self, Error> {
+        let mut plate = self.clone();
+        if let Some(last) = plate.looks.last_mut() {
+            *last = last.plane(index, of);
+        } else if of == 1 {
+            plate.looks.push(Look::solid()?);
+        } else {
+            return Err(Error::invalid(
+                "inks",
+                format!("a layer with no look is one shape in one ink, and this one names {of}"),
+            ));
+        }
+        Ok(plate)
+    }
+
     /// This finish with `look` run after the looks it has.
     pub(crate) fn add_look(&mut self, look: Look) {
         self.looks.push(look);

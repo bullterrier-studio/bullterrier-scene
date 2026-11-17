@@ -64,12 +64,18 @@ pub(crate) struct Join {
     pub(crate) light: bool,
     /// Masks by layers drawn on the canvas (stage 6), in call order; those by a map are in the source.
     pub(crate) masks: Vec<CanvasMask>,
+    /// The inks the layer prints in, one for each plane its last look separates, or the one of a layer with no look: empty for a
+    /// layer that no plate asks for.
+    pub(crate) inks: Vec<String>,
     /// How many `mask` calls this layer has had: the number of the next is one more.
     mask_calls: usize,
     /// What drawing the layer costs with its mask layers (a shared layer counted each time): masks only, until `Scene::add`
     /// resolves its references.
     pub(crate) budget: Budget,
 }
+
+/// The most inks a layer is printed in, and the most plates a scene makes.
+pub(crate) const MAX_INKS: usize = 8;
 
 /// `name` if it is letters, digits and `_`, starting with a letter: the one rule of a layer's name and a map's.
 fn check_name(field: &str, name: &str) -> Result<(), Error> {
@@ -169,6 +175,7 @@ impl Layer {
                 blend: Blend::Normal,
                 light: false,
                 masks: Vec::new(),
+                inks: Vec::new(),
                 mask_calls: 0,
                 budget: Budget::LAYER,
             },
@@ -570,6 +577,31 @@ impl Layer {
         {
             self.join.opacity = value as f32;
         }
+        Ok(self)
+    }
+
+    /// This layer printed in the inks `names`, which [`Scene::plates`] gathers into one plate each. A layer whose last look
+    /// separates inks (`halftone` or `dither` with a `separation`) names one ink for each plane, in the order the look makes
+    /// them; a layer with no look is one shape in one ink, where its alpha is. A name is letters, digits and `_`, starting with a
+    /// letter, and is the plate's file name and page name; one to eight names, each once. The composite picture does not change.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `inks` for no name, more than eight, a name that is not allowed or one given twice.
+    pub fn inks<'a>(mut self, names: impl IntoIterator<Item = &'a str>) -> Result<Self, Error> {
+        let names: Vec<String> = names.into_iter().map(str::to_owned).collect();
+        if names.is_empty() || names.len() > MAX_INKS {
+            return Err(Error::invalid(
+                "inks",
+                format!("one to {MAX_INKS} ink names are wanted, got {}", names.len()),
+            ));
+        }
+        for (at, name) in names.iter().enumerate() {
+            check_name("inks", name)?;
+            if names[..at].contains(name) {
+                return Err(Error::invalid("inks", format!("the ink {name} is named twice")));
+            }
+        }
+        self.join.inks = names;
         Ok(self)
     }
 
