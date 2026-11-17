@@ -1,6 +1,6 @@
 //! `bt-scene render`: the picture it writes is the one the core renders, and a refusal is one line and exit 1.
 
-use bullterrier_scene::{PdfOptions, Raster, Value, Values};
+use bullterrier_scene::{PdfOptions, Raster, Value, Values, WriteOptions};
 
 use crate::common::{Outcome, Project, bt, decoded, text};
 
@@ -26,6 +26,22 @@ fn it_writes_the_picture_the_core_renders_within_the_rounding_of_8_bits() -> Out
         .map(|(level, byte)| (level * 255.0 - f32::from(*byte)).abs())
         .fold(0.0, f32::max);
     assert!(worst <= 0.5 + 1e-3, "the largest difference is {worst} levels");
+    Ok(())
+}
+
+#[test]
+fn dpi_on_a_png_is_the_core_writers_dpi() -> Outcome {
+    let project = Project::new()?;
+    let scene = text(&project.file("scene.json")).to_owned();
+    let out = project.file("dpi.png");
+    let ran = bt(&["render", scene.as_str(), text(&out), "--dpi", "300"]);
+    assert_eq!(ran.code, 0, "{}", ran.err);
+    let expected = project.file("expected.png");
+    project
+        .scene()?
+        .render(64)?
+        .write_with(&expected, &WriteOptions::new().dpi(300.0)?)?;
+    assert_eq!(std::fs::read(&out)?, std::fs::read(&expected)?, "the core's file with its dpi");
     Ok(())
 }
 
@@ -302,8 +318,9 @@ fn a_pdf_extension_writes_the_core_pdf_of_the_flags_and_defaults_to_300_dpi() ->
 fn a_pdf_flag_on_a_picture_that_is_not_a_pdf_and_a_bad_pdf_value_are_exit_1_naming_the_flag_and_no_file() -> Outcome {
     let project = Project::new()?;
     let scene = text(&project.file("scene.json")).to_owned();
-    let rows: [(&str, &str, Vec<&str>, &str); 9] = [
-        ("dpi on a PNG", "never.png", vec!["--dpi", "300"], "dpi"),
+    let rows: [(&str, &str, Vec<&str>, &str); 10] = [
+        ("dpi 0 on a PNG", "never.png", vec!["--dpi", "0"], "dpi"),
+        ("dpi 65536 on a PNG", "never.png", vec!["--dpi", "65536"], "dpi"),
         ("bleed on a PNG", "never.png", vec!["--bleed", "3"], "bleed"),
         ("crop marks on a PNG", "never.png", vec!["--crop-marks"], "crop-marks"),
         ("flatten on a PNG", "never.png", vec!["--flatten"], "flatten"),

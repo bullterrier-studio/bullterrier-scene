@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use bullterrier_scene::{BAND_PIXELS, Error, Kind, PdfOptions, Values};
+use bullterrier_scene::{BAND_PIXELS, Error, Kind, PdfOptions, Values, WriteOptions};
 use clap::Parser;
 
 use crate::{open, say};
@@ -24,7 +24,8 @@ pub(crate) struct Args {
     /// The folder the scene's relative paths are relative to (default: the scene file's folder).
     #[arg(long, value_name = "DIR")]
     base: Option<PathBuf>,
-    /// PDF: pixels per inch, which fixes the page's physical size (the picture's width over DPI inches); 1 to 2400 (default 300).
+    /// Pixels per inch. A PDF: fixes the page's physical size (the picture's width over DPI inches), 1 to 2400 (default 300). A PNG
+    /// or a JPEG: the resolution the file says it prints at, 1 to 65,535 (default none).
     #[arg(long, value_name = "DPI")]
     dpi: Option<f64>,
     /// PDF: millimetres of bleed on every side, the picture's edge repeated outward; 0 to 50 (default 0).
@@ -41,7 +42,7 @@ pub(crate) struct Args {
     cmyk_profile: Option<PathBuf>,
 }
 
-/// The PDF options the flags give, or `None` for a picture that is not a PDF.
+/// The PDF options the flags give, or `None` for a picture that is not a PDF (its `--dpi` is [`file_options`]).
 ///
 /// # Errors
 /// [`Error::Invalid`] naming the first PDF flag given with an output that is not a PDF, or the one a value is wrong for.
@@ -52,7 +53,6 @@ fn pdf_options(args: &Args) -> Result<Option<PdfOptions>, Error> {
         .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"));
     if !is_pdf {
         let given = [
-            ("dpi", args.dpi.is_some()),
             ("bleed", args.bleed.is_some()),
             ("crop-marks", args.crop_marks),
             ("flatten", args.flatten),
@@ -74,6 +74,15 @@ fn pdf_options(args: &Args) -> Result<Option<PdfOptions>, Error> {
         options = options.cmyk_profile(profile);
     }
     Ok(Some(options))
+}
+
+/// The options of a picture that is not a PDF: the resolution `--dpi` gives, if any.
+///
+/// # Errors
+/// [`Error::Invalid`] naming `dpi` for a number outside 1 to 65,535.
+fn file_options(args: &Args) -> Result<WriteOptions, Error> {
+    args.dpi
+        .map_or_else(|| Ok(WriteOptions::new()), |dpi| WriteOptions::new().dpi(dpi))
 }
 
 /// The resolution of a PDF when none is given: the usual one for print.
@@ -98,6 +107,7 @@ fn shortened(text: &str) -> String {
 
 pub(crate) fn command(args: &Args, out: &mut dyn std::io::Write) -> Result<(), Error> {
     let pdf = pdf_options(args)?;
+    let file = file_options(args)?;
     let scene = open(&args.scene, args.base.as_deref())?;
     let scene = if args.set.is_empty() {
         scene
@@ -121,13 +131,13 @@ pub(crate) fn command(args: &Args, out: &mut dyn std::io::Write) -> Result<(), E
         // more than a band: drawn and written band by band, never held whole
         match &pdf {
             Some(options) => scene.render_to_pdf(size, &args.out, options)?,
-            None => scene.render_to_png(size, &args.out)?,
+            None => scene.render_to_png_with(size, &args.out, &file)?,
         }
     } else {
         let picture = scene.render(size)?;
         match &pdf {
             Some(options) => picture.write_pdf(&args.out, options)?,
-            None => picture.write(&args.out)?,
+            None => picture.write_with(&args.out, &file)?,
         }
     }
     say(out, &args.out.display().to_string())

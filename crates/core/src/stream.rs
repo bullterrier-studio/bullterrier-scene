@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
-use crate::raster::eight_bit;
+use crate::raster::{eight_bit, pixels_per_metre};
 use crate::{Error, Raster};
 
 /// The file `path` as [`Error::Write`] names it, with what went wrong.
@@ -100,7 +100,7 @@ impl PngStream {
     ///
     /// # Errors
     /// [`Error::Write`] naming `path` for a path that cannot be written.
-    pub(crate) fn create(path: &Path, columns: usize, rows: usize) -> Result<Self, Error> {
+    pub(crate) fn create(path: &Path, columns: usize, rows: usize, dpi: Option<f64>) -> Result<Self, Error> {
         let side = |count: usize| u32::try_from(count).map_err(|error| failed(path, error));
         let (part, file) = Part::create(path)?;
         let mut encoder = png::Encoder::new(BufWriter::new(file), side(columns)?, side(rows)?);
@@ -109,6 +109,14 @@ impl PngStream {
         encoder.set_compression(png::Compression::Balanced);
         encoder.set_filter(png::Filter::Adaptive);
         encoder.set_source_srgb(png::SrgbRenderingIntent::Perceptual);
+        if let Some(dpi) = dpi {
+            let per_metre = pixels_per_metre(dpi);
+            encoder.set_pixel_dims(Some(png::PixelDimensions {
+                xppu: per_metre,
+                yppu: per_metre,
+                unit: png::Unit::Meter,
+            }));
+        }
         let sink = encoder
             .write_header()
             .and_then(png::Writer::into_stream_writer)

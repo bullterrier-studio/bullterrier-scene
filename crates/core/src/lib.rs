@@ -50,7 +50,7 @@ pub use mask::{Mask, MaskBy, Use};
 pub use parameters::{Kind, Parameter, Value, Values};
 pub use pdf::PdfOptions;
 pub use placement::{Deg, Fit, Place};
-pub use raster::Raster;
+pub use raster::{Raster, WriteOptions};
 pub use render::BAND_PIXELS;
 pub use scene::Scene;
 pub use text::Text;

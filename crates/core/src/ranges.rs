@@ -43,6 +43,12 @@ pub(crate) const DPI: Range = Range {
     high: 2400.0,
     unit: " dots per inch",
 };
+/// `dpi` written into a PNG or JPEG: image's range (the JPEG density is 16 bits).
+pub(crate) const FILE_DPI: Range = Range {
+    low: 1.0,
+    high: 65535.0,
+    unit: " dots per inch",
+};
 /// `bleed_mm` of a PDF: the print shop's usual 3 mm, up to 50 mm for a large format.
 pub(crate) const BLEED_MM: Range = Range {
     low: 0.0,

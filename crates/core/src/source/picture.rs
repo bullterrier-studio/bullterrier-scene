@@ -444,9 +444,27 @@ pub(crate) fn recipe_file(path: &Path) -> Result<Value, Error> {
 ///
 /// # Errors
 /// [`Error::Write`] with the writer's message.
-pub(crate) fn write(raster: &Raster, path: &Path) -> Result<(), Error> {
-    let written = bullterrier_image::Image::rgba(raster.height(), raster.width(), raster.pixels())
-        .and_then(|image| bullterrier_image::write(path, &image));
+pub(crate) fn write(raster: &Raster, path: &Path, dpi: Option<f64>) -> Result<(), Error> {
+    let options = dpi.map_or_else(bullterrier_image::WriteOptions::new, |dpi| {
+        bullterrier_image::WriteOptions::new().with_dpi(dpi)
+    });
+    // a JPEG holds no alpha: an opaque picture goes as colour alone, a translucent one is refused by image's writer
+    let jpeg = path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("jpg") || extension.eq_ignore_ascii_case("jpeg"));
+    let image = if jpeg && raster.pixels().as_chunks::<4>().0.iter().all(|pixel| pixel[3] >= 1.0) {
+        let colour: Vec<f32> = raster
+            .pixels()
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .flat_map(|pixel| [pixel[0], pixel[1], pixel[2]])
+            .collect();
+        bullterrier_image::Image::new(raster.height(), raster.width(), &colour)
+    } else {
+        bullterrier_image::Image::rgba(raster.height(), raster.width(), raster.pixels())
+    };
+    let written = image.and_then(|image| bullterrier_image::write_with(path, &image, &options));
     written.map_err(|error| Error::Write {
         path: path.display().to_string(),
         message: error.to_string(),

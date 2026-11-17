@@ -6,6 +6,7 @@ use std::sync::OnceLock;
 use crate::Error;
 use crate::files::{Fingerprint, digest_floats};
 use crate::pdf::{self, PdfOptions};
+use crate::ranges::FILE_DPI;
 use crate::source::picture;
 
 /// `level` (0 to 1) as an 8-bit number, rounded as image's writer rounds a PNG: `level * 255 + 0.5` cut to a whole number.
@@ -16,6 +17,45 @@ use crate::source::picture;
 )]
 pub(crate) fn eight_bit(level: f32) -> u8 {
     (level * 255.0 + 0.5) as u8
+}
+
+/// What `Raster::write_with` and `Scene::render_to_png_with` are asked for beyond the picture: the resolution the file
+/// says it prints at. Built by `new` and the setter, checked where it is given.
+///
+/// ```text
+/// WriteOptions::new().dpi(300.0)?
+/// ```
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct WriteOptions {
+    pub(crate) dpi: Option<f64>,
+}
+
+impl WriteOptions {
+    /// No resolution: the file says nothing of how large it prints.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The file says it prints at `dpi` dots per inch (a PNG's `pHYs` chunk, a JPEG's JFIF density). No pixel changes; a
+    /// WebP holds none and is refused. A PDF takes its own, [`PdfOptions::new`].
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `dpi` unless it is a number from 1 to 65,535.
+    pub fn dpi(mut self, dpi: f64) -> Result<Self, Error> {
+        self.dpi = Some(FILE_DPI.check("dpi", dpi)?);
+        Ok(self)
+    }
+}
+
+/// Pixels per metre of a resolution, as image's writer rounds it (`round(dpi / 0.0254)`): 300 dpi is 11,811.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "a checked dpi of 1 to 65,535 is 39 to 2,580,000 pixels a metre"
+)]
+pub(crate) fn pixels_per_metre(dpi: f64) -> u32 {
+    (dpi / 0.0254).round() as u32
 }
 
 /// A picture of straight (not premultiplied) RGBA, 32-bit floats from 0 to 1, row after row from the top, pixel after
@@ -110,8 +150,7 @@ impl Raster {
     }
 
     /// Writes the picture to the file `path`, in the format its extension names: `.png` gives an 8-bit RGBA PNG (straight
-    /// alpha, sRGB values, image's sRGB profile, no other metadata), `.webp` a lossless WebP; a `.jpg` is refused when it
-    /// would drop an alpha channel, as image's writer refuses it. Each level is written as image's writer rounds it,
+    /// alpha, sRGB values, image's sRGB profile, no other metadata), `.webp` a lossless WebP;     /// would drop an alpha channel, as image's writer refuses it. Each level is written as image's writer rounds it,
     /// `level * 255 + 0.5` cut to a whole number (0.5 gives 128). The same picture gives the same bytes. A file already
     /// there is replaced; none is made for a refusal.
     ///
@@ -119,7 +158,16 @@ impl Raster {
     /// [`Error::Write`] naming `path` for an extension that is none of those, a folder that is not there, a path that cannot
     /// be written and a picture too large for the format.
     pub fn write(&self, path: &Path) -> Result<(), Error> {
-        picture::write(self, path)
+        self.write_with(path, &WriteOptions::new())
+    }
+
+    /// [`write`](Self::write) with the `options`: the resolution a PNG or a JPEG says it prints at. A file with no `dpi` is
+    /// the file `write` makes, byte for byte.
+    ///
+    /// # Errors
+    /// As [`write`](Self::write); [`Error::Write`] naming `path` for a `.webp`, which holds no resolution, given a `dpi`.
+    pub fn write_with(&self, path: &Path, options: &WriteOptions) -> Result<(), Error> {
+        picture::write(self, path, options.dpi)
     }
 
     /// Writes the picture to the file `path` as a one-page PDF at a physical size: the picture is one lossless (Flate) image

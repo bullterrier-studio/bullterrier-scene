@@ -9,7 +9,7 @@ use crate::budget::Budget;
 use crate::cache::Cache;
 use crate::pdf::PdfStream;
 use crate::stream::PngStream;
-use crate::{Error, Layer, PdfOptions, Raster, reference, render};
+use crate::{Error, Layer, PdfOptions, Raster, WriteOptions, reference, render};
 
 /// The longest a canvas side is, in design pixels.
 const MAX_CANVAS: u32 = 100_000;
@@ -229,9 +229,18 @@ impl Scene {
     /// As [`render_bands`](Scene::render_bands) for the picture, [`Error::Write`] naming `path` for a path that cannot be
     /// written.
     pub fn render_to_png(&self, size: impl Into<i128>, path: &Path) -> Result<(), Error> {
+        self.render_to_png_with(size, path, &WriteOptions::new())
+    }
+
+    /// [`render_to_png`](Scene::render_to_png) with the `options`: the resolution the file says it prints at, in the `pHYs` chunk
+    /// as [`Raster::write_with`] writes it.
+    ///
+    /// # Errors
+    /// As [`render_to_png`](Scene::render_to_png).
+    pub fn render_to_png_with(&self, size: impl Into<i128>, path: &Path, options: &WriteOptions) -> Result<(), Error> {
         let size = size.into();
         let (columns, rows) = self.picture_size(size)?;
-        let mut png = PngStream::create(path, columns, rows)?;
+        let mut png = PngStream::create(path, columns, rows, options.dpi)?;
         self.render_bands(size, render::default_band_rows(columns, rows), |_, band| png.push(band))?;
         png.finish()
     }
