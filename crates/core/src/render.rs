@@ -3,13 +3,14 @@
 
 use std::ops::Range;
 
+use rayon::prelude::*;
+
 use crate::blend::{Blend, join, lit};
 use crate::cache::Cache;
 use crate::geometry::{MAX_PIXELS, Rect, Scale};
 use crate::landing::{Target, land};
 use crate::layer::Join;
 use crate::mask::product;
-use crate::warp::warp_into;
 use crate::{Error, Layer, Raster};
 
 /// The longest side of a picture, in output pixels.
@@ -19,6 +20,10 @@ const MAX_SIZE: u32 = 65_000;
 /// eighth of what a whole render may draw ([`MAX_PIXELS`]). A picture of no more pixels than this is one band, the same as a
 /// whole render: the command line writes it as one, and streams only a larger one.
 pub const BAND_PIXELS: usize = MAX_PIXELS / 8;
+
+/// The pixels of a chunk of rows that one thread lays: 2^14 (256 KiB of float32 RGBA), so a thumbnail is one chunk and a poster
+/// is dozens.
+const CHUNK_PIXELS: usize = 1 << 14;
 
 /// The columns and rows of the picture a canvas of `width` by `height` design pixels makes at `size` on its long side.
 ///
@@ -140,29 +145,42 @@ fn lay(layer: &Layer, target: &Target, joined: &mut [f32]) -> Result<(), Error> 
         opacity, blend, light, ..
     } = layer.join;
     let landed = land(layer.drawable()?, target, light)?;
-    if blend != Blend::Normal || light {
-        // every pixel is made light if the layer is (stage 7), scaled by the masks and the opacity (stages 6 and 8), and
-        // joined where it lands by the compositing equation of its mode (stage 9)
-        landed.each(&mut |at, above @ [red, green, blue, alpha]| {
-            let weight = factor.as_ref().map_or(opacity, |factor| opacity * factor.values[at]);
-            let (colour, alpha) = if light { lit(above) } else { ([red, green, blue], alpha) };
-            join(&mut joined[at * 4..at * 4 + 4], colour, alpha * weight, blend);
+    let columns = landed.output.columns;
+    let rows_per_chunk = (CHUNK_PIXELS / columns).max(1);
+    // each chunk is a few whole rows of the output, laid by the thread that takes it: a pixel is the same whichever rows are
+    // laid with it (`warp_into`), and each pixel is blended into its own place alone
+    joined
+        .par_chunks_mut(rows_per_chunk * columns * 4)
+        .enumerate()
+        .for_each(|(n, chunk)| {
+            let first = n * rows_per_chunk;
+            let rows = first..first + chunk.len() / (columns * 4);
+            if blend != Blend::Normal || light {
+                // every pixel is made light if the layer is (stage 7), scaled by the masks and the opacity (stages 6 and 8), and
+                // joined where it lands by the compositing equation of its mode (stage 9)
+                landed.each_in(rows, &mut |at, above @ [red, green, blue, alpha]| {
+                    let weight = factor
+                        .as_ref()
+                        .map_or(opacity, |factor| opacity * factor.values[first * columns + at]);
+                    let (colour, alpha) = if light { lit(above) } else { ([red, green, blue], alpha) };
+                    join(&mut chunk[at * 4..at * 4 + 4], colour, alpha * weight, blend);
+                });
+            } else if let Some(factor) = &factor {
+                landed.each_in(rows, &mut |at, above| {
+                    over_pixel(
+                        &mut chunk[at * 4..at * 4 + 4],
+                        above,
+                        opacity * factor.values[first * columns + at],
+                    );
+                });
+            } else if landed.is_unmoved() {
+                over(chunk, landed.unmoved_pixels(rows), opacity);
+            } else {
+                landed.each_in(rows, &mut |at, above| {
+                    over_pixel(&mut chunk[at * 4..at * 4 + 4], above, opacity)
+                });
+            }
         });
-    } else if let Some(factor) = factor {
-        landed.each(&mut |at, above| over_pixel(&mut joined[at * 4..at * 4 + 4], above, opacity * factor.values[at]));
-    } else if landed.is_unmoved() {
-        over(joined, landed.unmoved_pixels(), opacity);
-    } else {
-        warp_into(
-            landed.view(),
-            landed.map,
-            landed.clip,
-            landed.output,
-            &mut |at, above| {
-                over_pixel(&mut joined[at * 4..at * 4 + 4], above, opacity);
-            },
-        );
-    }
     Ok(())
 }
 

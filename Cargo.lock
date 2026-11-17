@@ -187,6 +187,7 @@ dependencies = [
  "peak_alloc",
  "png",
  "proptest",
+ "rayon",
  "serde",
  "serde_json",
  "sha2 0.10.9",

@@ -632,3 +632,42 @@ fn what_no_address_names_is_in_the_key_too() -> Outcome {
     }
     Ok(())
 }
+
+/// The poster with a layer on a quadrilateral and a picture shrunk past 2x laid over it: every way `lay` puts a layer (unmoved,
+/// warped, masked, in another blend mode, light, perspective).
+fn laid_every_way() -> Result<Scene, Box<dyn std::error::Error>> {
+    Ok(poster()?.add([
+        Layer::picture(varied(30, 20)?)
+            .perspective([[4.0, 3.0], [50.0, 6.0], [56.0, 36.0], [2.0, 30.0]])?
+            .opacity(0.6)?,
+        Layer::picture(made(1400, 900, |x, y| {
+            [step(x % 7) / 7.0, step(y % 5) / 5.0, 0.5, 1.0]
+        })?)
+        .fit([0.0, 0.0, 60.0, 40.0], Fit::Cover, [0.5, 0.5])?
+        .opacity(0.3)?,
+    ])?)
+}
+
+#[test]
+fn a_picture_is_the_same_whatever_the_number_of_threads_that_lay_its_layers() -> Outcome {
+    // 300 x 200 pixels: several chunks of rows for the threads to take
+    let draw = |threads: usize| -> Result<Raster, Box<dyn std::error::Error>> {
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build()?;
+        // the error crosses threads as text
+        Ok(pool.install(|| -> Result<Raster, String> {
+            laid_every_way()
+                .map_err(|e| e.to_string())?
+                .render(300)
+                .map_err(|e| e.to_string())
+        })?)
+    };
+    let one = draw(1)?;
+    for threads in [2, 3, 7] {
+        assert!(
+            same_bits(&draw(threads)?, &one),
+            "{threads} threads drew another picture"
+        );
+    }
+    // an independent oracle: a band of a few rows is one chunk, and the whole picture is made of several
+    crate::bands::bands_make_the_whole(&laid_every_way()?, 300)
+}

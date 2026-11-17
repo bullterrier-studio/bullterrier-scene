@@ -3,6 +3,7 @@
 //! and a mask draws its layer through it onto a plane of its own.
 
 use std::collections::BTreeMap;
+use std::ops::Range;
 use std::sync::Arc;
 
 use crate::cache::{Cache, Keyed};
@@ -169,23 +170,33 @@ impl Landed {
         View::part(&self.drawn.raster, self.first, self.total)
     }
 
-    /// The pixels of the raster that are the output's wanted rows, where the layer is unmoved.
-    pub(crate) fn unmoved_pixels(&self) -> &[f32] {
-        let Output {
-            columns, first, count, ..
-        } = self.output;
-        &self.drawn.raster.pixels()[first * columns * 4..(first + count) * columns * 4]
+    /// The pixels of the raster that are the rows `rows` (counted from the output's first) of the output, where the layer is
+    /// unmoved.
+    pub(crate) fn unmoved_pixels(&self, rows: Range<usize>) -> &[f32] {
+        let Output { columns, first, .. } = self.output;
+        &self.drawn.raster.pixels()[(first + rows.start) * columns * 4..(first + rows.end) * columns * 4]
     }
 
     /// Gives `put(index, pixel)` each pixel (straight RGBA) the layer lands on, `index` being its place in the target, row
     /// after row. A pixel the layer does not reach is not given.
     pub(crate) fn each(&self, put: &mut impl FnMut(usize, [f32; 4])) {
+        self.each_in(0..self.output.count, put);
+    }
+
+    /// [`Self::each`] for the rows `rows` of the output only, `index` counted from the first of them: a pixel is the same
+    /// whichever rows are asked for with it, so rows can be put by several threads.
+    pub(crate) fn each_in(&self, rows: Range<usize>, put: &mut impl FnMut(usize, [f32; 4])) {
         if self.is_unmoved() {
-            for (at, pixel) in self.unmoved_pixels().as_chunks::<4>().0.iter().enumerate() {
+            for (at, pixel) in self.unmoved_pixels(rows).as_chunks::<4>().0.iter().enumerate() {
                 put(at, *pixel);
             }
         } else {
-            warp_into(self.view(), self.map, self.clip, self.output, put);
+            let output = Output {
+                first: self.output.first + rows.start,
+                count: rows.len(),
+                ..self.output
+            };
+            warp_into(self.view(), self.map, self.clip, output, put);
         }
     }
 }

@@ -51,7 +51,7 @@ fn heights(rows: usize) -> Vec<usize> {
 }
 
 /// Every band height draws the picture `render` draws, the bands in order and covering the rows exactly.
-fn bands_make_the_whole(scene: &Scene, size: u32) -> Outcome {
+pub(crate) fn bands_make_the_whole(scene: &Scene, size: u32) -> Outcome {
     let whole = scene.render(size)?;
     assert_eq!(scene.picture_size(size)?, (whole.width(), whole.height()));
     for band_rows in heights(whole.height()) {

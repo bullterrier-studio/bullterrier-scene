@@ -22,6 +22,7 @@ miniz_oxide.workspace = true
 moxcms.workspace = true
 pdf-writer.workspace = true
 png.workspace = true
+rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

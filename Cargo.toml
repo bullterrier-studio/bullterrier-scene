@@ -27,6 +27,7 @@ numpy = "0.30"
 pdf-writer = "0.15"  # writes the page's content stream; pdf.rs writes the objects
 png = "0.18"  # the streaming PNG writer of a picture drawn by bands (already in the tree through image): `docs/design-decisions.md`, "Banded rendering"
 proptest = "1.12"
+rayon = "1.12"  # lays the rows of a layer on all cores (already in the tree through image; one thread on wasm32): `docs/design-decisions.md`, "Layers laid by rows on all cores"
 lopdf = { version = "0.47", default-features = false }  # reads the PDF back in the tests: an oracle independent of the writer
 tempfile = "3.27"
 peak_alloc = "0.3"  # a counting global allocator: the peak-memory test of the PDF writer

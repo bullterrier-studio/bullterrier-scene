@@ -892,3 +892,14 @@ tests passed in a scratch environment with the two packages installed at the pin
   pass the cache's 2 GiB, so a layer was drawn again for the bands (measured 2026-11-15: 40 draws and 33 evictions against 8 and 1; fixed by the cache sparing what a render has used, "The bound is 2 GiB"). Earlier at one thread (image `11eedda9`, `72865bfd`, a lighter stand-in): whole 4.4 s and 2.05 GB at both pins, banded 4.5 s and 1.58 GB. Fat LTO with one codegen
   unit on the same stand-in: whole 4.4 to 4.1 s, banded 4.5 to 4.1 s, a perspective drawing with no look 2.27 to 2.4 s (slower), the same
   pixels, a longer build: not adopted (no `[profile.release]`).
+
+## Layers laid by rows on all cores (2026-11-17)
+
+**Layers laid by rows on all cores.** `render::lay` puts a layer on the picture by chunks of whole rows (2^14 pixels, at least one
+row), one chunk to a thread of rayon's global pool; the fallible work (masks, the source drawn, the map) stays before the split.
+*Reason:* the join was one thread whatever the machine, and a frame loop's cached frame is nothing but joins. A pixel is the same
+whichever rows are asked with it (`warp_into`), and each pixel is blended into its own place alone, so the picture does not
+depend on the number of threads (a test draws a scene of every way a layer lands with 1, 2, 3 and 7 threads and by bands).
+*Dependency:* `rayon` is a runtime dependency of the core. Image has it in the tree already (no new crate to build or audit); on
+wasm32 it runs on the calling thread. There is no option: a caller who wants fewer threads builds a rayon pool and renders inside
+`install`. The planes of masks stay one thread (they are not the cost).
