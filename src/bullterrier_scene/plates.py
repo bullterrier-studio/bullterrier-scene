@@ -9,6 +9,7 @@ import numpy as np
 import numpy.typing as npt
 
 from ._native._core import Plates as _NativePlates
+from ._native._core import check_page, check_underbase
 
 __all__ = ["PdfOptions", "Plates", "Underbase"]
 
@@ -19,13 +20,16 @@ class PdfOptions:
     `bleed_mm` grows the page on every side with the picture's edge (`bleed_fill` `"repeat"`: the edge pixels stretched;
     `"mirror"`: the picture folded at its edge), and `crop_marks` and `registration_marks` draw marks in an 8 mm margin
     outside the bleed. A number out of its range (`dpi` 1 to 2400, `bleed_mm` 0 to 50) or a `bleed_fill` that is neither
-    word is an `InvalidError` naming it when the plates are written."""
+    word is an `InvalidError` naming it where the options are made."""
 
     dpi: float = 300.0
     bleed_mm: float = 0.0
     bleed_fill: Literal["repeat", "mirror"] = "repeat"
     crop_marks: bool = False
     registration_marks: bool = False
+
+    def __post_init__(self) -> None:
+        check_page(self._arguments())
 
     def _arguments(self) -> tuple[float, float, str, bool, bool]:
         return (self.dpi, self.bleed_mm, self.bleed_fill, self.crop_marks, self.registration_marks)
@@ -34,7 +38,9 @@ class PdfOptions:
 @dataclass(frozen=True, slots=True)
 class Underbase:
     """A white plate for the inks to print on, for a dark garment or film: where ink is, white is laid first so the inks
-    show their own colours, except where the picture is the garment's colour (`garment`, `"#rrggbb"`).
+    show their own colours, except where the picture is the garment's colour (`garment`, `"#rrggbb"`, no alpha). A value
+    out of its range, or a `garment` or `name` that is not allowed, is an `InvalidError` naming it where the underbase
+    is made.
 
     `choke` draws the white in from the edge of the ink by that many design pixels, so no white shows past the ink where
     the plates are a little out of register (0 to 10,000). `tolerance` (0 to 1, the distance between two colours as a
@@ -47,6 +53,9 @@ class Underbase:
     tolerance: float = 0.0
     feather: float = 0.0
     name: str = "white"
+
+    def __post_init__(self) -> None:
+        check_underbase(self._arguments())
 
     def _arguments(self) -> tuple[str, float, float, float, str]:
         return (self.garment, self.choke, self.tolerance, self.feather, self.name)

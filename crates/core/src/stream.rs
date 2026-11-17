@@ -87,6 +87,18 @@ impl Drop for Part {
     }
 }
 
+/// Says in `encoder`'s `pHYs` chunk that the PNG prints at `dpi`, if there is one: the one place a file's resolution is set.
+fn set_resolution<W: Write>(encoder: &mut png::Encoder<'_, W>, dpi: Option<f64>) {
+    if let Some(dpi) = dpi {
+        let per_metre = pixels_per_metre(dpi);
+        encoder.set_pixel_dims(Some(png::PixelDimensions {
+            xppu: per_metre,
+            yppu: per_metre,
+            unit: png::Unit::Meter,
+        }));
+    }
+}
+
 /// An 8-bit RGBA PNG written band by band.
 pub(crate) struct PngStream {
     sink: png::StreamWriter<'static, BufWriter<File>>,
@@ -109,14 +121,7 @@ impl PngStream {
         encoder.set_compression(png::Compression::Balanced);
         encoder.set_filter(png::Filter::Adaptive);
         encoder.set_source_srgb(png::SrgbRenderingIntent::Perceptual);
-        if let Some(dpi) = dpi {
-            let per_metre = pixels_per_metre(dpi);
-            encoder.set_pixel_dims(Some(png::PixelDimensions {
-                xppu: per_metre,
-                yppu: per_metre,
-                unit: png::Unit::Meter,
-            }));
-        }
+        set_resolution(&mut encoder, dpi);
         let sink = encoder
             .write_header()
             .and_then(png::Writer::into_stream_writer)
@@ -169,14 +174,7 @@ pub(crate) fn write_grey_png(
     encoder.set_depth(png::BitDepth::Eight);
     encoder.set_compression(png::Compression::Balanced);
     encoder.set_filter(png::Filter::Adaptive);
-    if let Some(dpi) = dpi {
-        let per_metre = pixels_per_metre(dpi);
-        encoder.set_pixel_dims(Some(png::PixelDimensions {
-            xppu: per_metre,
-            yppu: per_metre,
-            unit: png::Unit::Meter,
-        }));
-    }
+    set_resolution(&mut encoder, dpi);
     let mut writer = encoder.write_header().map_err(|error| failed(path, error))?;
     writer.write_image_data(bytes).map_err(|error| failed(path, error))?;
     writer.finish().map_err(|error| failed(path, error))?;

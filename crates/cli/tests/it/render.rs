@@ -1,6 +1,6 @@
 //! `bt-scene render`: the picture it writes is the one the core renders, and a refusal is one line and exit 1.
 
-use bullterrier_scene::{BleedFill, Layer, Scene, PdfOptions, Raster, Value, Values, WriteOptions};
+use bullterrier_scene::{BleedFill, Layer, PdfOptions, Raster, Scene, Value, Values, WriteOptions};
 
 use crate::common::{Outcome, Project, bt, decoded, text};
 

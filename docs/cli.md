@@ -4,7 +4,7 @@ A thin layer over the library: it reads a saved scene (`docs/api.md`, "Saved sce
 Rust (`crates/cli`); the Python console script `bt-scene` and `python -m bullterrier_scene` run it in-process.
 
 ```
-bt-scene render SCENE OUT.png|OUT.pdf [--size PIXELS] [--set ADDRESS=VALUE]... [--base DIR]
+bt-scene render SCENE OUT.png|OUT.jpg|OUT.pdf [--size PIXELS] [--set ADDRESS=VALUE]... [--base DIR]
                 [--dpi N] [--bleed MM] [--bleed-fill repeat|mirror] [--crop-marks] [--registration-marks] [--flatten] [--cmyk-profile FILE.icc]
 bt-scene parameters SCENE [--json] [--base DIR]
 bt-scene validate SCENE [--base DIR]
@@ -27,10 +27,11 @@ Results go to stdout, errors to stderr.
   `render_to_pdf`): it is never held whole, so a print size past the 2^27 pixels of `render` (A0 at 300 dpi, 9,933 by 14,043
   pixels) is written. A smaller one is written as before. The band height is not a flag: it is as many rows as 2^24 pixels hold
   ("Banded rendering" in `design-decisions.md`). The two files differ in how they say sRGB (a banded PNG carries the PNG `sRGB`
-  chunk, a whole one image's profile) and in the compression, not in a pixel.
-- **PDF flags** (any of them with an output that is not `.pdf` is exit 1 naming the flag): `--dpi N` pixels per inch, so the page is
-  the picture's size over N inches (1 to 2400, default 300); `--bleed MM` 0 to 50 mm of bleed, the rendered edge repeated outward
-  (default 0); `--bleed-fill mirror` folds the picture at its edge for the bleed (default `repeat`); `--crop-marks` and `--registration-marks` marks outside the bleed; `--dpi` also writes the resolution into a PNG or JPEG (1 to 65,535); `--flatten` the picture over white instead of a soft mask; `--cmyk-profile FILE.icc`
+  chunk, a whole one image's profile) and in the compression, not in a pixel. Only a PNG or a PDF can be written by bands: a `.jpg`,
+  `.webp` or any other extension on such a picture is exit 1 (naming the file), where a smaller one is written in its format.
+- **PDF flags** (any of them with an output that is not `.pdf` is exit 1 naming the flag, except `--dpi`, below): `--dpi N` pixels per
+  inch, so the page is the picture's size over N inches (1 to 2400, default 300); `--bleed MM` 0 to 50 mm of bleed, the rendered edge repeated outward
+  (default 0); `--bleed-fill mirror` folds the picture at its edge for the bleed (default `repeat`); `--crop-marks` and `--registration-marks` marks outside the bleed; `--dpi` with a `.png` or `.jpg` writes the resolution into the file instead (1 to 65,535), and with a `.webp` is exit 1; `--flatten` the picture over white instead of a soft mask; `--cmyk-profile FILE.icc`
   CMYK through the caller's output profile, embedded (none is bundled). A canvas of A3's proportions at `--size 4961 --dpi 300` is a
   297 by 420 mm page.
 - **`--set`** sets a parameter by address before rendering (`parameters` lists them). VALUE is read by the address's kind: a

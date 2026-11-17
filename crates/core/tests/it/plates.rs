@@ -658,6 +658,7 @@ fn the_feather_softens_the_edge_of_the_knockout_as_a_blur_of_that_many_pixels() 
 fn underbase_options_that_are_not_allowed_are_refused_naming_the_argument() -> Outcome {
     let rows: Vec<(&str, Result<Underbase, Error>, &str)> = vec![
         ("a colour that is not one", Underbase::new("garment"), "garment"),
+        ("a colour with an alpha", Underbase::new("#202020ff"), "garment"),
         ("a choke below 0", Underbase::new(GARMENT)?.choke(-1.0), "choke"),
         ("a choke that is NaN", Underbase::new(GARMENT)?.choke(f64::NAN), "choke"),
         ("a choke of 1e300", Underbase::new(GARMENT)?.choke(1e300), "choke"),

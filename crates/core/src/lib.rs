@@ -10,6 +10,7 @@
 mod blend;
 mod budget;
 mod cache;
+mod distance;
 mod document;
 mod error;
 mod feather;

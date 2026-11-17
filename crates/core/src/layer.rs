@@ -74,7 +74,7 @@ pub(crate) struct Join {
     pub(crate) budget: Budget,
 }
 
-/// The most inks a layer is printed in, and the most plates a scene makes.
+/// The most inks one layer is printed in. A scene has no limit of its own: its plates are the distinct inks of all its layers.
 pub(crate) const MAX_INKS: usize = 8;
 
 /// `name` if it is letters, digits and `_`, starting with a letter: the one rule of a layer's name and a map's.

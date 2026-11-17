@@ -4,6 +4,8 @@
 
 use std::f64::consts::TAU;
 
+use crate::raster::eight_bit;
+
 /// Millimetres in an inch (exact, by definition).
 pub(crate) const MM_PER_INCH: f64 = 25.4;
 /// Points in an inch (the PDF unit, exact by definition).
@@ -85,4 +87,37 @@ pub(crate) fn lines(trim: [f64; 4], bleed_mm: f64, per_mm: f64, which: Which) ->
         }
     }
     marks
+}
+
+/// Black over `grey` (`width` pixels a row) along the segment from `from` to `to`, `half` pixels either side: each pixel gets
+/// the share of ink that its distance from the segment leaves it (a pixel `half` away has half, one `half + 0.5` away none).
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    reason = "pixel places are under 2^27 and the share of ink is held between 0 and 1"
+)]
+pub(crate) fn stroke(grey: &mut [u8], width: usize, from: [f64; 2], to: [f64; 2], half: f64) {
+    let reach = half + 1.0;
+    let height = grey.len() / width;
+    let low = |a: f64, b: f64| (a.min(b) - reach).floor().max(0.0) as usize;
+    let high = |a: f64, b: f64, limit: usize| ((a.max(b) + reach).ceil().max(0.0) as usize).min(limit);
+    let direction = [to[0] - from[0], to[1] - from[1]];
+    let length_squared = direction[0] * direction[0] + direction[1] * direction[1];
+    for y in low(from[1], to[1])..high(from[1], to[1], height) {
+        for x in low(from[0], to[0])..high(from[0], to[0], width) {
+            let centre = [x as f64 + 0.5, y as f64 + 0.5];
+            let along = if length_squared == 0.0 {
+                0.0
+            } else {
+                (((centre[0] - from[0]) * direction[0] + (centre[1] - from[1]) * direction[1]) / length_squared)
+                    .clamp(0.0, 1.0)
+            };
+            let nearest = [from[0] + along * direction[0], from[1] + along * direction[1]];
+            let distance = (centre[0] - nearest[0]).hypot(centre[1] - nearest[1]);
+            let ink = eight_bit((half + 0.5 - distance).clamp(0.0, 1.0) as f32);
+            let pixel = &mut grey[y * width + x];
+            *pixel = (*pixel).min(255 - ink);
+        }
+    }
 }

@@ -111,18 +111,25 @@ def test_files_the_plates_cannot_make_are_refused_naming_the_argument_and_leave_
         plates.write_png(tmp_path / "nowhere" / "a")
     with pytest.raises(bts.WriteError, match="nowhere"):
         plates.write_pdf(tmp_path / "nowhere" / "a.pdf")
-    for what, options, named in [
-        ("dpi 0", bts.PdfOptions(dpi=0), "dpi"),
-        ("dpi nan", bts.PdfOptions(dpi=float("nan")), "dpi"),
-        ("bleed 51", bts.PdfOptions(bleed_mm=51), "bleed_mm"),
-        ("bleed -1", bts.PdfOptions(bleed_mm=-1), "bleed_mm"),
-        ("fill", bts.PdfOptions(bleed_fill="fold"), "bleed_fill"),  # type: ignore[arg-type]
+    assert not list(tmp_path.iterdir())
+
+
+def test_a_bad_option_is_refused_where_it_is_made_naming_the_argument():
+    for make, named in [
+        (lambda: bts.PdfOptions(dpi=0), "dpi"),
+        (lambda: bts.PdfOptions(dpi=float("nan")), "dpi"),
+        (lambda: bts.PdfOptions(bleed_mm=51), "bleed_mm"),
+        (lambda: bts.PdfOptions(bleed_mm=-1), "bleed_mm"),
+        (lambda: bts.PdfOptions(bleed_fill="fold"), "bleed_fill"),  # type: ignore[arg-type]
+        (lambda: bts.Underbase("black"), "garment"),
+        (lambda: bts.Underbase("#202020", choke=-1.0), "choke"),
+        (lambda: bts.Underbase("#202020", tolerance=2.0), "tolerance"),
+        (lambda: bts.Underbase("#202020", feather=-1.0), "feather"),
+        (lambda: bts.Underbase("#202020", name="1white"), "name"),
+        (lambda: bts.Underbase("#202020ff"), "garment"),
     ]:
         with pytest.raises(bts.InvalidError, match=named):
-            plates.write_png(tmp_path / "a", options)
-        with pytest.raises(bts.InvalidError, match=named):
-            plates.write_pdf(tmp_path / "a.pdf", options)
-        assert not list(tmp_path.iterdir()), what
+            make()
 
 
 def test_the_underbase_is_a_white_plate_first_choked_and_knocked_out(tmp_path: Path):
@@ -134,13 +141,10 @@ def test_the_underbase_is_a_white_plate_first_choked_and_knocked_out(tmp_path: P
     plates = scene.plates(9, underbase=bts.Underbase(garment, choke=1.0))
     assert plates.names == ("white", "red")
     white = plates.plane("white")
-    # the rim of the 5 by 5 box is 1 pixel from bare paper: half; inside it, whole
+    # the rim of the 5 by 5 box is 1 pixel from bare paper: drawn in by 1, the rim has none, inside it whole
     want = np.zeros((9, 9), dtype=np.float32)
-    want[2:7, 2:7] = 0.5
     want[3:6, 3:6] = 1.0
     assert np.allclose(white, want)
-    with pytest.raises(bts.InvalidError, match="choke"):
-        scene.plates(9, underbase=bts.Underbase(garment, choke=-1.0))
     with pytest.raises(bts.InvalidError, match="name"):
         scene.plates(9, underbase=bts.Underbase(garment, name="red"))
     # equal plates are equal

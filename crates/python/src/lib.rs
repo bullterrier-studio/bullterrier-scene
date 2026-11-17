@@ -22,7 +22,7 @@ mod _core {
     #[pymodule_export]
     use super::kinds::{Snapshot, layer_kinds, register_layer, registry_restore, registry_snapshot};
     #[pymodule_export]
-    use super::{Held, Layer, Plates, Scene, main};
+    use super::{Held, Layer, Plates, Scene, check_page, check_underbase, main};
 
     /// The most layers a scene holds.
     #[pymodule_export]
@@ -325,6 +325,33 @@ fn page_options(
         .bleed_fill(fill)
         .crop_marks(crop_marks)
         .registration_marks(registration_marks))
+}
+
+/// The underbase of (garment, choke, tolerance, feather, name), each checked by the core.
+fn underbase_of(
+    py: Python<'_>,
+    (garment, choke, tolerance, feather, name): (String, f64, f64, f64, String),
+) -> PyResult<Underbase> {
+    wrap(
+        py,
+        Underbase::new(&garment)
+            .and_then(|underbase| underbase.choke(choke))
+            .and_then(|underbase| underbase.tolerance(tolerance))
+            .and_then(|underbase| underbase.feather(feather))
+            .and_then(|underbase| underbase.name(&name)),
+    )
+}
+
+/// Raises the package's `InvalidError` for an underbase the core would refuse: what `Underbase(...)` asks at construction.
+#[pyfunction]
+fn check_underbase(py: Python<'_>, arguments: (String, f64, f64, f64, String)) -> PyResult<()> {
+    underbase_of(py, arguments).map(|_| ())
+}
+
+/// Raises the package's `InvalidError` for a print page the core would refuse: what `PdfOptions(...)` asks at construction.
+#[pyfunction]
+fn check_page(py: Python<'_>, options: (f64, f64, String, bool, bool)) -> PyResult<()> {
+    page_options(py, options).map(|_| ())
 }
 
 /// `result` with a refusal of the core raised as the package's exception.
@@ -630,15 +657,8 @@ impl Scene {
     ) -> PyResult<Plates> {
         let made = match underbase {
             None => py.detach(|| self.0.plates(size)),
-            Some((garment, choke, tolerance, feather, name)) => {
-                let underbase = wrap(
-                    py,
-                    Underbase::new(&garment)
-                        .and_then(|underbase| underbase.choke(choke))
-                        .and_then(|underbase| underbase.tolerance(tolerance))
-                        .and_then(|underbase| underbase.feather(feather))
-                        .and_then(|underbase| underbase.name(&name)),
-                )?;
+            Some(arguments) => {
+                let underbase = underbase_of(py, arguments)?;
                 py.detach(|| self.0.plates_with_underbase(size, &underbase))
             }
         };

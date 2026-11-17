@@ -3,10 +3,11 @@
 use std::path::{Path, PathBuf};
 
 use crate::blend::Blend;
+use crate::distance::{distance_to_bare, float};
 use crate::feather;
 use crate::geometry::MAX_PIXELS;
 use crate::layer::{Base, check_name};
-use crate::marks::{self, MM_PER_INCH, POINTS_PER_INCH, WIDTH_POINTS};
+use crate::marks::{self, MM_PER_INCH, POINTS_PER_INCH, WIDTH_POINTS, stroke};
 use crate::pdf::{Geometry, PdfStream, geometry, write_document};
 use crate::ranges::{CHOKE, FEATHER, TOLERANCE};
 use crate::raster::eight_bit;
@@ -88,6 +89,12 @@ impl Underbase {
     /// [`Error::Invalid`] naming `garment` for a colour that is not `#rrggbb`.
     pub fn new(garment: &str) -> Result<Self, Error> {
         let rgba = Fill::parse(garment).map_err(|error| error.about("garment"))?.rgba();
+        if garment.len() != "#rrggbb".len() {
+            return Err(Error::invalid(
+                "garment",
+                format!("a garment colour is `#rrggbb`, with no alpha, got {garment:?}"),
+            ));
+        }
         Ok(Self {
             garment: [rgba[0], rgba[1], rgba[2]],
             choke: 0.0,
@@ -220,84 +227,6 @@ impl Scene {
     }
 }
 
-/// `count` as a double: a side is far under 2^52.
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "a side of a picture is under 2^27, exact in a double"
-)]
-fn float(count: usize) -> f64 {
-    count as f64
-}
-
-/// How far each pixel lies from the nearest bare (not `covered`) pixel centre, in pixels, 0 for a bare pixel; very large where
-/// nothing is bare. Exact: the squared distance transform of Felzenszwalb and Huttenlocher (2012), along the columns and then the
-/// rows, each line in time linear in its length.
-fn distance_to_bare((columns, rows): (usize, usize), covered: &[bool]) -> Vec<f32> {
-    /// Stands for no bare pixel in a line: far past any distance in a picture, small enough that its square is a number.
-    const FAR: f64 = 1e20;
-    let mut squared: Vec<f64> = covered.iter().map(|covered| if *covered { FAR } else { 0.0 }).collect();
-    let longest = columns.max(rows);
-    let (mut line, mut made) = (vec![0.0; longest], vec![0.0; longest]);
-    let (mut parabolas, mut bounds) = (vec![0_usize; longest], vec![0.0; longest + 1]);
-    for x in 0..columns {
-        for y in 0..rows {
-            line[y] = squared[y * columns + x];
-        }
-        along(&line[..rows], &mut made[..rows], &mut parabolas, &mut bounds);
-        for y in 0..rows {
-            squared[y * columns + x] = made[y];
-        }
-    }
-    for y in 0..rows {
-        along(
-            &squared[y * columns..(y + 1) * columns],
-            &mut made[..columns],
-            &mut parabolas,
-            &mut bounds,
-        );
-        squared[y * columns..(y + 1) * columns].copy_from_slice(&made[..columns]);
-    }
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "a distance in a picture is far under what a float holds"
-    )]
-    squared.iter().map(|square| square.sqrt() as f32).collect()
-}
-
-/// The lower envelope of the parabolas `(q - p)^2 + from[p]`: at each place `q`, the least of them, into `to`. `parabolas` and
-/// `bounds` are room for the envelope (at least `from.len()` and one more).
-fn along(from: &[f64], to: &mut [f64], parabolas: &mut [usize], bounds: &mut [f64]) {
-    let mut last = 0;
-    parabolas[0] = 0;
-    bounds[0] = f64::NEG_INFINITY;
-    bounds[1] = f64::INFINITY;
-    for q in 1..from.len() {
-        let at = |place: usize| float(place);
-        let mut meet;
-        loop {
-            let held = parabolas[last];
-            meet = ((from[q] + at(q) * at(q)) - (from[held] + at(held) * at(held))) / (2.0 * at(q) - 2.0 * at(held));
-            if meet <= bounds[last] {
-                last -= 1;
-            } else {
-                break;
-            }
-        }
-        last += 1;
-        parabolas[last] = q;
-        bounds[last] = meet;
-        bounds[last + 1] = f64::INFINITY;
-    }
-    let mut at = 0;
-    for (q, slot) in to.iter_mut().enumerate() {
-        while bounds[at + 1] < float(q) {
-            at += 1;
-        }
-        let held = parabolas[at];
-        *slot = (float(q) - float(held)).powi(2) + from[held];
-    }
-}
-
 impl Plates {
     /// Writes each plate as a grey PNG, `<stem>-<ink>.png` for each ink (`out/poster` gives `out/poster-pink.png`), and gives the
     /// paths in plate order. Ink is black on white paper (255 is paper, 0 is full ink), as a film positive is. A plate is its
@@ -362,12 +291,7 @@ impl Plates {
     /// # Errors
     /// As [`write_png`](Plates::write_png).
     fn layout(&self, options: &PdfOptions) -> Result<Geometry, Error> {
-        if options.has_profile() {
-            return Err(Error::invalid(
-                "cmyk_profile",
-                "a plate is one ink in grey: a CMYK profile has nothing to convert",
-            ));
-        }
+        options.for_plate()?;
         let layout = geometry((self.columns, self.rows), options, MAX_PIXELS)?;
         let pad = layout.bleed_pixels + layout.margin_pixels;
         if (self.columns + 2 * pad).saturating_mul(self.rows + 2 * pad) > MAX_PIXELS {
@@ -423,39 +347,6 @@ impl Plates {
             }
         }
         ((width, height), grey)
-    }
-}
-
-/// Black over `grey` (`width` pixels a row) along the segment from `from` to `to`, `half` pixels either side: each pixel gets
-/// the share of ink that its distance from the segment leaves it (a pixel `half` away has half, one `half + 0.5` away none).
-#[expect(
-    clippy::cast_possible_truncation,
-    clippy::cast_precision_loss,
-    clippy::cast_sign_loss,
-    reason = "pixel places are under 2^27 and the share of ink is held between 0 and 1"
-)]
-fn stroke(grey: &mut [u8], width: usize, from: [f64; 2], to: [f64; 2], half: f64) {
-    let reach = half + 1.0;
-    let height = grey.len() / width;
-    let low = |a: f64, b: f64| (a.min(b) - reach).floor().max(0.0) as usize;
-    let high = |a: f64, b: f64, limit: usize| ((a.max(b) + reach).ceil().max(0.0) as usize).min(limit);
-    let direction = [to[0] - from[0], to[1] - from[1]];
-    let length_squared = direction[0] * direction[0] + direction[1] * direction[1];
-    for y in low(from[1], to[1])..high(from[1], to[1], height) {
-        for x in low(from[0], to[0])..high(from[0], to[0], width) {
-            let centre = [x as f64 + 0.5, y as f64 + 0.5];
-            let along = if length_squared == 0.0 {
-                0.0
-            } else {
-                (((centre[0] - from[0]) * direction[0] + (centre[1] - from[1]) * direction[1]) / length_squared)
-                    .clamp(0.0, 1.0)
-            };
-            let nearest = [from[0] + along * direction[0], from[1] + along * direction[1]];
-            let distance = (centre[0] - nearest[0]).hypot(centre[1] - nearest[1]);
-            let ink = eight_bit((half + 0.5 - distance).clamp(0.0, 1.0) as f32);
-            let pixel = &mut grey[y * width + x];
-            *pixel = (*pixel).min(255 - ink);
-        }
     }
 }
 

@@ -150,7 +150,8 @@ impl Raster {
     }
 
     /// Writes the picture to the file `path`, in the format its extension names: `.png` gives an 8-bit RGBA PNG (straight
-    /// alpha, sRGB values, image's sRGB profile, no other metadata), `.webp` a lossless WebP;     /// would drop an alpha channel, as image's writer refuses it. Each level is written as image's writer rounds it,
+    /// alpha, sRGB values, image's sRGB profile, no other metadata), `.webp` a lossless WebP, and `.jpg` an 8-bit JPEG of a picture with no transparency (a
+    /// picture with any alpha below 1 is refused for a `.jpg`, as image's writer refuses an alpha channel). Each level is written as image's writer rounds it,
     /// `level * 255 + 0.5` cut to a whole number (0.5 gives 128). The same picture gives the same bytes. A file already
     /// there is replaced; none is made for a refusal.
     ///

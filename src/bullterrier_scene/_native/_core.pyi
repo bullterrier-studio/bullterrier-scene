@@ -3,6 +3,7 @@
 
 from collections.abc import Callable, Sequence
 from os import PathLike
+from pathlib import Path
 from typing import Any, final
 
 import numpy as np
@@ -16,6 +17,8 @@ __all__ = [
     "Plates",
     "Scene",
     "Snapshot",
+    "check_page",
+    "check_underbase",
     "layer_kinds",
     "main",
     "register_layer",
@@ -26,6 +29,8 @@ __all__ = [
 MAX_LAYERS: int
 MAX_DEPTH: int
 
+def check_page(options: tuple[float, float, str, bool, bool]) -> None: ...
+def check_underbase(arguments: tuple[str, float, float, float, str]) -> None: ...
 def main(argv: list[str], version: str) -> int: ...
 
 @final
@@ -99,7 +104,7 @@ class Plates:
     @property
     def height(self) -> int: ...
     def plane(self, name: str) -> npt.NDArray[np.float32]: ...
-    def write_png(self, stem: str | PathLike[str], options: tuple[float, float, str, bool, bool]) -> list[str]: ...
+    def write_png(self, stem: str | PathLike[str], options: tuple[float, float, str, bool, bool]) -> list[Path]: ...
     def write_pdf(self, path: str | PathLike[str], options: tuple[float, float, str, bool, bool]) -> None: ...
 
 @final

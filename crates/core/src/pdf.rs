@@ -147,6 +147,20 @@ impl PdfOptions {
 }
 
 impl PdfOptions {
+    /// These options as the page of a plate takes them, which is one ink in grey: the one place that refuses a profile.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `cmyk_profile` for options that ask for a profile.
+    pub(crate) fn for_plate(&self) -> Result<(), Error> {
+        if self.cmyk_profile.is_some() {
+            return Err(Error::invalid(
+                "cmyk_profile",
+                "a plate is one ink in grey: a CMYK profile has nothing to convert",
+            ));
+        }
+        Ok(())
+    }
+
     /// The resolution.
     pub(crate) fn dpi(&self) -> f64 {
         self.dpi
@@ -160,11 +174,6 @@ impl PdfOptions {
     /// What fills the bleed.
     pub(crate) fn fill(&self) -> BleedFill {
         self.bleed_fill
-    }
-
-    /// Whether a CMYK profile is asked for.
-    pub(crate) fn has_profile(&self) -> bool {
-        self.cmyk_profile.is_some()
     }
 
     /// The marks these options ask for.
@@ -305,12 +314,7 @@ impl PdfStream {
         options: &PdfOptions,
         limit: usize,
     ) -> Result<Self, Error> {
-        if options.cmyk_profile.is_some() {
-            return Err(Error::invalid(
-                "cmyk_profile",
-                "a plate is one ink in grey: a CMYK profile has nothing to convert",
-            ));
-        }
+        options.for_plate()?;
         Self::open(path, page, true, size, options, limit)
     }
 
