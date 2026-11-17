@@ -2,10 +2,17 @@
 
 use std::path::PathBuf;
 
-use bullterrier_scene::{BAND_PIXELS, Error, Kind, PdfOptions, Values, WriteOptions};
+use bullterrier_scene::{BAND_PIXELS, BleedFill, Error, Kind, PdfOptions, Values, WriteOptions};
 use clap::Parser;
 
 use crate::{open, say};
+
+/// The values of `--bleed-fill`.
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum FillArg {
+    Repeat,
+    Mirror,
+}
 
 /// The arguments of `render`.
 #[derive(Parser)]
@@ -31,9 +38,15 @@ pub(crate) struct Args {
     /// PDF: millimetres of bleed on every side, the picture's edge repeated outward; 0 to 50 (default 0).
     #[arg(long, value_name = "MM")]
     bleed: Option<f64>,
+    /// PDF: what fills the bleed: `repeat` the edge pixels (default) or `mirror` the picture folded at its edge.
+    #[arg(long, value_enum, value_name = "HOW")]
+    bleed_fill: Option<FillArg>,
     /// PDF: draw crop marks outside the bleed.
     #[arg(long)]
     crop_marks: bool,
+    /// PDF: draw registration marks in the margin, on the middle of each side.
+    #[arg(long)]
+    registration_marks: bool,
     /// PDF: put the picture over white instead of keeping its transparency.
     #[arg(long)]
     flatten: bool,
@@ -54,7 +67,9 @@ fn pdf_options(args: &Args) -> Result<Option<PdfOptions>, Error> {
     if !is_pdf {
         let given = [
             ("bleed", args.bleed.is_some()),
+            ("bleed-fill", args.bleed_fill.is_some()),
             ("crop-marks", args.crop_marks),
+            ("registration-marks", args.registration_marks),
             ("flatten", args.flatten),
             ("cmyk-profile", args.cmyk_profile.is_some()),
         ];
@@ -68,7 +83,12 @@ fn pdf_options(args: &Args) -> Result<Option<PdfOptions>, Error> {
     }
     let mut options = PdfOptions::new(args.dpi.unwrap_or(DEFAULT_DPI))?
         .bleed_mm(args.bleed.unwrap_or(0.0))?
+        .bleed_fill(match args.bleed_fill {
+            Some(FillArg::Mirror) => BleedFill::Mirror,
+            Some(FillArg::Repeat) | None => BleedFill::Repeat,
+        })
         .crop_marks(args.crop_marks)
+        .registration_marks(args.registration_marks)
         .flatten(args.flatten);
     if let Some(profile) = &args.cmyk_profile {
         options = options.cmyk_profile(profile);

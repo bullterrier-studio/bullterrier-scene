@@ -1,6 +1,6 @@
 //! `bt-scene render`: the picture it writes is the one the core renders, and a refusal is one line and exit 1.
 
-use bullterrier_scene::{PdfOptions, Raster, Value, Values, WriteOptions};
+use bullterrier_scene::{BleedFill, PdfOptions, Raster, Value, Values, WriteOptions};
 
 use crate::common::{Outcome, Project, bt, decoded, text};
 
@@ -273,7 +273,7 @@ fn a_pdf_extension_writes_the_core_pdf_of_the_flags_and_defaults_to_300_dpi() ->
     let project = Project::new()?;
     let scene = text(&project.file("scene.json")).to_owned();
     let picture = project.scene()?.render(64)?;
-    let rows: [(&str, Vec<&str>, PdfOptions); 4] = [
+    let rows: [(&str, Vec<&str>, PdfOptions); 5] = [
         ("no flags", vec![], PdfOptions::new(300.0)?),
         ("dpi", vec!["--dpi", "150"], PdfOptions::new(150.0)?),
         (
@@ -282,6 +282,14 @@ fn a_pdf_extension_writes_the_core_pdf_of_the_flags_and_defaults_to_300_dpi() ->
             PdfOptions::new(300.0)?.bleed_mm(3.0)?.crop_marks(true),
         ),
         ("flatten", vec!["--flatten"], PdfOptions::new(300.0)?.flatten(true)),
+        (
+            "a mirrored bleed and registration marks",
+            vec!["--bleed", "3", "--bleed-fill", "mirror", "--registration-marks"],
+            PdfOptions::new(300.0)?
+                .bleed_mm(3.0)?
+                .bleed_fill(BleedFill::Mirror)
+                .registration_marks(true),
+        ),
     ];
     for (what, flags, options) in rows {
         let (out, expected) = (project.file("out.PDF"), project.file("expected.pdf"));
@@ -318,11 +326,18 @@ fn a_pdf_extension_writes_the_core_pdf_of_the_flags_and_defaults_to_300_dpi() ->
 fn a_pdf_flag_on_a_picture_that_is_not_a_pdf_and_a_bad_pdf_value_are_exit_1_naming_the_flag_and_no_file() -> Outcome {
     let project = Project::new()?;
     let scene = text(&project.file("scene.json")).to_owned();
-    let rows: [(&str, &str, Vec<&str>, &str); 10] = [
+    let rows: [(&str, &str, Vec<&str>, &str); 12] = [
         ("dpi 0 on a PNG", "never.png", vec!["--dpi", "0"], "dpi"),
         ("dpi 65536 on a PNG", "never.png", vec!["--dpi", "65536"], "dpi"),
         ("bleed on a PNG", "never.png", vec!["--bleed", "3"], "bleed"),
         ("crop marks on a PNG", "never.png", vec!["--crop-marks"], "crop-marks"),
+        ("bleed fill on a PNG", "never.png", vec!["--bleed-fill", "mirror"], "bleed-fill"),
+        (
+            "registration marks on a PNG",
+            "never.png",
+            vec!["--registration-marks"],
+            "registration-marks",
+        ),
         ("flatten on a PNG", "never.png", vec!["--flatten"], "flatten"),
         (
             "a profile on a PNG",
