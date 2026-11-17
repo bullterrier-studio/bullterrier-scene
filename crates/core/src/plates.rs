@@ -98,8 +98,8 @@ impl Underbase {
     }
 
     /// The white is drawn in from the edge of the ink by `px` design pixels, so that no white shows past the ink where the
-    /// plates are a little out of register: a pixel of the white is how far it lies from the nearest bare pixel, less `px`, and a
-    /// half, held between 0 and 1 (an edge one pixel wide). The ink is where the plates' union is at least half; the edge of the
+    /// plates are a little out of register: a pixel of the white is how far its centre lies from the nearest bare pixel's, less
+    /// `px`, held between 0 and 1 (the ink's edge is half a pixel from a covered centre, so an edge pixel is whole at 0). The ink is where the plates' union is at least half; the edge of the
     /// canvas is not bare, so art that runs off the page is not choked there. 0 is no choke.
     ///
     /// # Errors
@@ -185,7 +185,7 @@ impl Scene {
             *value = if *covered {
                 #[expect(clippy::cast_possible_truncation, reason = "a share from 0 to 1 is held as a float")]
                 {
-                    (f64::from(*value) - reach + 0.5).clamp(0.0, 1.0) as f32
+                    (f64::from(*value) - reach).clamp(0.0, 1.0) as f32
                 }
             } else {
                 0.0
@@ -342,8 +342,7 @@ impl Plates {
         let mut pages = Vec::with_capacity(self.planes.len());
         for (at, (ink, plane)) in self.planes.iter().enumerate() {
             let mut stream = PdfStream::plate(path, at, (self.columns, self.rows), options, MAX_PIXELS)?;
-            for (first, band) in plane.chunks(band_rows * self.columns).enumerate() {
-                let _ = first;
+            for band in plane.chunks(band_rows * self.columns) {
                 let paper = band
                     .iter()
                     .flat_map(|coverage| {

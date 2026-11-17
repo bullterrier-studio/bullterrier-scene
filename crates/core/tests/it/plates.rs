@@ -533,34 +533,46 @@ fn red_box() -> Result<Scene, Error> {
 
 #[test]
 fn the_underbase_is_the_union_of_the_inks_choked_by_a_width_and_comes_first() -> Outcome {
-    // a pixel of the box is as many pixels from the nearest bare pixel as its distance to it: 1 on the rim, 2 inside it, 3 in
-    // the middle; choked by 1 pixel the underbase is clamp(distance - 1 + 0.5): half on the rim, whole inside
-    let plates = red_box()?.plates_with_underbase(9, &Underbase::new(GARMENT)?.choke(1.0)?)?;
-    assert_eq!(plates.names(), ["white", "red"]);
-    let white = plane(&plates, "white")?;
-    for y in 0..9 {
-        for x in 0..9 {
-            let in_box = (2..7).contains(&x) && (2..7).contains(&y);
-            let want = if !in_box {
-                0.0
-            } else if x == 2 || x == 6 || y == 2 || y == 6 {
-                0.5
-            } else {
-                1.0
-            };
+    // row 5 of a 10 pixel canvas with a box of ink at columns 2 to 7: a pixel of it is 1, 2, 3, 3, 2, 1 pixels from the nearest
+    // bare pixel, and the ink's edge lies half a pixel nearer than that. The white is drawn in from the edge by the choke, so
+    // it is clamp(distance - choke): a choke of 0.5 takes half off the rim, one pixel takes the rim whole
+    let box_of_ink = || {
+        scene(
+            10,
+            10,
+            [
+                Layer::fill(GARMENT)?,
+                Layer::fill("#ff0000")?
+                    .fit([2.0, 2.0, 6.0, 6.0], Fit::Stretch, [0.5, 0.5])?
+                    .inks(["red"])?,
+            ],
+        )
+    };
+    let rows: [(f64, [f32; 10]); 5] = [
+        (0.0, [0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0]),
+        (0.25, [0.0, 0.0, 0.75, 1.0, 1.0, 1.0, 1.0, 0.75, 0.0, 0.0]),
+        (0.5, [0.0, 0.0, 0.5, 1.0, 1.0, 1.0, 1.0, 0.5, 0.0, 0.0]),
+        (1.0, [0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0]),
+        (1.5, [0.0, 0.0, 0.0, 0.5, 1.0, 1.0, 0.5, 0.0, 0.0, 0.0]),
+    ];
+    for (choke, want) in rows {
+        let plates = box_of_ink()?.plates_with_underbase(10, &Underbase::new(GARMENT)?.choke(choke)?)?;
+        assert_eq!(plates.names(), ["white", "red"]);
+        let white = plane(&plates, "white")?;
+        for (x, want) in want.iter().enumerate() {
             assert!(
-                (white[y * 9 + x] - want).abs() < 1e-6,
-                "({x}, {y}): {}",
-                white[y * 9 + x]
+                (white[5 * 10 + x] - want).abs() < 1e-6,
+                "choke {choke}, column {x}: {}",
+                white[5 * 10 + x]
             );
         }
     }
+    let plates = box_of_ink()?.plates_with_underbase(10, &Underbase::new(GARMENT)?)?;
     // the inks are the plates the scene makes, unchanged
-    assert_eq!(plane(&plates, "red")?, plane(&red_box()?.plates(9)?, "red")?);
+    assert_eq!(plane(&plates, "red")?, plane(&box_of_ink()?.plates(10)?, "red")?);
     // no choke: the underbase is the union itself; a choke past the shape leaves none
-    let whole = red_box()?.plates_with_underbase(9, &Underbase::new(GARMENT)?)?;
-    assert_eq!(plane(&whole, "white")?, plane(&whole, "red")?);
-    let gone = red_box()?.plates_with_underbase(9, &Underbase::new(GARMENT)?.choke(10.0)?)?;
+    assert_eq!(plane(&plates, "white")?, plane(&plates, "red")?);
+    let gone = box_of_ink()?.plates_with_underbase(10, &Underbase::new(GARMENT)?.choke(10.0)?)?;
     assert!(plane(&gone, "white")?.iter().all(|value| *value == 0.0));
     Ok(())
 }
