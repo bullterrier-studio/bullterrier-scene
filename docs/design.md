@@ -2,7 +2,7 @@
 
 What bullterrier-scene is and how it is built. Reasons for single choices: [design-decisions.md](design-decisions.md).
 The batches, in order: [roadmap.md](roadmap.md). The calls: [api.md](api.md).
-Status: draft for review, 2026-11-08; module shape and open questions updated 2026-11-13 (A1).
+Status: draft for review, 2026-11-08; module shape and questions updated 2026-11-13 (A1).
 
 ## What it is
 
@@ -42,7 +42,7 @@ it sets it per frame and renders again.
 
 **Rust core, Python on top.** The engine is the pure-Rust crate `bullterrier-scene` (no PyO3, no numpy); the Python package is a
 thin binding over it, as in image and vector, so a Rust program uses scenes without Python and both give the same picture.
-The browser build is not part of the first plan (open question 1).
+The browser build is not part of the first plan.
 
 **Animation is states, not time.** A scene never knows a frame or a second. A parameter is a state; a caller (a loop, control
 signals through video) sets it per frame and renders again. Per-layer caching (C7) and bands (B1) are therefore also what make
@@ -155,11 +155,9 @@ Image and vector only. Scene does not depend on control (`docs/design-decisions.
 Image and vector are not published; scene takes them as git dependencies pinned to a revision and bumps the pin in the batch
 that needs a newer one. The first batch to need each is in the roadmap table.
 
-## Open questions
+## Questions settled
 
-1. Whether a browser build is wanted for scene, and what it asks of image's crate.
 2. ~~How a scene refers to image looks and vector drawings.~~ Settled in A1: embedded data is the default and the saved form; a
    path is read-only convenience ([api.md](api.md), "Data in").
 3. Print colour (CMYK, ICC, bleed, PDF) is output and belongs here: built as a raster PDF (O1); a PDF that keeps vectors is not planned.
 4. ~~Command line in Rust or Python.~~ Settled in A1: a Rust command line that the Python console script runs, as image does (P1).
-5. Stamped brush marks along a path (spray, scribbles) are raster, so a layer type here, with vector giving the path.

@@ -2,47 +2,28 @@
 
 Status: draft for review, 2026-11-08; prerequisites and demo findings updated 2026-11-13. What the batches build: [design.md](design.md).
 
+This file records what shipped. Planned work is tracked outside this repository.
+
 Small batches, in order. Each gets its own plan, ends merged into `main` with the whole gate green and, for M and L batches, an
 independent review done. Sizes: **S** one working session, **M** two or three, **L** four or more.
 
-## When work starts
+## Where work started
 
 Owner's decision, 2026-11-08: no work on scene starts until image's E4 and vector's V10 are finished, merged and pushed. State on
 2026-11-13: **met.** Image finished its Rust port (E1 to E7, with effect footprints and a banded render) on 2026-11-11; vector
-finished V10 and V10d (gradients, the full separable blend set, clip groups, soft masks) and V16 (SVG import, trimmed). Vector's V10e (window render, B1) is built; V10f (text runs, M1 needs it if mixed fonts are wanted) is not. After the first
-batch, each batch starts when what it needs exists (the last column of the table). Scene pins image and vector at a revision, so
+finished V10 and V10d (gradients, the full separable blend set, clip groups, soft masks) and V16 (SVG import, trimmed). Vector's V10e (window render, B1) is built; V10f (text runs, M1 needs it if mixed fonts are wanted) is not. Scene pins image and vector at a revision, so
 their later changes cannot break it; a bump of the pin is a reviewed commit, and the adapter files (`source/picture.rs`,
 `source/drawing.rs`) take the change.
 
-| Batch | Starts when |
-|---|---|
-| A1 | now (image E4 and vector V10 are merged; A1 is docs only). Review delegated by the owner on 2026-11-13 to the advisor and one independent read-only reviewer |
-| C1 | Done 2026-11-13 (image `f319f13`, vector `05debff`) |
-| C2, C3, C4 | C1 is merged (C3: done 2026-11-13, vector `5442066`) |
-| C5 | C1 is merged; image has effect footprints (done, E4); image's frame of reference is settled (decision 1 below), and `Options::with_canvas` exists (C5b-lite done, image `c6b58ac`; C5c done, image `7f91eef`) |
-| C6 | C2, C3 and C4 are merged: the layer model is stable enough to write down as parameters and JSON |
-| C7 | C5 and C6 are merged: the cache is keyed on parameter values and layer chains |
-| C8 | Layer kinds by name: a registry value of factories, the JSON form `{"make": {"kind", "options"}}`, Python `Layer.make`, `register_layer`, `layer_kind`, `layer_kinds`, entry points of `bullterrier_scene.layers` loaded lazily. **Done 2026-11-14** (the design is audio's A7, adapted; what is built: [api.md](api.md), "What is built" (C8) and Sources; what was settled: [design-decisions.md](design-decisions.md), "C8") | S | |
-| M1 | C3, C4 are merged (vector V10d is done); vector V10f (text runs) too if the piece wants mixed fonts |
-| M2 | C2 to C5 are merged (placement, masks, references, per-layer looks); vector has gradients and subtract |
-| M3 | C2 to C5 and C7 are merged (the piece needs placement, masks, per-layer effects and the cache) |
-| B1 | **Met.** image has a banded render and `Options::with_canvas`; vector has V10e (window render); decision 2 is settled at B1 (float32). A layer with a whole-picture effect still renders whole: image has no position-aware effects yet (`future.md`) |
-| O1 | PNG: **done** (`Raster::write`). PDF: **done** (`Raster::write_pdf`, bleed, crop marks, CMYK through a caller's ICC profile) |
-| P1 | **Done.** C6 is merged (a scene is data); the command line is Rust (decision 3) |
-| R1 | image and vector are released, B1 is done or the owner defers it, and the owner decides to open the repository |
+**Batch C8** (layer kinds by name) is **done 2026-11-14**: a registry value of factories, the JSON form `{"make": {"kind", "options"}}`, Python `Layer.make`, `register_layer`, `layer_kind`, `layer_kinds`, entry points of `bullterrier_scene.layers` loaded lazily (the design is audio's A7, adapted; what is built: [api.md](api.md), "What is built" (C8) and Sources; what was settled: [design-decisions.md](design-decisions.md), "C8").
 
-**Before starting any batch:** the previous batch is merged with the gate green; its row above is met; the pin of image and
-vector points at a revision that has what the batch needs (a bump is its own commit, with the gate run); the batch has its plan
-in `.superpowers/plans/`.
-
-**Decisions the owner still owes**
+**Decisions the owner made**
 
 | # | Decision | Needed by | Where it is recorded |
 |---|---|---|---|
 | 1 | ~~A design scale handed to effects by the caller~~ **Settled by image, 2026-11-11:** the design scale comes from the canvas (the working picture's long side over 480) and travels in the frame (`Place`); there is no public setter. A public `Options::with_canvas` is a later, additive change "when a caller needs it": scene is that caller, so C5 asks image for it | C5, B1 | image's design decisions, "the frame of reference (banded render, B1)" |
 | 2 | ~~Storage precision of finished layers: 8 bit, 16 bit or float32.~~ **Settled at B1, 2026-11-14: float32** (image's entry stands: 8 bit bands in smooth gradients and cannot take a further grade). Scene holds one band of float32 plus what a layer needs whole, and the peak is measured: [design-decisions.md](design-decisions.md), "Banded rendering" | B1 | image's design decisions; [design-decisions.md](design-decisions.md) |
 | 3 | ~~Command line in Rust or Python~~ **Settled in A1, 2026-11-13:** a Rust command line crate that the Python console script runs, as image does | P1 | [design.md](design.md), open question 4 |
-| 4 | A browser build of scene | when a page needs it | [design.md](design.md), open question 1 |
 
 ## What the demos and the experiment asked of scene
 
@@ -56,7 +37,7 @@ shows them all is M3.
 | An effect on one layer only: the logo's glow must not light the windows; the sun glows, the dog does not | a whole-picture `bloom` after a bitmap blend (G2) | C5 |
 | Contact shadow and floor reflection of a cut-out | image has `drop_shadow` and `reflection`; nothing ran them on one layer (G3) | M2 |
 | Reframing to the delivery shape without an outside crop (777 to 720 wide, 9:16 from a taller photo) | an ffmpeg crop in a script (G4) | C2 (`fit`) |
-| One colour typed once, for vector, image and the caller's code | the same hex typed three times (G5) | C6: a scene's own colour is one parameter; inside looks and drawings it waits for a colour reference in image and vector ([api.md](api.md), Open questions) |
+| One colour typed once, for vector, image and the caller's code | the same hex typed three times (G5) | C6: a scene's own colour is one parameter; inside looks and drawings it waits for a colour reference in image and vector |
 | A region of a layer as the target of an effect: the sign, each window as its own light | a hand-made numpy rectangle and a whole-picture bloom (G8) | C3 (a mask from an image region), C5 |
 | An effect's space: on the layer's own picture, or on the canvas | the experiment let each effect choose a photo or a screen space | C5: decided in A1, the layer's own picture ([api.md](api.md), "Looks") |
 | A static layer renders once: the graded photo is the same in 300 frames, only the bloom amount and the split follow the music | every demo frame redoes every layer | C7: a layer's cache key is its own inputs and parameter values |
@@ -115,8 +96,7 @@ Real objects over mocks: the sibling crates are real, used through their public 
 | M3 | **Built** (`docs/examples/mill.py`, demo 10 of `bullterrier-demos`; a mill frame is the cache's benchmark). The mill piece rebuilt as one scene (see "What the demos and the experiment asked"): a night-graded photo with windows and a sign glowing as separate layers, a logo drawn on, a title landing, a 9:16 delivery crop, every moving value set per frame; replaces the demos' hand-written frame function | M | image: `bloom`, `gradient_map`, `halftone`, `rgb_split`, regions; vector: `from_svg`, `slice`, text with words |
 | B1 | **Done 2026-11-14** (`Scene::render_bands`, `render_to_png`, `render_to_pdf`, `bt-scene render` past 2^24 pixels; [api.md](api.md), "Output"; what was settled and measured: [design-decisions.md](design-decisions.md), "Banded rendering"). A banded render equals the whole one bit for bit; pictures, flat colours, groups, drawings (2026-11-15) and mask planes are drawn by band, looked layers by band where image can band their looks (2026-11-15; `design-decisions.md`, "Banded looks"), and a plugin kind whole once unless it says `by_position` (the floor). Was: compose band by band, finished layers compact, a 15-layer A3 poster measured whole and banded | L | was: image: footprint, banded render, storage precision, position-hashed noise, and an origin plus canvas size handed to effects, so that seeded and position-aware effects can band; vector: V10e window render |
 | O1 | **PNG done 2026-11-14** (`Raster::write`, through image's writer: [api.md](api.md), "Output"). **PDF done 2026-11-14** (`Raster::write_pdf`: a raster PDF at a physical size, bleed by edge repeat, crop marks, flatten, CMYK through a caller's ICC profile; vectors are not kept: [api.md](api.md), "Output") | M | |
-| P1 | **Done 2026-11-14.** `bt-scene render`, `parameters` and `validate`: a Rust crate (`crates/cli`) that the Python console script runs ([cli.md](cli.md)). Templates and presets are not built | S | |
-| R1 | First release | S | image and vector published first; the repository opens up |
+| P1 | **Done 2026-11-14.** `bt-scene render`, `parameters` and `validate`: a Rust crate (`crates/cli`) that the Python console script runs ([cli.md](cli.md)). | S | |
 
 ## What each batch shows
 
@@ -139,11 +119,3 @@ Real objects over mocks: the sibling crates are real, used through their public 
 Order: C1 is the first batch that uses image and vector. M1 is the milestone that shows whether the layer model is right and
 can start once C4 and vector's V10d exist. B1 is built within what image and vector give today (their needs are in "Needs from others"); a layer with a look
 renders whole.
-
-## Later, each when something triggers it
-
-- A browser build (WebAssembly), if image's crate builds for it and a page needs it.
-- Stamped brush marks along a path (spray, scribbles) as a layer type.
-- Footage layers, with video.
-- Linear-light blending as an option.
-- Directions after the first release (animated posters, websites, an editor) and the polish list: [future.md](future.md).

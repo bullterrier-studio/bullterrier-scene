@@ -752,7 +752,7 @@ Every row of "What the demos and the experiment asked of scene" in [roadmap.md](
 | An effect on one layer only: the logo's glow must not light the windows; the sun glows, the dog does not | a reference with a look, made light: [mill.py](examples/mill.py) `logo_glow`, [composed_world.py](examples/composed_world.py) `sun_glow`, [wow_poster.py](examples/wow_poster.py) `rings_glow` |
 | Contact shadow and floor reflection of a cut-out | references to the dog, placed and masked: [composed_world.py](examples/composed_world.py) `reflection`, `shadow` |
 | Reframing to the delivery shape without an outside crop | `fit(box, "cover", align=...)`: [mill.py](examples/mill.py) `night` |
-| One colour typed once, for vector, image and the caller's code | in part: a scene's own colour is one parameter ([cover_template.py](examples/cover_template.py) `band.color`); inside a look or a drawing it waits for a colour reference in image and vector (Needs from others) |
+| One colour typed once, for vector, image and the caller's code | in part: a scene's own colour is one parameter ([cover_template.py](examples/cover_template.py) `band.color`); inside a look or a drawing it waits for a colour reference in image and vector |
 | A region of a layer as the target of an effect: the sign, each window | a region of an image look as a named map, `windows` in [mill.py](examples/mill.py) (`region`); a drawing as a mask, `sign_glow` (`sign_box`) |
 | An effect's space: the layer's own picture, or the canvas | the layer's own picture ("Looks", "Space"): [wow_poster.py](examples/wow_poster.py) `inset`, [chrome_type.py](examples/chrome_type.py) `type` |
 | A static layer renders once | [cache_probe.py](examples/cache_probe.py); [frame_sequence.py](examples/frame_sequence.py) changes only the headline |
@@ -786,31 +786,19 @@ ends.
 
 | From | Need | By |
 |---|---|---|
-| image | `Recipe.to_dict()` writes `format`, a public list of the formats it reads, and a public crate version for the messages. **Not met at the pin** (its `to_dict()` writes none, the list is private): C1 keeps a copy of the list and omits the version | C6 |
 | vector | a public list of the document versions it reads and a public crate version, for the version-skew message | C6 |
 | image | a look refused for its picture's size says "`frame` makes a picture of ..." when no frame is set, and a missing map's message names image's Rust API (`Photo::with_map`); scene passes both through (the plan said `Options::with_map`: at the pin it is `Photo::with_map`, a method of the photo, which is what scene calls) | C3 |
 | image | a public call that returns a region of a look as a map (today `mill.py` matches a `trace` stage by its label): not met, and C3 did not need it (maps are handed in) | M3 |
-| image | alpha carried through looks (a drop shadow outside a shape) | later |
-| image | a look that returns its stroke or its effect as alpha alone, so a keyline needs no second flat picture ("Recipes") | later |
-| image | a `Parameter` spelled as the format (`meaning`, `min`, `max`), and `Picture` and `Lut` parameters that `to_dict()` can write as data | later |
-| image, vector | a colour reference, so one colour is typed once across a scene, its looks and its drawings | C6 |
-| vector | a distance-field relief (V15), a later refinement of chrome type; not needed by `chrome_type.py` | later |
 | C6 | **Met (C6a).** A group's address space (`badge.scene.label.text`) is a second name lookup; `with_values` rebuilds the inner scene (not mutated) and re-resolves it, and the outer scene again | C6a |
 | image | **Met (image `7f91eef`, C5c).** `Recipe::spread` and `Spread::pixels`: how far a look paints past its picture. `Options::with_room` (a render on a grown picture whose bounds effects keep the original box): **met**, so a halo and a vignette share a layer | C5c |
 | C7 | **Met (C7).** A group's cache key is its inner layers, the density per axis and the phase; a reference to a group at an unchanged density shares the raster | C7 |
 | C6 | **Met (C6a).** The address walk of `<layer>.look#2...` reads the layer's one `Finish`; a reference's own looks are numbered from 1 | C6a |
 | C6 | **Met (C6a)** by the number each mask stores (`mask#n` is the nth call); a map mask has no parameter | C6a |
 | C7 | **Met (C7).** A mask layer shared by several layers, or drawn again by a reference, is drawn once for a target: the key of a mask plane is the mask layer, its reading, its feather, its inversion and the target | C7 |
-| design repo | parameter format v4: an `address` where `name` stands (its schema pattern `^[A-Za-z][A-Za-z0-9_]*$` refuses a dotted address); a `color` that may carry an alpha (`#rrggbbaa`, which a fill and a text take); a unit for a plain number (vector's `""`, written `count` here) | C6a |
+| the ecosystem parameter format | parameter format v4: an `address` where `name` stands (its schema pattern `^[A-Za-z][A-Za-z0-9_]*$` refuses a dotted address); a `color` that may carry an alpha (`#rrggbbaa`, which a fill and a text take); a unit for a plain number (vector's `""`, written `count` here) | C6a |
 | ~~image~~ | (done: `with_window`, `band_margin`, and the exact-only `band_margin`, image `4997d954`: it answers none for a Fourier-summed blur, `grain` included) position-aware effects for banded looks: an effect that takes the row offset of the band and the canvas size (image's `Place { canvas_height, canvas_width, first_row }` is internal, `Options` has no first-row setter), and position-hashed noise for the effects that draw one seeded stream (grain, dust, scratches): 40 of image's 62 effects are whole-picture, so a layer with a look is drawn whole in a banded render | B1 (a later batch) |
-| vector | a vector PDF (the scene's PDF is raster) | B1 (a later batch) |
-| image | `Recipe::numbers()` lists `frame.*` for a recipe that sets no frame (scene leaves them out); `Number` carries no default | later |
 
-## Open questions
+## Questions settled
 
-1. **One colour across scene, looks and drawings.** Image and vector validate colours as hex when they build, so a scene cannot
-   push a name into them. See "Needs from others". Until then a colour is a Python constant.
-2. **Dark light past a shape.** A light layer makes alpha from brightness, so a dark halo (image's `drop_shadow`) is
-   invisible; a shadow is a fill masked by the shape. Lifts when image carries alpha through its effects.
-3. **`MAX_DEPTH` (16)** is measured for masks in C3, references in C4b and scenes in C4c ("What is built", Depth and count). `MAX_LAYERS` and 2^27 pixels are measured ("What is built").
-4. **The cache's bound** is 2 GiB, measured on a 15-layer A3 poster ("What is built", Cache; "The cache" in design-decisions).
+1. **`MAX_DEPTH` (16)** is measured for masks in C3, references in C4b and scenes in C4c ("What is built", Depth and count). `MAX_LAYERS` and 2^27 pixels are measured ("What is built").
+2. **The cache's bound** is 2 GiB, measured on a 15-layer A3 poster ("What is built", Cache; "The cache" in design-decisions).
