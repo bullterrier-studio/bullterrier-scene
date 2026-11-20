@@ -253,9 +253,7 @@ impl Finish {
         // only light shows the room: a layer that is not light keeps its source's alpha, so the halo would be cut, and a look
         // that blurs its edge would mix black in where image's own edge rule would have kept the picture's colour
         let reach = if light { Look::room(&self.looks, request)? } else { None };
-        let kept = chain
-            .map(|chain| self.stages(chain, reach))
-            .transpose()?;
+        let kept = chain.map(|chain| self.stages(chain, reach)).transpose()?;
         let wanted: Vec<&str> = chain.map_or_else(Vec::new, |chain| {
             chain.maps.iter().copied().filter(|name| self.uses_map(name)).collect()
         });
