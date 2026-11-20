@@ -254,7 +254,6 @@ impl Finish {
         // that blurs its edge would mix black in where image's own edge rule would have kept the picture's colour
         let reach = if light { Look::room(&self.looks, request)? } else { None };
         let kept = chain
-            .filter(|_| self.looks.len() > 1)
             .map(|chain| self.stages(chain, reach))
             .transpose()?;
         let wanted: Vec<&str> = chain.map_or_else(Vec::new, |chain| {
@@ -349,7 +348,7 @@ impl Finish {
     /// The keys of the stages kept for this chain, one for each look but the last: everything below the looks (`chain.base`),
     /// the room the whole chain grows the raster by, and the looks up to and including the stage's.
     fn stages(&self, chain: &Chain, reach: Option<[usize; 4]>) -> Result<Vec<Key>, Error> {
-        (1..self.looks.len())
+        (1..=self.looks.len())
             .map(|count| {
                 let mut key = chain.base.clone();
                 key.text("stage").debug(&reach).number(count);
@@ -762,8 +761,8 @@ mod tests {
             Layer::of("night").named("a")?.look(&grade(0.2))?,
             Layer::of("night").named("b")?.look(&grade(0.3))?,
         ])?;
-        // night runs its look; `a` runs night's and its own, keeping the stage between; `b` takes the stage, runs its own
-        assert_eq!(looks_run(&scene, &[])?, 1 + 2 + 1);
+        // night runs its look and keeps it as a stage; `a` and `b` take the stage and run their own
+        assert_eq!(looks_run(&scene, &[])?, 1 + 1 + 1);
         assert_eq!(looks_run(&scene, &[("a.look.grade.exposure", 0.5)])?, 1);
         assert_eq!(
             looks_run(
@@ -774,8 +773,8 @@ mod tests {
         );
         assert_eq!(
             looks_run(&scene, &[("night.look.grade.exposure", 0.4)])?,
-            1 + 2 + 1,
-            "the named layer's look runs again for night and for `a`, and `b` takes the new stage"
+            1 + 1 + 1,
+            "the named layer's look runs once, and `a` and `b` take the new stage"
         );
         Ok(())
     }
