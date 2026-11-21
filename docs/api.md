@@ -564,6 +564,15 @@ its looks, and no source parameter. Examples: `title.dx`, `photo.picture`, `wind
 Image's Python `Parameter` says `doc`, `minimum`, `maximum` and vector writes version-1 units; scene writes the format's
 spelling for both (`meaning`, `min`, `max`; `deg` is `degrees`, `cycle` is `cycles`, `""` is `None`).
 
+Typed handles: `scene.layer(name)` returns a `LayerParams`, whose properties (`opacity`, `blend`, `light`, `dx`, `dy`, `scale`,
+`aspect`, `rotate`, `skew_x`, `skew_y`, `flip_x`, `flip_y`, `picture`, `text`, `color`) are the `Parameter`s of
+`scene.parameters()`, so an editor completes them and a type checker refuses a misspelt one. Parts a caller names are looked
+up: `layer.drawing["ring_on"]`, `layer.maps["matte"]`, `layer.look(2)["swell.amount"]` (`look#2`), `layer.mask()["dx"]`. An
+unknown layer, a field the layer's kind lacks (a fill has no `text`) or a part name no layer has raises `InvalidError` with
+the nearest names; only the field names are checked before the run, the layer and part names are data. A `Parameter` (or any
+object with an `address`) is accepted as a `with_values` key, equal to its address:
+`scene.with_values({scene.layer("glow").opacity: 0.5})`.
+
 `with_values` rules:
 
 - A value is a number (a `float`, an `int` or a numpy number; a whole-number parameter takes `3.0`), a colour (`"#rrggbb"` or
