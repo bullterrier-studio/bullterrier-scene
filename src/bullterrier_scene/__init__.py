@@ -9,7 +9,7 @@ from importlib import metadata
 from ._native._core import MAX_DEPTH, MAX_LAYERS
 from .errors import BullterrierSceneError, FormatError, InvalidError, ReadError, WriteError
 from .layer import Layer
-from .parameter import Parameter
+from .parameter import Addressed, LayerParams, Parameter
 from .plates import PdfOptions, Plates, Underbase
 from .plugin import layer_kind, layer_kinds, register_layer
 from .scene import Scene
@@ -26,10 +26,12 @@ def __getattr__(name: str) -> str:
 __all__ = [
     "MAX_DEPTH",
     "MAX_LAYERS",
+    "Addressed",
     "BullterrierSceneError",
     "FormatError",
     "InvalidError",
     "Layer",
+    "LayerParams",
     "Parameter",
     "PdfOptions",
     "Plates",
