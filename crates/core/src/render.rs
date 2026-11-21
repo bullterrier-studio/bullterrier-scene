@@ -182,7 +182,10 @@ fn lay(layer: &Layer, target: &Target, joined: &mut [f32]) -> Result<(), Error> 
     }
     let factor = product(&layer.join, target)?;
     // masks that leave nothing visible: the weight is 0 at every pixel, so the layer, looks included, is not drawn
-    if factor.as_ref().is_some_and(|factor| factor.values.iter().all(|&value| value == 0.0)) {
+    if factor
+        .as_ref()
+        .is_some_and(|factor| factor.values.iter().all(|&value| value == 0.0))
+    {
         return Ok(());
     }
     let Join {
