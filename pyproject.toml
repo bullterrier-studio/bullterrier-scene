@@ -315,7 +315,10 @@ disallow_incomplete_defs = false
 [tool.vulture]
 paths = ["src"]
 min_confidence = 60
-ignore_names = ["__getattr__"]  # Python calls the module's `__getattr__` (the lazy `__version__`)
+ignore_names = [
+    "__getattr__",  # Python calls the module's `__getattr__` (the lazy `__version__`)
+    "light", "skew_x", "skew_y", "flip_x", "flip_y",  # LayerParams fields: a caller's, read in no module of src/
+]
 
 # Every import is declared, and only once in the right place (`uv run deptry .`, in `poe check`): a missing, unused,
 # transitive-only or development-only dependency fails. tests/ is not scanned (deptry's default): tests may use the
