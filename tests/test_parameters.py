@@ -306,7 +306,7 @@ def test_a_parameter_is_accepted_as_a_key_and_equals_the_string_form():
 
 def test_a_key_that_is_neither_text_nor_addressed_is_a_type_error():
     with pytest.raises(TypeError, match="address"):
-        handles().with_values({3: 1.0})  # type: ignore[dict-item]
+        handles().with_values({3: 1.0})
 
 
 def test_a_layer_hands_out_the_parameter_scene_lists_for_each_fixed_field():
