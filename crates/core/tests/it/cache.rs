@@ -44,6 +44,8 @@ fn another(parameter: &Parameter, other: &Path) -> Option<Value> {
         (Kind::Bool, Value::Bool(on)) => Value::Bool(!on),
         (Kind::Choice, Value::Text(now)) => Value::Text(parameter.choices.iter().find(|name| *name != now)?.clone()),
         (Kind::Color, Value::Text(now)) => Value::Text(if now == "#13a7c5" { "#c5a713" } else { "#13a7c5" }.to_owned()),
+        // a look's colour not set yet, or set between two levels of 255
+        (Kind::Color, Value::Hole | Value::Rgb(_)) => Value::Text("#13a7c5".to_owned()),
         (Kind::Text, Value::Text(now)) => Value::Text(format!("{now}x")),
         (Kind::Float | Kind::Int, Value::Number(now)) => {
             let (low, high) = (parameter.min?, parameter.max?);

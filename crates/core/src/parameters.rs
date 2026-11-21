@@ -39,7 +39,7 @@ pub enum Kind {
     Bool,
     /// One of a list of names.
     Choice,
-    /// A colour, `#rrggbb` or `#rrggbbaa`.
+    /// A colour: `#rrggbb` or `#rrggbbaa` for a layer's own, `#rrggbb`, `#rgb` or three channels for a look's.
     Color,
     /// Free text.
     Text,
@@ -73,6 +73,8 @@ pub enum Value {
     Bool(bool),
     /// Text: free text, a colour or a choice's name.
     Text(String),
+    /// A colour as red, green and blue, each from 0 to 1: a look's colour, in the one spelling text cannot give.
+    Rgb([f64; 3]),
     /// A picture held in memory.
     Picture(Arc<Raster>),
     /// A map held in memory.
@@ -139,6 +141,7 @@ impl Value {
             Self::Bool(on) => format!("the bool {on}"),
             Self::Text(text) if text.chars().count() <= 40 => format!("the text {text:?}"),
             Self::Text(text) => format!("a text of {} characters", text.chars().count()),
+            Self::Rgb([red, green, blue]) => format!("the colour [{red}, {green}, {blue}]"),
             Self::Picture(raster) => format!("a picture of {} x {} pixels", raster.width(), raster.height()),
             Self::Map(map) => format!("a map of {} x {} pixels", map.width(), map.height()),
             Self::File(path) => format!("the file {}", path.display()),
@@ -200,7 +203,7 @@ pub struct Parameter {
     pub cyclic: bool,
     /// The names of a choice, in order; empty for the other kinds.
     pub choices: Vec<String>,
-    /// Whether the value may be left out: a picture or a map.
+    /// Whether the value may be left out: a picture or a map, or an optional colour of a look (set, never unset).
     pub nullable: bool,
     /// The fewest characters of a text.
     pub min_length: Option<usize>,
@@ -257,16 +260,16 @@ impl Parameter {
         parameter
     }
 
-    /// A colour, written in lower case.
+    /// A layer's own colour, written in lower case.
     pub(crate) fn color(address: &str, meaning: &str, color: &str) -> Self {
-        let color = color.to_ascii_lowercase();
-        Self::of(
-            address,
-            Kind::Color,
-            meaning,
-            color.as_str().into(),
-            color.as_str().into(),
-        )
+        Self::look_color(address, meaning, color.to_ascii_lowercase().into(), false)
+    }
+
+    /// A colour holding `value` (or [`Value::Hole`], an optional colour not set): the value is also the default.
+    pub(crate) fn look_color(address: &str, meaning: &str, value: Value, nullable: bool) -> Self {
+        let mut parameter = Self::of(address, Kind::Color, meaning, value.clone(), value);
+        parameter.nullable = nullable;
+        parameter
     }
 
     /// A text of at least one character.
@@ -448,7 +451,7 @@ impl Layer {
         let known: HashSet<&str> = listed.iter().map(|parameter| parameter.address.as_str()).collect();
         let mut layer = self.clone();
         let mut source: Vec<(&str, &Value)> = Vec::new();
-        let mut looks: BTreeMap<usize, Vec<(&str, f64)>> = BTreeMap::new();
+        let mut looks: BTreeMap<usize, Vec<(&str, &Value)>> = BTreeMap::new();
         let mut masks: BTreeMap<usize, Vec<(&str, &Value)>> = BTreeMap::new();
         for &(address, value) in settings {
             if !known.contains(address) {
@@ -475,7 +478,7 @@ impl Layer {
                         Base::Of(reference) => reference.place = reference.place.with_field(address, value)?,
                     }
                 }
-                "look" => looks.entry(number).or_default().push((rest, value.number(address)?)),
+                "look" => looks.entry(number).or_default().push((rest, value)),
                 "mask" => masks.entry(number).or_default().push((rest, value)),
                 // a source's: `picture`, `map.<name>`, `text`, `color`, `drawing.<param>`, `scene.<address>`
                 _ => source.push((address, value)),

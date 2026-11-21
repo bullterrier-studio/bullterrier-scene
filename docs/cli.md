@@ -35,7 +35,7 @@ Results go to stdout, errors to stderr.
   CMYK through the caller's output profile, embedded (none is bundled). A canvas of A3's proportions at `--size 4961 --dpi 300` is a
   297 by 420 mm page.
 - **`--set`** sets a parameter by address before rendering (`parameters` lists them). VALUE is read by the address's kind: a
-  number (`0.5`), `true` or `false`, a colour (`#rrggbb`), a text or a choice's name, a picture's file path (relative to the
+  number (`0.5`), `true` or `false`, a colour (`#rrggbb`; a look's also `#rgb` or `[r, g, b]`), a text or a choice's name, a picture's file path (relative to the
   working folder). An address the scene does not have is refused with the nearest. All values are set or none.
 - **`--base`** is the folder the scene's relative paths are relative to; default the scene file's folder.
 - **`parameters`** prints a table (address, kind, unit, range, current value); `--json` prints the parameter format's list of

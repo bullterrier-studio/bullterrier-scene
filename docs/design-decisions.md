@@ -941,3 +941,14 @@ that image sums by a Fourier transform has no exact margin, so it stays whole (d
 there needs image's non-exact margin and a tolerance. The test (`render.rs`, inline: no public route turns windowing off) compares every
 look in a table, on a fill, a picture and a turned picture, bit for bit with the same scene drawn whole.
 
+
+## A look's colour is a parameter of kind colour (2026-11-21)
+
+Image lists a recipe's colours beside its numbers (`Recipe::parameters`, pin `89b238f6`); `Look` lists and sets both. A look's
+colour is `<layer>.look.<step>.<field>` with kind `color`, no unit or range, its value `#rrggbb` (the triple `(r, g, b)` where a
+channel is no whole 255th, as image writes it); an optional colour not set is `None` and `nullable`. A value is `Value::Text` or
+the new `Value::Rgb`, read by image's `Setting::read` (no second parser; a layer's own colour keeps its reader,
+which takes alpha). The look knows each row's kind, so a wrong kind is refused in scene's words naming the address and a bad
+colour in image's. *Reason:* one representation of a colour in one scene, so an editor builds a picker from `parameters()` and
+video can ramp a colour through one setting. *Not done:* a layer's own colour takes no `#rgb` or triple (it keeps its alpha spelling);
+`Kind::Colors` palettes, region and frame colours have no address in image.

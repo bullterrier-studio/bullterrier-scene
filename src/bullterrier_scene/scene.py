@@ -130,13 +130,15 @@ class Scene:
         """A new scene with the parameters at the addresses of `values` set; this scene is not changed.
 
         A value is a number (a `float`, an `int` or a numpy number; a whole-number parameter takes `3.0`), a colour
-        (`"#rrggbb"` or `"#rrggbbaa"`), a string, a choice's name, a bool, or for a picture or a map a `Path`, an
-        array (shape (height, width, 3 or 4) for a picture, (height, width) for a map) or `None` (a hole again). A
-        value outside its range is refused, never clamped; a cyclic one wraps. Nothing is set unless every value is
-        accepted: `InvalidError` names the address, the rule and the value, and for an address no parameter has, the
-        addresses there are and the nearest. An address in a look or a drawing is checked by image's or vector's own
-        rules. A key is an address or any object with an `address` (an `Addressed`, such as a `Parameter`). A
-        `TypeError` for a mapping that is none, a key that is neither, or a value of a type no parameter takes.
+        (a layer's own: `"#rrggbb"` or `"#rrggbbaa"`; a look's: `"#rrggbb"`, `"#rgb"` or a `(red, green, blue)`
+        triple, a tuple, list or array, each from 0 to 1), a string, a choice's name, a bool, or for a picture or a
+        map a `Path`, an array (shape (height, width, 3 or 4) for a picture, (height, width) for a map) or `None` (a
+        hole again). A value outside its range is refused, never clamped; a cyclic one wraps. Nothing is set unless
+        every value is accepted: `InvalidError` names the address, the rule and the value, and for an address no
+        parameter has, the addresses there are and the nearest. An address in a look or a drawing is checked by
+        image's or vector's own rules. A key is an address or any object with an `address` (an `Addressed`, such as
+        a `Parameter`). A `TypeError` for a mapping that is none, a key that is neither, or a value of a type no
+        parameter takes.
         """
         if not isinstance(values, Mapping):
             raise TypeError(f"values: a mapping from addresses to values is wanted, got {type(values).__name__}")

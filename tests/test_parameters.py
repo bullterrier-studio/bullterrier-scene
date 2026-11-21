@@ -9,6 +9,7 @@ own calls. The example scenes are the programs of `docs/examples`, built from sy
 import dataclasses
 import importlib.util
 import json
+import re
 from pathlib import Path
 from types import ModuleType
 
@@ -357,3 +358,104 @@ def test_a_field_the_layer_kind_lacks_is_refused_with_the_nearest_names():
         scene.layer("logo").drawing["ring_n"]
     with pytest.raises(InvalidError, match="no such address"):
         scene.layer("glow").look(3)["bloom.radius"]
+
+
+# --- a look's colour: a parameter of kind colour ---------------------------------------------------------------------
+
+
+LAMP = {"steps": [{"effect": "point_light", "params": {"color": "#ffe2b8"}}]}
+
+
+def lamp() -> Scene:
+    return Scene(24, 16).add(
+        Layer.fill("#202020").named("ground"),
+        Layer.picture(photo(8, 12), maps={"depth": matte(8, 12)}).look(LAMP).named("glow"),
+    )
+
+
+def test_a_looks_colour_is_listed_as_a_colour_and_set_by_text_or_a_triple():
+    scene = lamp()
+    listed = scene.parameters()["glow.look.point_light.color"]
+    assert (listed.kind, listed.value, listed.default, listed.unit, listed.min, listed.max) == (
+        "color",
+        "#ffe2b8",
+        "#ffe2b8",
+        None,
+        None,
+        None,
+    )
+    by_hex = scene.with_values({"glow.look.point_light.color": "#336699"}).render(48)
+    assert same(by_hex, scene.with_values({"glow.look.point_light.color": "#369"}).render(48))
+    assert same(by_hex, scene.with_values({"glow.look.point_light.color": (0.2, 0.4, 0.6)}).render(48))
+    assert same(by_hex, scene.with_values({"glow.look.point_light.color": np.array([0.2, 0.4, 0.6])}).render(48))
+    assert not same(by_hex, scene.render(48))
+    assert same(
+        by_hex,
+        Scene(24, 16)
+        .add(
+            Layer.fill("#202020").named("ground"),
+            Layer.picture(photo(8, 12), maps={"depth": matte(8, 12)})
+            .look({"steps": [{"effect": "point_light", "params": {"color": "#336699"}}]})
+            .named("glow"),
+        )
+        .render(48),
+    )
+
+
+def test_a_typed_handle_of_a_look_colour_is_a_key_and_a_layers_own_colour_still_works():
+    scene = lamp()
+    handle = scene.layer("glow").look()["point_light.color"]
+    assert handle.kind == "color"
+    mixed: dict[str | Parameter, str] = {handle: "#336699", "ground.color": "#ff0000"}
+    both = scene.with_values(mixed)
+    assert both.parameters()["glow.look.point_light.color"].value == "#336699"
+    assert both.parameters()["ground.color"].value == "#ff0000"
+
+
+def test_a_colour_between_two_levels_of_255_is_listed_as_its_triple():
+    value = (
+        lamp()
+        .with_values({"glow.look.point_light.color": (0.1, 0.25, 0.5)})
+        .parameters()["glow.look.point_light.color"]
+        .value
+    )
+    assert isinstance(value, tuple)
+    assert value == pytest.approx((0.1, 0.25, 0.5), abs=1e-6)
+
+
+@pytest.mark.parametrize(
+    ("value", "words"),
+    [
+        ("#12345", "not a colour"),
+        ("teal", "'#rrggbb', '#rgb' or [r, g, b]"),
+        ((0.2, 1.5, 0.0), "not a colour"),
+        (0.5, "a colour"),
+        (True, "a colour"),
+        (None, "a colour"),
+    ],
+)
+def test_a_bad_look_colour_is_refused_naming_the_address_and_nothing_changes(value, words):
+    scene = lamp()
+    with pytest.raises(InvalidError, match=rf"glow\.look\.point_light\.color: .*{re.escape(words)}"):
+        scene.with_values({"glow.opacity": 0.5, "glow.look.point_light.color": value})
+    assert scene.parameters()["glow.opacity"].value == 1.0
+
+
+def test_a_colour_for_a_number_and_a_triple_of_the_wrong_length_are_refused():
+    with pytest.raises(InvalidError, match=r"glow\.look\.point_light\.gain: a number"):
+        lamp().with_values({"glow.look.point_light.gain": "#336699"})
+    with pytest.raises(InvalidError, match="three numbers"):
+        lamp().with_values({"glow.look.point_light.color": (0.2, 0.4)})
+
+
+def test_an_optional_look_colour_is_none_until_it_is_set_and_then_cannot_be_unset():
+    scene = Scene(24, 16).add(
+        Layer.picture(photo(8, 12)).look({"steps": [{"effect": "bloom", "params": {"radius": 4.0}}]}).named("halo")
+    )
+    listed = scene.parameters()["halo.look.bloom.color"]
+    assert (listed.kind, listed.value, listed.default, listed.nullable) == ("color", None, None, True)
+    assert same(scene.with_values({"halo.look.bloom.color": None}).render(48), scene.render(48))
+    tinted = scene.with_values({"halo.look.bloom.color": "#ff0000"})
+    assert not same(tinted.render(48), scene.render(48))
+    with pytest.raises(InvalidError, match="cannot be taken away"):
+        tinted.with_values({"halo.look.bloom.color": None})

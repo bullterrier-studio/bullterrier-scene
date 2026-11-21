@@ -90,6 +90,7 @@ fn shown(value: &Value) -> String {
         Value::Number(value) => number(*value),
         Value::Bool(on) => on.to_string(),
         Value::Text(text) => text.clone(),
+        Value::Rgb([red, green, blue]) => format!("[{}, {}, {}]", number(*red), number(*green), number(*blue)),
         Value::File(path) => path.display().to_string(),
         Value::Picture(raster) => format!("picture {} x {}", raster.width(), raster.height()),
         Value::Map(map) => format!("map {} x {}", map.width(), map.height()),
@@ -103,6 +104,7 @@ fn plain(value: &Value) -> serde_json::Value {
         Value::Number(number) => json!(number),
         Value::Bool(on) => json!(on),
         Value::Text(text) => json!(text),
+        Value::Rgb(channels) => json!(channels),
         Value::File(path) => json!(path.display().to_string()),
         _ => serde_json::Value::Null,
     }

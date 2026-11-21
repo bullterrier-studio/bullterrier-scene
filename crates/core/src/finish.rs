@@ -10,6 +10,7 @@ use crate::cache::{Cache, Key, Keyed};
 use crate::error::label;
 use crate::feather;
 use crate::geometry::{MAX_LOOKED_PIXELS, Rect};
+use crate::parameters::Value;
 use crate::source::picture::Look;
 use crate::source::{Drawn, Request};
 use crate::{Error, Raster};
@@ -86,7 +87,7 @@ impl Finish {
     ///
     /// # Errors
     /// What image refuses of the set.
-    pub(crate) fn change_look(&mut self, index: usize, set: &[(&str, f64)]) -> Result<(), Error> {
+    pub(crate) fn change_look(&mut self, index: usize, set: &[(&str, &Value)]) -> Result<(), Error> {
         self.looks[index] = self.looks[index].with_values(set)?;
         Ok(())
     }

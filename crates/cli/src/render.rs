@@ -191,6 +191,10 @@ fn value(address: &str, kind: Option<Kind>, text: &str) -> Result<bullterrier_sc
             _ => return Err(wanted("`true` or `false`")),
         },
         Some(Kind::Picture) => PathBuf::from(text).into(),
+        // a colour is `#rrggbb`, `#rgb` (text, read by the scene) or `[r, g, b]`
+        Some(Kind::Color) if text.starts_with('[') => bullterrier_scene::Value::Rgb(
+            serde_json::from_str(text).map_err(|_| wanted("a colour as `#rrggbb`, `#rgb` or `[r, g, b]`"))?,
+        ),
         _ => text.into(),
     })
 }

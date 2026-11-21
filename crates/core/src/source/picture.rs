@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
+use bullterrier_image::params::Color;
 use bullterrier_image::{
     Options, Parameter as ImageParameter, ParameterKind, Photo, Presets, RECIPE_FORMATS, Recipe,
     Setting as ImageSetting, Spread,
@@ -48,8 +49,8 @@ pub(crate) struct Look {
     /// What the look makes: the picture, or (in the scene that draws a plate, never in a saved one) the ink it separates.
     output: Output,
     presets: Arc<Presets>,
-    /// The numbers of the recipe that can be set, as image lists them now.
-    numbers: Arc<[ImageParameter]>,
+    /// The numbers and colours of the recipe that can be set, as image lists them now.
+    rows: Arc<[ImageParameter]>,
     /// The unit of the look's `px`.
     px: Px,
     /// The digest of the look's document, made when first asked for: a look is never changed, `with_values` makes another.
@@ -67,14 +68,47 @@ pub(crate) enum Output {
     Solid,
 }
 
-/// The numbers of `recipe` that can be set. Image lists the frame's too, whether the recipe sets a frame or not; a look sets no
-/// frame, so they are not a look's parameters.
-fn numbers_of(recipe: &Recipe) -> Result<Arc<[ImageParameter]>, Error> {
-    let numbers = recipe.parameters().map_err(|error| refused(&error))?;
-    Ok(numbers
+/// The numbers and colours of `recipe` that can be set. Image lists the frame's too, whether the recipe sets a frame or not; a
+/// look sets no frame, so they are not a look's parameters.
+fn rows_of(recipe: &Recipe) -> Result<Arc<[ImageParameter]>, Error> {
+    let rows = recipe.parameters().map_err(|error| refused(&error))?;
+    Ok(rows
         .into_iter()
-        .filter(|number| number.kind == ParameterKind::Number && !number.address.starts_with("frame."))
+        .filter(|row| !row.address.starts_with("frame."))
         .collect())
+}
+
+/// `color` as a value: the text `#rrggbb` where it is a whole number of 255ths, else the three channels, as image writes it.
+fn shown(color: Color) -> Setting {
+    match color.to_json() {
+        Value::String(hex) => Setting::Text(hex),
+        _ => Setting::Rgb(color.0.map(f64::from)),
+    }
+}
+
+/// `value` as the setting image reads for `row` (`address` is image's own, for a message), or none where an unset optional
+/// colour is given none again. Image's `Setting::read` is the one reading of a colour.
+fn setting(row: &ImageParameter, address: &str, value: &Setting) -> Result<Option<ImageSetting>, Error> {
+    let written = match (row.kind, value) {
+        (ParameterKind::Number, value) => return Ok(Some(ImageSetting::Number(value.number(address)?))),
+        (ParameterKind::Color, Setting::Text(text)) => json!(text),
+        (ParameterKind::Color, Setting::Rgb(channels)) => json!(channels),
+        (ParameterKind::Color, Setting::Hole) if row.nullable && row.value.is_none() => return Ok(None),
+        (ParameterKind::Color, Setting::Hole) => {
+            return Err(Error::invalid(
+                address,
+                "a colour that is set cannot be taken away: give another colour",
+            ));
+        }
+        (ParameterKind::Color, other) => {
+            return Err(other.wrong(address, "a colour ('#rrggbb', '#rgb' or [r, g, b], each from 0 to 1)"));
+        }
+        // `ParameterKind` is non-exhaustive: a kind image adds is not a look's parameter until scene lists it
+        (_, other) => return Err(other.wrong(address, "a value this scene cannot set")),
+    };
+    ImageSetting::read(address, &written)
+        .map(Some)
+        .map_err(|error| refused(&error))
 }
 
 /// `values` brought into 0 to 1: image promises its pictures only "nominally 0..1", and a look can overshoot by a rounding
@@ -133,7 +167,7 @@ impl Look {
             ));
         }
         Ok(Self {
-            numbers: numbers_of(&recipe)?,
+            rows: rows_of(&recipe)?,
             recipe,
             output: Output::Picture,
             px,
@@ -158,46 +192,57 @@ impl Look {
         }
     }
 
-    /// The numbers of this look as parameters, at image's own addresses: the unit, range, meaning and whole or cyclic nature
-    /// are image's, the value the recipe holds. Image's `Number` has no default of its own, so the value is also the default.
+    /// The numbers and colours of this look as parameters, at image's own addresses: the unit, range, meaning and whole or
+    /// cyclic nature are image's, the value the recipe holds. Image has no default of its own, so the value is also the default.
     pub(crate) fn parameters(&self) -> Vec<Parameter> {
-        self.numbers
+        self.rows
             .iter()
-            .filter_map(|number| {
-                // a look sets no `frame`, the one place a number has no value (`numbers_of` leaves those out)
-                let (Some(ImageSetting::Number(value)), Some(min), Some(max)) = (number.value, number.min, number.max)
-                else {
-                    return None;
-                };
-                Some(Parameter::number(
-                    &number.address,
-                    &number.doc,
-                    &number.unit,
-                    (min, max),
-                    (number.whole, number.cyclic),
-                    value,
-                    value,
-                ))
+            .filter_map(|row| match (row.kind, row.value, row.min, row.max) {
+                (ParameterKind::Number, Some(ImageSetting::Number(value)), Some(min), Some(max)) => {
+                    Some(Parameter::number(
+                        &row.address,
+                        &row.doc,
+                        &row.unit,
+                        (min, max),
+                        (row.whole, row.cyclic),
+                        value,
+                        value,
+                    ))
+                }
+                (ParameterKind::Color, value, ..) => {
+                    let value = match value {
+                        Some(ImageSetting::Color(color)) => shown(color),
+                        _ => Setting::Hole,
+                    };
+                    Some(Parameter::look_color(&row.address, &row.doc, value, row.nullable))
+                }
+                // a number has no value only in the frame, which `rows_of` leaves out
+                _ => None,
             })
             .collect()
     }
 
-    /// This look with each of `values` (an address of its recipe, a number) set: image checks the set as it checks any recipe,
-    /// the rules between numbers set together included.
+    /// This look with each of `values` (an address of its recipe, a number or a colour) set: image checks the set as it checks
+    /// any recipe, the rules between numbers set together included.
     ///
     /// # Errors
     /// [`Error::Invalid`] naming `look`, in image's words.
-    pub(crate) fn with_values(&self, values: &[(&str, f64)]) -> Result<Self, Error> {
-        let settings: Vec<(&str, ImageSetting)> = values
-            .iter()
-            .map(|&(address, number)| (address, number.into()))
-            .collect();
+    pub(crate) fn with_values(&self, values: &[(&str, &Setting)]) -> Result<Self, Error> {
+        let mut settings: Vec<(&str, ImageSetting)> = Vec::with_capacity(values.len());
+        for &(address, value) in values {
+            let row = self
+                .rows
+                .iter()
+                .find(|row| row.address == address)
+                .ok_or_else(|| Error::invalid(address, "a look has no such parameter"))?;
+            settings.extend(setting(row, address, value)?.map(|chosen| (address, chosen)));
+        }
         let recipe = self
             .recipe
             .with_values(&settings, &self.presets)
             .map_err(|error| refused(&error))?;
         Ok(Self {
-            numbers: numbers_of(&recipe)?,
+            rows: rows_of(&recipe)?,
             recipe,
             output: self.output,
             px: self.px,

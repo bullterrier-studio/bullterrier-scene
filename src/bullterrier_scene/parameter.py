@@ -17,10 +17,12 @@ class Parameter:
     `kind` is `"float"`, `"int"`, `"bool"`, `"choice"`, `"color"`, `"text"` or `"picture"`. `unit` is `"px"`,
     `"fraction"`, `"degrees"`, `"ratio"`, `"cycles"`, `"count"`... for a number, else `None`; `min` and `max` bound a
     number (inclusive: for a cyclic one, where its turn starts and ends); `choices` are the names of a choice;
-    `nullable` is true for a picture or a map (no value is `None`); `min_length` is the fewest characters of a text.
-    For a text, a colour and the numbers of a look `default` is the value the scene holds (the value it was built with
-    is not kept). `value` of a picture or a map held in memory is a handle that shares its pixels:
-    `numpy.asarray(value)` makes the array, and `with_values` takes it back; of one read from a file, the `Path`.
+    `nullable` is true for a picture or a map, and for a look's optional colour (no value is `None`; a colour that is
+    set cannot be unset); `min_length` is the fewest characters of a text. A colour is `"#rrggbb"`; a look's colour set
+    between two levels of 255 is its `(red, green, blue)` triple instead. For a text, a colour and the numbers of a look
+    `default` is the value the scene holds (the value it was built with is not kept). `value` of a picture or a map
+    held in memory is a handle that shares its pixels: `numpy.asarray(value)` makes the array, and `with_values` takes
+    it back; of one read from a file, the `Path`.
     """
 
     address: str

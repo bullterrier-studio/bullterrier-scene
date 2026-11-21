@@ -422,3 +422,61 @@ fn a_dpi_for_a_webp_is_refused_at_any_size() -> Outcome {
     assert!(!out.exists());
     Ok(())
 }
+
+/// A look's colour is set as any colour is: `#rrggbb` or `[r, g, b]` on the command line, and `parameters` shows it.
+#[test]
+fn set_gives_a_look_its_colour_as_text_or_a_triple_and_parameters_lists_it() -> Outcome {
+    let project = Project::new()?;
+    let lit = Scene::new(64, 36)?.add([Layer::picture_file(project.file("photo.png"))
+        .look(r##"{"steps": [{"effect": "bloom", "params": {"radius": 8.0, "threshold": 0.1, "color": "#ffe2b8"}}]}"##)?
+        .named("photo")?])?;
+    let document = lit.to_json()?.replace(text(&project.file("photo.png")), "photo.png");
+    std::fs::write(project.file("lit.json"), document)?;
+    let listed = bt(&["parameters", text(&project.file("lit.json")), "--json"]);
+    assert_eq!(listed.code, 0, "{}", listed.err);
+    assert!(
+        listed
+            .out
+            .contains(r#""address":"photo.look.bloom.color","kind":"color","meaning""#)
+            && listed.out.contains(r##""default":"#ffe2b8""##),
+        "{}",
+        listed.out
+    );
+    let expected = |value: Value| -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        let scene = Scene::from_json(
+            &std::fs::read_to_string(project.file("lit.json"))?,
+            project.folder.path(),
+        )?;
+        written(
+            &scene
+                .with_values(&Values::new().set("photo.look.bloom.color", value))?
+                .render(64)?,
+            &project.file("expected.png"),
+        )
+    };
+    for (assignment, value) in [
+        ("photo.look.bloom.color=#336699", Value::from("#336699")),
+        ("photo.look.bloom.color=[0.2, 0.4, 0.6]", Value::Rgb([0.2, 0.4, 0.6])),
+    ] {
+        let out = project.file("out.png");
+        let ran = bt(&[
+            "render",
+            text(&project.file("lit.json")),
+            text(&out),
+            "--set",
+            assignment,
+        ]);
+        assert_eq!(ran.code, 0, "{assignment}: {}", ran.err);
+        assert!(std::fs::read(&out)? == expected(value)?, "{assignment}");
+    }
+    let refused = bt(&[
+        "render",
+        text(&project.file("lit.json")),
+        text(&project.file("no.png")),
+        "--set",
+        "photo.look.bloom.color=[0.2, 0.4]",
+    ]);
+    assert_eq!(refused.code, 1);
+    assert!(refused.err.contains("photo.look.bloom.color"), "{}", refused.err);
+    Ok(())
+}

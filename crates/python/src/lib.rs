@@ -236,13 +236,14 @@ impl Held {
     }
 }
 
-/// The Python object a parameter's value is: a number, bool or text as itself, a path as a `pathlib.Path`, nothing as `None`,
+/// The Python object a parameter's value is: a number, bool or text as itself, a colour of three channels as a tuple, a path as a `pathlib.Path`, nothing as `None`,
 /// a held picture or map as a `Held`.
 fn to_python(py: Python<'_>, value: &Value) -> PyResult<Py<PyAny>> {
     Ok(match value {
         Value::Number(number) => PyFloat::new(py, *number).into_any().unbind(),
         Value::Bool(on) => PyBool::new(py, *on).to_owned().into_any().unbind(),
         Value::Text(text) => PyString::new(py, text).into_any().unbind(),
+        Value::Rgb(channels) => PyTuple::new(py, channels)?.into_any().unbind(),
         Value::Picture(_) | Value::Map(_) => Py::new(py, Held(value.clone()))?.into_any(),
         Value::File(path) => py.import("pathlib")?.getattr("Path")?.call1((path,))?.unbind(),
         Value::Hole => py.None(),
@@ -284,6 +285,17 @@ fn value_of(py: Python<'_>, address: &str, value: &Bound<'_, PyAny>) -> PyResult
     if value.is_instance_of::<PyString>() {
         return Ok(Value::Text(value.extract()?));
     }
+    let channels = value.is_instance_of::<PyTuple>()
+        || value.is_instance_of::<PyList>()
+        || value.getattr("ndim").ok().and_then(|ndim| ndim.extract::<usize>().ok()) == Some(1);
+    if channels {
+        return value.extract::<[f64; 3]>().map(Value::Rgb).map_err(|_| {
+            error::invalid(
+                py,
+                format!("{address}: a colour is three numbers from 0 to 1, red, green and blue"),
+            )
+        });
+    }
     if let Ok(held) = value.extract::<PyRef<'_, Held>>() {
         return Ok(held.0.clone());
     }
@@ -306,7 +318,7 @@ fn value_of(py: Python<'_>, address: &str, value: &Bound<'_, PyAny>) -> PyResult
         });
     }
     Err(pyo3::exceptions::PyTypeError::new_err(format!(
-        "{address}: a value is a number, a bool, a text, a Path, an array, a held picture or None, got {}",
+        "{address}: a value is a number, a bool, a text, three numbers (a colour), a Path, an array, a held picture or None, got {}",
         value.get_type().name()?
     )))
 }

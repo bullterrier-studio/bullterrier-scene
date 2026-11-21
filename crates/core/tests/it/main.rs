@@ -19,6 +19,7 @@ mod groups;
 mod layer_kinds;
 mod light;
 mod look;
+mod look_colours;
 mod look_px;
 mod maps;
 mod masks;
