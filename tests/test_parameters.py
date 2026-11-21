@@ -280,3 +280,79 @@ def test_an_address_without_a_field_is_refused_saying_what_an_address_is():
 def test_the_package_exports_parameter():
     assert bts.Parameter is Parameter
     assert "Parameter" in bts.__all__
+
+
+# --- typed handles: a Parameter is accepted where an address is, and a layer hands them out -------------------------
+
+
+def handles() -> Scene:
+    return Scene(12, 8).add(
+        Layer.fill("#336699")
+        .named("glow")
+        .look({"steps": [{"effect": "bloom", "params": {"radius": 6.0}}]})
+        .look({"steps": [{"effect": "grain", "params": {"amount": 0.07}}]}),
+        Layer.drawing(LOGO).named("logo"),
+        Layer.text("Hi", font="bricolage_grotesque", size=6).named("title"),
+        Layer.fill("#000000").named("shadow").mask(Layer.fill("#ffffff").place(dx=2), feather=1),
+    )
+
+
+def test_a_parameter_is_accepted_as_a_key_and_equals_the_string_form():
+    scene = handles()
+    by_handle = scene.with_values({scene.layer("glow").opacity: 0.5, "logo.dx": 3.0})
+    assert by_handle == scene.with_values({"glow.opacity": 0.5, "logo.dx": 3.0})
+    assert by_handle.parameters()["glow.opacity"].value == 0.5
+
+
+def test_a_key_that_is_neither_text_nor_addressed_is_a_type_error():
+    with pytest.raises(TypeError, match="address"):
+        handles().with_values({3: 1.0})  # type: ignore[dict-item]
+
+
+def test_a_layer_hands_out_the_parameter_scene_lists_for_each_fixed_field():
+    scene = handles()
+    listed = scene.parameters()
+    glow = scene.layer("glow")
+    assert glow.opacity.address == "glow.opacity"
+    assert glow.opacity == listed["glow.opacity"]
+    fields = [
+        "opacity",
+        "blend",
+        "light",
+        "dx",
+        "dy",
+        "scale",
+        "aspect",
+        "rotate",
+        "skew_x",
+        "skew_y",
+        "flip_x",
+        "flip_y",
+    ]
+    assert [getattr(glow, name) for name in fields] == [listed[f"glow.{name}"] for name in fields]
+    assert scene.layer("title").text == listed["title.text"]
+    assert glow.color == listed["glow.color"]
+
+
+def test_runtime_named_parts_are_looked_up_and_are_the_same_parameter():
+    scene = handles()
+    listed = scene.parameters()
+    assert scene.layer("logo").drawing["ring_on"] == listed["logo.drawing.ring_on"]
+    assert scene.layer("glow").look()["bloom.radius"] == listed["glow.look.bloom.radius"]
+    assert scene.layer("glow").look(2)["grain.amount"] == listed["glow.look#2.grain.amount"]
+    assert scene.layer("shadow").mask()["dx"] == listed["shadow.mask.dx"]
+
+
+def test_an_unknown_layer_is_refused_with_the_nearest_names():
+    with pytest.raises(InvalidError, match="did you mean glow"):
+        handles().layer("gloww")
+
+
+def test_a_field_the_layer_kind_lacks_is_refused_with_the_nearest_names():
+    scene = handles()
+    with pytest.raises(InvalidError, match="no such address"):
+        scene.layer("glow").text  # noqa: B018  (a fill has no text)
+    with pytest.raises(InvalidError, match=r"did you mean drawing\.ring_on"):
+        scene.layer("logo").drawing["ring_n"]
+    with pytest.raises(InvalidError, match="no such address"):
+        scene.layer("glow").look(3)["bloom.radius"]

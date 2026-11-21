@@ -9,7 +9,7 @@ import numpy.typing as npt
 
 from ._native import _core
 from .layer import Layer
-from .parameter import Parameter
+from .parameter import Addressed, LayerParams, Parameter
 from .plates import Plates, Underbase
 
 __all__ = ["Scene"]
@@ -109,7 +109,21 @@ class Scene:
             found[made.address] = made
         return found
 
-    def with_values(self, values: Mapping[str, Any]) -> Self:
+    def layer(self, name: str) -> LayerParams:
+        """The parameters of the layer called `name` as typed handles: `scene.layer("glow").opacity` is
+        `scene.parameters()["glow.opacity"]`, and any handle stands for its address in `with_values`. A name no layer
+        has is `InvalidError`, with the nearest names; so is a field the layer's kind lacks, when it is asked for.
+        """
+        found = self.parameters()
+        if not any(address.startswith(f"{name}.") for address in found):
+            self._refuse(f"{name}.opacity")
+        return LayerParams(name, found, self._refuse)
+
+    def _refuse(self, address: str) -> None:
+        """Raise the core's refusal of `address` (names and nearest) if no parameter has it."""
+        self._core.with_values({address: 0.0})
+
+    def with_values(self, values: Mapping[str | Addressed, Any]) -> Self:
         """A new scene with the parameters at the addresses of `values` set; this scene is not changed.
 
         A value is a number (a `float`, an `int` or a numpy number; a whole-number parameter takes `3.0`), a colour
@@ -118,15 +132,17 @@ class Scene:
         value outside its range is refused, never clamped; a cyclic one wraps. Nothing is set unless every value is
         accepted: `InvalidError` names the address, the rule and the value, and for an address no parameter has, the
         addresses there are and the nearest. An address in a look or a drawing is checked by image's or vector's own
-        rules. A `TypeError` for a mapping that is none, a key that is not text, or a value of a type no parameter
-        takes.
+        rules. A key is an address or any object with an `address` (a `Parameter`). A `TypeError` for a mapping that is
+        none, a key that is neither, or a value of a type no parameter takes.
         """
         if not isinstance(values, Mapping):
             raise TypeError(f"values: a mapping from addresses to values is wanted, got {type(values).__name__}")
         given: dict[str, Any] = {}
         for address, value in values.items():
             if not isinstance(address, str):
-                raise TypeError(f"values: an address is text like 'title.text', got {type(address).__name__}")
+                if not isinstance(getattr(address, "address", None), str):
+                    raise TypeError(f"values: an address is text like 'title.text', got {type(address).__name__}")
+                address = address.address
             given[address] = value.item() if isinstance(value, np.generic) else value
         return self._of(self._core.with_values(given))
 
