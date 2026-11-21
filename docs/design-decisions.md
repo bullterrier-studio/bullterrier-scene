@@ -925,3 +925,19 @@ as a slice and a view of any other layout through `as_standard_layout` (one copy
 code; the 3-channel case fills alpha with 1 in the same pass. The checks stay in `Raster::rgba` and `Map::new`. *Reason:* a frame
 handed in every frame (a camera, a transition) must cost near a copy. *Measured* (1920x1080 float32, 4 channels, Apple M4):
 `Layer.picture` 12.7 ms to 4.6 ms (`frame.copy()` 1.7 ms); a strided view 127 to 32 ms; a map 5.7 to 0.9 ms.
+
+## A layer drawn for the rows its masks leave (BTSCN-0007, 2026-11-21)
+
+**In a render of more than 2^22 pixels (`PREFIX_PIXELS`), `lay` narrows the target's window to the rows where the layer's canvas masks are not 0**
+(`support`), so `land` draws the layer as a band: the looks run on those rows and the margin they reach, where image can band them
+exactly (`band_margin`); a look it cannot band is drawn whole once and cut, as for a band. The mask rows are the output's, so the warp's
+`rows_read` maps them to the layer's raster rows (a turned or scaled picture included). *Reason:* a looked layer clipped to a shape
+paid for the whole canvas. *Measured* (Rust, 3,000 by 1,500 px, a halftone of two spot inks with `sigma` 0, a mask over 14 of 30 rows,
+Apple M4, load 12): 670 to 410 ms for the render. A blur of 8 with grain: no change beyond the noise. *Why only above 2^22 pixels:* a
+smaller render keeps the finished raster of a looked layer and the stage after each look in the cache, and a look drawn for some rows is
+neither, so narrowing would draw the look again when only the layer's opacity, or a later look, changes, or when its mask moves (the
+rows change with it). A render above 2^22 pixels keeps no join, so each render draws every layer anyway. *Not done:* a halftone or blur
+that image sums by a Fourier transform has no exact margin, so it stays whole (demo 06's halftone, `sigma` above 0, is one): the gain
+there needs image's non-exact margin and a tolerance. The test (`render.rs`, inline: no public route turns windowing off) compares every
+look in a table, on a fill, a picture and a turned picture, bit for bit with the same scene drawn whole.
+

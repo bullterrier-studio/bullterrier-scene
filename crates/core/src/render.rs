@@ -10,7 +10,7 @@ use crate::cache::{Cache, Keyed};
 use crate::geometry::{MAX_PIXELS, Rect, Scale};
 use crate::landing::{Target, land};
 use crate::layer::Join;
-use crate::mask::product;
+use crate::mask::{Plane, product};
 use crate::{Error, Layer, Raster};
 
 /// The longest side of a picture, in output pixels.
@@ -191,12 +191,25 @@ fn lay(layer: &Layer, target: &Target, joined: &mut [f32]) -> Result<(), Error> 
     let Join {
         opacity, blend, light, ..
     } = layer.join;
-    let landed = land(layer.drawable()?, target, light)?;
+    // a layer whose masks leave only some rows is drawn, looks included, for those rows alone, as a band is
+    let (head, end) = factor
+        .as_ref()
+        .filter(|_| windowing(target))
+        .map_or((0, target.window.1), |factor| support(factor, target.drawn_size().0));
+    let windowed = Target {
+        window: (target.window.0 + head, end - head),
+        ..*target
+    };
+    #[cfg(test)]
+    if (head, end) != (0, target.window.1) {
+        WINDOWED.with(|count| count.set(count.get() + 1));
+    }
+    let landed = land(layer.drawable()?, &windowed, light)?;
     let columns = landed.output.columns;
     let rows_per_chunk = (CHUNK_PIXELS / columns).max(1);
     // each chunk is a few whole rows of the output, laid by the thread that takes it: a pixel is the same whichever rows are
     // laid with it (`warp_into`), and each pixel is blended into its own place alone
-    joined
+    joined[head * columns * 4..end * columns * 4]
         .par_chunks_mut(rows_per_chunk * columns * 4)
         .enumerate()
         .for_each(|(n, chunk)| {
@@ -208,7 +221,7 @@ fn lay(layer: &Layer, target: &Target, joined: &mut [f32]) -> Result<(), Error> 
                 landed.each_in(rows, &mut |at, above @ [red, green, blue, alpha]| {
                     let weight = factor
                         .as_ref()
-                        .map_or(opacity, |factor| opacity * factor.values[first * columns + at]);
+                        .map_or(opacity, |factor| opacity * factor.values[(head + first) * columns + at]);
                     let (colour, alpha) = if light { lit(above) } else { ([red, green, blue], alpha) };
                     join(&mut chunk[at * 4..at * 4 + 4], colour, alpha * weight, blend);
                 });
@@ -217,7 +230,7 @@ fn lay(layer: &Layer, target: &Target, joined: &mut [f32]) -> Result<(), Error> 
                     over_pixel(
                         &mut chunk[at * 4..at * 4 + 4],
                         above,
-                        opacity * factor.values[first * columns + at],
+                        opacity * factor.values[(head + first) * columns + at],
                     );
                 });
             } else if landed.is_unmoved() {
@@ -229,6 +242,30 @@ fn lay(layer: &Layer, target: &Target, joined: &mut [f32]) -> Result<(), Error> 
             }
         });
     Ok(())
+}
+
+/// Whether a layer is drawn for the rows its masks leave: only in a render too large to keep joins, which draws every layer each
+/// time. A render that keeps joins keeps what each layer drew whole, so a change to its opacity or its mask draws no look again;
+/// a look drawn for some rows is not that raster.
+#[cfg(not(test))]
+fn windowing(target: &Target) -> bool {
+    target.columns * target.rows > PREFIX_PIXELS
+}
+
+/// [`windowing`], with a switch for the tests to draw every layer whole.
+#[cfg(test)]
+fn windowing(target: &Target) -> bool {
+    target.columns * target.rows > PREFIX_PIXELS && !WHOLE.with(std::cell::Cell::get)
+}
+
+/// The rows of `factor` (`columns` wide) that are not 0, as `(first, end)` counted from its first row: all of them where its
+/// first and last rows are not 0. A layer with no row left is not drawn (`lay` returned before).
+fn support(factor: &Plane, columns: usize) -> (usize, usize) {
+    let row_is_empty = |row: &[f32]| row.iter().all(|&value| value == 0.0);
+    let rows = factor.values.chunks(columns);
+    let head = rows.clone().take_while(|row| row_is_empty(row)).count();
+    let tail = rows.rev().take_while(|row| row_is_empty(row)).count();
+    (head, factor.values.len() / columns - tail)
 }
 
 /// `above` (straight RGBA, at `opacity` of its alpha) laid over `joined` (premultiplied): the "over" of Porter and Duff,
@@ -268,12 +305,15 @@ pub(crate) fn straight(mut joined: Vec<f32>) -> Vec<f32> {
 #[cfg(test)]
 thread_local! {
     static LAID: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// The layers whose look was drawn for some rows only, and a switch that draws every layer whole, the oracle.
+    static WINDOWED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static WHOLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{LAID, PREFIX_PIXELS};
-    use crate::{Error, Layer, Scene, Values};
+    use super::{LAID, PREFIX_PIXELS, WHOLE, WINDOWED};
+    use crate::{Deg, Error, Fit, Layer, Mask, Place, Raster, Scene, Values};
 
     fn four(canvas: (u32, u32)) -> Result<Scene, Error> {
         Scene::new(canvas.0, canvas.1)?.add([
@@ -313,6 +353,83 @@ mod tests {
         const { assert!(3_000 * 1_500 > PREFIX_PIXELS) };
         assert_eq!(laid(&scene, 3_000)?, 4);
         assert_eq!(laid(&scene, 3_000)?, 4, "nothing was kept");
+        Ok(())
+    }
+
+    /// `base`, looked and masked to four rows of a picture 30 rows high, over a ground, on a canvas whose render at 3,000 is too
+    /// large to keep joins.
+    fn masked_rows(base: Layer, look: &str) -> Result<Scene, Error> {
+        let mut pixels = vec![0.0; 60 * 30 * 4];
+        for row in 10..14 {
+            pixels[row * 60 * 4..(row + 1) * 60 * 4].fill(1.0);
+        }
+        let mask =
+            Layer::picture(Raster::rgba(60, 30, pixels)?).fit([0.0, 0.0, 300.0, 150.0], Fit::Stretch, [0.5, 0.5])?;
+        let look = format!(r#"{{"steps": [{look}]}}"#);
+        Scene::new(300, 150)?.add([Layer::fill("#204080")?, base.look(&look)?.mask(Mask::new(mask))?])
+    }
+
+    /// The layers a test masks: a fill, a picture that fills the canvas, and a picture turned and shrunk.
+    const BASES: [&str; 3] = ["fill", "picture", "turned picture"];
+
+    fn base(kind: &str) -> Result<Layer, Error> {
+        let pixels = (0..40 * 30u16)
+            .flat_map(|at| [f32::from(at % 7) / 7.0, f32::from(at % 11) / 11.0, 0.3, 1.0])
+            .collect();
+        let picture = Layer::picture(Raster::rgba(40, 30, pixels)?);
+        match kind {
+            "fill" => Layer::fill("#ff8000"),
+            "picture" => picture.fit([0.0, 0.0, 300.0, 150.0], Fit::Cover, [0.5, 0.5]),
+            _ => picture
+                .fit([40.0, 20.0, 260.0, 130.0], Fit::Cover, [0.5, 0.5])?
+                .place(Place::new().rotate(Deg(20.0)).scale(0.8)),
+        }
+    }
+
+    #[test]
+    fn a_looked_layer_masked_to_some_rows_is_drawn_for_those_rows_and_the_picture_is_the_same() -> Result<(), Error> {
+        // a place by the picture, a blur, a blur summed by a Fourier transform, a grain, a statistic of the whole picture
+        for look in [
+            r#"{"effect": "vignette"}"#,
+            r#"{"effect": "gaussian_blur", "params": {"radius": 8.0}}"#,
+            r#"{"effect": "gaussian_blur", "params": {"radius": 300.0}}"#,
+            r#"{"effect": "grain", "params": {"amount": 0.6, "size": 1.5}}"#,
+            r#"{"effect": "auto_levels"}"#,
+        ] {
+            for kind in BASES {
+                let before = WINDOWED.with(std::cell::Cell::get);
+                let windowed = masked_rows(base(kind)?, look)?.render(3_000)?;
+                assert!(
+                    WINDOWED.with(std::cell::Cell::get) > before,
+                    "{look} on a {kind} is drawn for the mask's rows"
+                );
+                WHOLE.with(|whole| whole.set(true));
+                let whole = masked_rows(base(kind)?, look)?.render(3_000);
+                WHOLE.with(|whole| whole.set(false));
+                let whole = whole?;
+                let same = windowed
+                    .pixels()
+                    .iter()
+                    .zip(whole.pixels())
+                    .all(|(left, right)| left.to_bits() == right.to_bits());
+                assert!(
+                    same,
+                    "{look} on a {kind}: a windowed look makes the pixels a whole one makes"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_render_that_keeps_joins_draws_every_layer_whole() -> Result<(), Error> {
+        let before = WINDOWED.with(std::cell::Cell::get);
+        masked_rows(Layer::fill("#ff8000")?, r#"{"effect": "vignette"}"#)?.render(300)?;
+        assert_eq!(
+            WINDOWED.with(std::cell::Cell::get),
+            before,
+            "a draft keeps its cached rasters"
+        );
         Ok(())
     }
 }
