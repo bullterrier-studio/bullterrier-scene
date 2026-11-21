@@ -299,14 +299,15 @@ def handles() -> Scene:
 
 def test_a_parameter_is_accepted_as_a_key_and_equals_the_string_form():
     scene = handles()
-    by_handle = scene.with_values({scene.layer("glow").opacity: 0.5, "logo.dx": 3.0})
+    mixed: dict[str | Parameter, float] = {scene.layer("glow").opacity: 0.5, "logo.dx": 3.0}
+    by_handle = scene.with_values(mixed)
     assert by_handle == scene.with_values({"glow.opacity": 0.5, "logo.dx": 3.0})
     assert by_handle.parameters()["glow.opacity"].value == 0.5
 
 
 def test_a_key_that_is_neither_text_nor_addressed_is_a_type_error():
     with pytest.raises(TypeError, match="address"):
-        handles().with_values({3: 1.0})
+        handles().with_values({3: 1.0})  # type: ignore[type-var]  # the type check refuses it too
 
 
 def test_a_layer_hands_out_the_parameter_scene_lists_for_each_fixed_field():

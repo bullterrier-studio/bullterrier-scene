@@ -2,17 +2,20 @@
 
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any, Self
+from typing import Any, Self, TypeVar
 
 import numpy as np
 import numpy.typing as npt
 
 from ._native import _core
 from .layer import Layer
-from .parameter import LayerParams, Parameter
+from .parameter import Addressed, LayerParams, Parameter
 from .plates import Plates, Underbase
 
 __all__ = ["Scene"]
+
+# A TypeVar: `Mapping[str | Addressed, Any]` would refuse a `dict[str, ...]` (a mapping is invariant in its key).
+_Key = TypeVar("_Key", bound=str | Addressed)
 
 
 def _number(value: object, whole: bool) -> Any:
@@ -123,7 +126,7 @@ class Scene:
         """Raise the core's refusal of `address` (names and nearest) if no parameter has it."""
         self._core.with_values({address: 0.0})
 
-    def with_values(self, values: Mapping[Any, Any]) -> Self:
+    def with_values(self, values: Mapping[_Key, Any]) -> Self:
         """A new scene with the parameters at the addresses of `values` set; this scene is not changed.
 
         A value is a number (a `float`, an `int` or a numpy number; a whole-number parameter takes `3.0`), a colour
@@ -132,18 +135,20 @@ class Scene:
         value outside its range is refused, never clamped; a cyclic one wraps. Nothing is set unless every value is
         accepted: `InvalidError` names the address, the rule and the value, and for an address no parameter has, the
         addresses there are and the nearest. An address in a look or a drawing is checked by image's or vector's own
-        rules. A key is an address or any object with an `address` (an `Addressed`, such as a `Parameter`); the
-        keys are typed `Any` because a mapping is invariant in its key type. A `TypeError` for a mapping that is none, a
-        key that is neither, or a value of a type no parameter takes.
+        rules. A key is an address or any object with an `address` (an `Addressed`, such as a `Parameter`). A
+        `TypeError` for a mapping that is none, a key that is neither, or a value of a type no parameter takes.
         """
         if not isinstance(values, Mapping):
             raise TypeError(f"values: a mapping from addresses to values is wanted, got {type(values).__name__}")
         given: dict[str, Any] = {}
-        for address, value in values.items():
-            if not isinstance(address, str):
-                if not isinstance(getattr(address, "address", None), str):
-                    raise TypeError(f"values: an address is text like 'title.text', got {type(address).__name__}")
-                address = address.address
+        for key, value in values.items():
+            address: str
+            if isinstance(key, str):
+                address = key
+            elif isinstance(getattr(key, "address", None), str):
+                address = key.address
+            else:
+                raise TypeError(f"values: an address is text like 'title.text', got {type(key).__name__}")
             given[address] = value.item() if isinstance(value, np.generic) else value
         return self._of(self._core.with_values(given))
 
