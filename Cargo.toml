@@ -18,7 +18,7 @@ bullterrier-scene = { path = "crates/core" }
 bullterrier-scene-cli = { path = "crates/cli" }
 # The sibling crates, pinned to a revision (docs/design-decisions.md, "Image and vector come in as git dependencies"):
 # bump `rev` in a commit of its own. Named in code only in crates/core/src/source/picture.rs and drawing.rs (tests read files with image). Neither is published.
-bullterrier-image = { git = "https://github.com/bullterrier-studio/bullterrier-image", rev = "d9ba10528968608191f1b7ffe6432c1292f8360e" }
+bullterrier-image = { git = "https://github.com/bullterrier-studio/bullterrier-image", rev = "89b238f6dc0f17828e381b8b13163a406b3f7b75" }
 bullterrier-vector = { git = "https://github.com/bullterrier-studio/bullterrier-vector", rev = "ec87b308d87cc4cca88d791065414e67b9f76241" }
 clap = { version = "4", default-features = false, features = ["std", "string", "derive", "help", "usage", "error-context", "suggestions"] }  # the command line (`crates/cli`)
 miniz_oxide = "0.9"  # the Flate encoder of a PDF's picture (already in the tree through png): `docs/design-decisions.md`, "PDF output"

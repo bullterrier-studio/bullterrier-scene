@@ -33,7 +33,7 @@ fn grade_numbers() -> Result<Vec<String>, Error> {
         pointer: String::new(),
         message: error.to_string(),
     })?;
-    let numbers = recipe.numbers().map_err(|error| Error::Format {
+    let numbers = recipe.parameters().map_err(|error| Error::Format {
         pointer: String::new(),
         message: error.to_string(),
     })?;

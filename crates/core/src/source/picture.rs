@@ -5,7 +5,10 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
-use bullterrier_image::{Number, Options, Photo, Presets, RECIPE_FORMATS, Recipe, Spread};
+use bullterrier_image::{
+    Options, Parameter as ImageParameter, ParameterKind, Photo, Presets, RECIPE_FORMATS, Recipe,
+    Setting as ImageSetting, Spread,
+};
 use serde_json::{Value, json};
 
 use super::{Drawn, Given, Opened, Request, Rows, Source};
@@ -46,7 +49,7 @@ pub(crate) struct Look {
     output: Output,
     presets: Arc<Presets>,
     /// The numbers of the recipe that can be set, as image lists them now.
-    numbers: Arc<[Number]>,
+    numbers: Arc<[ImageParameter]>,
     /// The unit of the look's `px`.
     px: Px,
     /// The digest of the look's document, made when first asked for: a look is never changed, `with_values` makes another.
@@ -66,11 +69,11 @@ pub(crate) enum Output {
 
 /// The numbers of `recipe` that can be set. Image lists the frame's too, whether the recipe sets a frame or not; a look sets no
 /// frame, so they are not a look's parameters.
-fn numbers_of(recipe: &Recipe) -> Result<Arc<[Number]>, Error> {
-    let numbers = recipe.numbers().map_err(|error| refused(&error))?;
+fn numbers_of(recipe: &Recipe) -> Result<Arc<[ImageParameter]>, Error> {
+    let numbers = recipe.parameters().map_err(|error| refused(&error))?;
     Ok(numbers
         .into_iter()
-        .filter(|number| !number.address.starts_with("frame."))
+        .filter(|number| number.kind == ParameterKind::Number && !number.address.starts_with("frame."))
         .collect())
 }
 
@@ -160,18 +163,21 @@ impl Look {
     pub(crate) fn parameters(&self) -> Vec<Parameter> {
         self.numbers
             .iter()
-            .map(|number| {
+            .filter_map(|number| {
                 // a look sets no `frame`, the one place a number has no value (`numbers_of` leaves those out)
-                let value = number.value.unwrap_or(number.min);
-                Parameter::number(
+                let (Some(ImageSetting::Number(value)), Some(min), Some(max)) = (number.value, number.min, number.max)
+                else {
+                    return None;
+                };
+                Some(Parameter::number(
                     &number.address,
                     &number.doc,
                     &number.unit,
-                    (number.min, number.max),
+                    (min, max),
                     (number.whole, number.cyclic),
                     value,
                     value,
-                )
+                ))
             })
             .collect()
     }
@@ -182,9 +188,13 @@ impl Look {
     /// # Errors
     /// [`Error::Invalid`] naming `look`, in image's words.
     pub(crate) fn with_values(&self, values: &[(&str, f64)]) -> Result<Self, Error> {
+        let settings: Vec<(&str, ImageSetting)> = values
+            .iter()
+            .map(|&(address, number)| (address, number.into()))
+            .collect();
         let recipe = self
             .recipe
-            .with_values(values, &self.presets)
+            .with_values(&settings, &self.presets)
             .map_err(|error| refused(&error))?;
         Ok(Self {
             numbers: numbers_of(&recipe)?,
