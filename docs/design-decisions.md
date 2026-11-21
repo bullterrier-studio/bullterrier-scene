@@ -917,3 +917,11 @@ depend on the number of threads (a test draws a scene of every way a layer lands
 *Dependency:* `rayon` is a runtime dependency of the core. Image has it in the tree already (no new crate to build or audit); on
 wasm32 it runs on the calling thread. There is no option: a caller who wants fewer threads builds a rayon pool and renders inside
 `install`. The planes of masks stay one thread (they are not the cost). *Measured* (a 13-layer poster at 1,200 px, every layer laid again after the bottom one changes; Apple M4, load average 3 to 7): 65 ms on one thread, 20 ms now; an A3 poster in bands 2.4 to 2.6 s, 1.6 to 1.8 s.
+
+## Arrays converted by the slice (2026-11-21)
+
+**A picture or map array is converted as one flat slice.** `levels` and `map_of` (`crates/python`) read a C-contiguous array
+as a slice and a view of any other layout through `as_standard_layout` (one copy), so the per-element `to_level` loop is vector
+code; the 3-channel case fills alpha with 1 in the same pass. The checks stay in `Raster::rgba` and `Map::new`. *Reason:* a frame
+handed in every frame (a camera, a transition) must cost near a copy. *Measured* (1920x1080 float32, 4 channels, Apple M4):
+`Layer.picture` 12.7 ms to 4.6 ms (`frame.copy()` 1.7 ms); a strided view 127 to 32 ms; a map 5.7 to 0.9 ms.

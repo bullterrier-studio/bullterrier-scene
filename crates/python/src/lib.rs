@@ -5,6 +5,7 @@
 mod error;
 mod kinds;
 
+use std::borrow::Cow;
 use std::path::PathBuf;
 
 use numpy::{Element, PyArray1, PyArray2, PyArray3, PyArrayMethods, PyReadonlyArrayDyn, PyUntypedArrayMethods};
@@ -45,6 +46,22 @@ fn main(py: Python<'_>, argv: Vec<String>, version: &str) -> i32 {
     })
 }
 
+/// The elements of `array` in C order, borrowed when it is C-contiguous (else copied once): a flat slice, which the compiler
+/// turns into vector code where a walk over the elements of a strided view would not.
+fn flat_of<'a, T: Element + Copy>(array: &'a PyReadonlyArrayDyn<'_, T>) -> Cow<'a, [T]> {
+    match array.as_slice() {
+        Ok(flat) => Cow::Borrowed(flat),
+        Err(_) => Cow::Owned(
+            array
+                .as_array()
+                .as_standard_layout()
+                .into_owned()
+                .into_raw_vec_and_offset()
+                .0,
+        ),
+    }
+}
+
 /// The red, green, blue and alpha values of `array` (height, width, 3 or 4 channels) as floats from 0 to 1: `scale` maps its
 /// element type to that range. Three channels are opaque.
 fn levels<T: Element + Copy>(
@@ -59,14 +76,18 @@ fn levels<T: Element + Copy>(
             format!("pixels: a picture array is (height, width, 3 or 4), got shape {shape:?}"),
         ));
     };
-    let values = array.as_array();
-    let mut pixels = Vec::with_capacity(height * width * 4);
-    for (index, value) in values.iter().enumerate() {
-        pixels.push(to_level(*value));
-        if channels == 3 && index % 3 == 2 {
-            pixels.push(1.0);
+    let flat = flat_of(array);
+    let pixels = if channels == 4 {
+        flat.iter().map(|value| to_level(*value)).collect()
+    } else {
+        let mut pixels = vec![1.0; height * width * 4];
+        for (pixel, rgb) in pixels.as_chunks_mut::<4>().0.iter_mut().zip(flat.as_chunks::<3>().0) {
+            pixel[0] = to_level(rgb[0]);
+            pixel[1] = to_level(rgb[1]);
+            pixel[2] = to_level(rgb[2]);
         }
-    }
+        pixels
+    };
     Raster::rgba(width, height, pixels).map_err(|failure| error::raised(py, &failure))
 }
 
@@ -105,7 +126,7 @@ fn map_of(py: Python<'_>, array: &Bound<'_, PyAny>) -> PyResult<Map> {
                 format!("values: a map array is (height, width), got shape {shape:?}"),
             ));
         };
-        let values = array.as_array().iter().map(|value| to_level(*value)).collect();
+        let values = flat_of(array).iter().map(|value| to_level(*value)).collect();
         Map::new(width, height, values).map_err(|failure| error::raised(py, &failure))
     }
     if let Ok(found) = array.extract::<PyReadonlyArrayDyn<'_, u8>>() {
