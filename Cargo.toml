@@ -35,7 +35,7 @@ peak_alloc = "0.3"  # a counting global allocator: the peak-memory test of the P
 pyo3 = { version = "0.30", features = ["abi3-py312"] }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }  # a recipe's order is data (image's own setting); a saved scene reads back the number it wrote
 serde = "1"  # the strict reader of a saved scene (a key written twice is refused)
-sha2 = "0.10"  # the digest of a file a saved scene names (docs/design-decisions.md, "A saved scene")
+sha2 = "0.11"  # the digest of a file a saved scene names (docs/design-decisions.md, "A saved scene")
 
 # Warnings, not errors, so a newer compiler's new lint never breaks a user's install; the gate (`poe check`) runs clippy
 # and rustdoc with `-D warnings`, so every one fails it.
