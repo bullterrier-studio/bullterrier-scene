@@ -761,3 +761,20 @@ fn a_layer_at_opacity_zero_costs_nothing_where_it_is_joined_and_its_references_s
     assert!(same(&shown, &visible) && !same(&shown, &alone));
     Ok(())
 }
+
+/// A layer whose masks leave nothing visible (every value 0) cannot change the canvas in any blend mode, so its source is not
+/// drawn where it is joined; a mask that leaves something visible still lets it draw, and either way the picture is the same.
+#[test]
+fn a_layer_masked_to_nothing_is_not_drawn_where_it_is_joined() -> Outcome {
+    let base = || Layer::fill("#336699");
+    let nothing = || Layer::fill("#ffffff").map(|white| Mask::new(white).invert());
+    let (kind, shown) = (Counting::new(0.3), Counting::new(0.3));
+    let hidden = Layer::make(kind.clone()).blend(Blend::Multiply).mask(nothing()?)?;
+    let alone = drawn([base()?, hidden], 24)?;
+    assert_eq!(kind.draws(), 0, "masked to nothing");
+    assert!(same(&alone, &drawn([base()?], 24)?));
+    let half = Layer::make(shown.clone()).mask(Layer::fill("#ffffff")?.opacity(0.5)?)?;
+    drawn([base()?, half], 24)?;
+    assert_eq!(shown.draws(), 1, "masked to half");
+    Ok(())
+}

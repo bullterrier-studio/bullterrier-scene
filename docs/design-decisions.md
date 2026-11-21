@@ -122,6 +122,8 @@ template's cut-out, is driven by `with_values`. *Reason:* a raw array in a mask 
 moves with the wrong layer; passing the matte once, with the picture, keeps it aligned, addressed and in the saved form. A mask that is a layer needs no new
 kind: anything that can be drawn can mask. *Consequence:* a mask layer is owned by its layer and outside the scene's names.
 
+*Skip (2026-11-21):* a layer whose canvas masks are exactly 0 at every pixel of the band is not drawn or looked, as at opacity 0: it cannot change the canvas in any blend mode. The mask planes are drawn first, so the test costs one pass over them. A mask by a map is not tested.
+
 ## Placement is fixed fields with valid ranges (2026-11-13)
 
 `place` sets `dx`, `dy`, `scale`, `aspect` (the height ratio), `rotate`, `skew`, `flip` and `anchor`; the order of application is

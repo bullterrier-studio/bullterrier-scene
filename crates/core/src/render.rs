@@ -173,7 +173,7 @@ pub(crate) fn draw(layers: &[Layer], target: &Target) -> Result<Vec<f32>, Error>
 
 /// `layer` laid over `joined`: its source drawn at the scale it will have, then put where it belongs by one warp, each pixel
 /// of which is blended where it lands. A layer that is not moved is blended as it is. Where the layer has masks, each pixel
-/// is blended at its mask's value too. A layer at opacity 0 is not drawn: in no blend mode can it change what is below.
+/// is blended at its mask's value too. A layer at opacity 0, or whose masks are 0 at every pixel, is not drawn: in no blend mode can it change what is below.
 fn lay(layer: &Layer, target: &Target, joined: &mut [f32]) -> Result<(), Error> {
     #[cfg(test)]
     LAID.with(|laid| laid.set(laid.get() + 1));
@@ -181,6 +181,10 @@ fn lay(layer: &Layer, target: &Target, joined: &mut [f32]) -> Result<(), Error> 
         return Ok(());
     }
     let factor = product(&layer.join, target)?;
+    // masks that leave nothing visible: the weight is 0 at every pixel, so the layer, looks included, is not drawn
+    if factor.as_ref().is_some_and(|factor| factor.values.iter().all(|&value| value == 0.0)) {
+        return Ok(());
+    }
     let Join {
         opacity, blend, light, ..
     } = layer.join;
