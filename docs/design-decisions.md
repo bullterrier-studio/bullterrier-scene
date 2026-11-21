@@ -22,13 +22,13 @@ Neither crate is published (`publish = false`). A path dependency would tie scen
 branch. *Reason:* a pinned revision builds the same everywhere and a bump is a reviewed commit. *Consequence:* `deny.toml`
 allows exactly those two git sources; a dependency arrives with its first user (C1), since an unused crate fails the gate.
 
-## The pins: image `7f91eef`, vector `5442066` (2026-11-13; image bumped 2026-11-14 twice)
+## The pins: image `7f91eef`, vector `beff47d` (2026-11-13; image bumped 2026-11-14 twice, vector 2026-11-21)
 
 `Cargo.toml` pins `bullterrier-image` (`7f91eefbc4695ae20d01dc2da3de1eaadc13a274`, which has `Recipe::spread` for C5c; before it `c6b58ac`; C1 began at `f319f13`, C5b-lite moved it to image's pushed `main`, with a canvas smaller than the picture allowed (a layer larger than the canvas): `Recipe.to_dict()` writes `format`, `RECIPE_FORMATS` is public, `Options::with_canvas`; the private copy of image's format list is gone) and `bullterrier-vector`
-(`5442066f9fa5e280ffab6f3a9f85456578900c7f`), the heads of their `main` when C1 began (vector's was `05debff`; C3 bumped it
+(`beff47d0e604cfe71b6e5023a2a9c0eb61d2aa11`; before it `ec87b30`, `5442066`), the heads of their `main` when C1 began (vector's was `05debff`; C3 bumped it
 for text), with no feature turned on (image's `onnx` stays off). *Vector's bump brought* V10e (`Window`: a rectangle of the
 output drawn alone, the window drawing B1 and the C2 zoom limit wait for) and V10f (text runs: a text of several fonts and
-sizes); the C3 text layer uses neither (one font, whole frame), and the `data_boundary` tests passed unchanged. *To bump:* change `rev` in a commit of its own, run `cargo test -p bullterrier-scene --test it
+sizes); the C3 text layer uses neither (one font, whole frame), and the `data_boundary` tests passed unchanged. *The 2026-11-21 bump* (`ec87b30` to `beff47d`, 178 core commits) brought trace (`trace_levels`, `trace_labels`, `trace_cells`), `branch`, fields and halftone screens, which a drawing layer now reads; no change in scene was needed, `data_boundary` passed unchanged. *To bump:* change `rev` in a commit of its own, run `cargo test -p bullterrier-scene --test it
 data_boundary` first (it reads the forms the siblings write with the pinned readers and fails naming what changed), then the
 gate. `deny.toml` allows the two git URLs, `OFL-1.1` for `bullterrier-vector` alone (its bundled fonts), and the licences
 their dependencies bring. *Cost:* a cold build of the two crates is about 35 s (dev) or 95 s (release wheel, 5.2 MB), and the
