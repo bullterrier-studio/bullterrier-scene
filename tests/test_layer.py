@@ -192,6 +192,24 @@ def test_a_drawing_is_taken_as_an_object_with_to_json_its_text_its_dict_or_a_fil
         assert np.array_equal(render(Layer.drawing(form)), RED_SQUARE), type(form).__name__
 
 
+# a ramp from 0 at the left edge to 1 at the right, traced at the level of the Param `cut`: red from x = 100 * cut
+TRACED = (
+    '{"params":[{"default":0.5,"max":1,"meaning":"","min":0,"name":"cut","unit":""}],"root":[{"stack":{"items":'
+    '[[{"trace_levels":{"cell":1,"frame":[0,0,100,100],"levels":[{"param":"cut"}],"map":{"Field.ramp":'
+    '{"end":[100,0],"start":[0,0]}}}},{"fill":{"color":"#ff0000"}}]],"size":[100,100]}}],"version":1}'
+)
+
+
+def test_a_traced_drawing_with_a_param_is_a_layer_whose_pixels_follow_the_value():
+    scene = Scene(100, 100).add(Layer.drawing(TRACED))
+    assert "layer1.drawing.cut" in scene.parameters()
+    for cut in (0.25, 0.5, 0.75):
+        alpha = scene.with_values({"layer1.drawing.cut": cut}).render(100)[50, :, 3]
+        edge = round(100 * cut)
+        assert np.all(alpha[: edge - 3] == 0), cut
+        assert np.all(alpha[edge + 3 :] == 1), cut
+
+
 def test_a_drawing_file_that_cannot_be_read_is_a_read_error_at_the_call(tmp_path):
     with pytest.raises(ReadError, match=r"drawing.*missing\.json"):
         Layer.drawing(tmp_path / "missing.json")
