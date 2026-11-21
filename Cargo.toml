@@ -22,7 +22,7 @@ bullterrier-image = { git = "https://github.com/bullterrier-studio/bullterrier-i
 bullterrier-vector = { git = "https://github.com/bullterrier-studio/bullterrier-vector", rev = "beff47d0e604cfe71b6e5023a2a9c0eb61d2aa11" }
 clap = { version = "4", default-features = false, features = ["std", "string", "derive", "help", "usage", "error-context", "suggestions"] }  # the command line (`crates/cli`)
 miniz_oxide = "0.9"  # the Flate encoder of a PDF's picture (already in the tree through png): `docs/design-decisions.md`, "PDF output"
-moxcms = "0.8"  # RGB to a caller's CMYK profile (already in the tree through image)
+moxcms = "0.9"  # RGB to a caller's CMYK profile (already in the tree through image)
 numpy = "0.30"
 pdf-writer = "0.15"  # writes the page's content stream; pdf.rs writes the objects
 png = "0.18"  # the streaming PNG writer of a picture drawn by bands (already in the tree through image): `docs/design-decisions.md`, "Banded rendering"
