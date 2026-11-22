@@ -131,6 +131,44 @@ fn the_device_cache_keeps_what_its_budget_holds_and_nothing_mixes_with_the_cpus(
     Ok(())
 }
 
+/// The device cache holds what its budget says, to the byte: a cold render sends `held` bytes of sources (nothing is read back,
+/// so the count is uploads alone), and the next render sends none with a budget of exactly that, something with one byte less
+/// (an eviction), and everything again with none.
+#[test]
+fn the_device_cache_holds_exactly_its_budget_and_evicts_past_it() -> Outcome {
+    let Some(gpu) = fresh() else { return Ok(()) };
+    let poster = poster(&mark("#ff0000"))?;
+    block_on(gpu.render(&poster, 60))?;
+    let held = gpu.transfers();
+    assert!(held.uploads > 0 && held.downloads == 0, "{held:?}");
+    let second = |budget: usize| -> Result<u64, Error> {
+        gpu.set_cache_budget(budget);
+        block_on(gpu.render(&poster, 60))?;
+        gpu.reset_transfers();
+        block_on(gpu.render(&poster, 60))?;
+        let sent = gpu.transfers().bytes;
+        gpu.reset_transfers();
+        Ok(sent)
+    };
+    assert_eq!(
+        second(usize::try_from(held.bytes)?)?,
+        0,
+        "a budget of the sources' bytes keeps them all"
+    );
+    let short = second(usize::try_from(held.bytes)? - 1)?;
+    assert!(
+        0 < short && short <= held.bytes,
+        "one byte less evicts something: sent {short} of {}",
+        held.bytes
+    );
+    assert_eq!(
+        second(0)?,
+        held.bytes,
+        "no budget keeps nothing: every source is sent again"
+    );
+    Ok(())
+}
+
 #[test]
 fn two_threads_render_different_scenes_on_one_context() -> Outcome {
     let Some(gpu) = gpu() else { return Ok(()) };
