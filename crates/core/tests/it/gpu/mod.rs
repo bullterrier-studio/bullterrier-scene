@@ -7,6 +7,7 @@
 
 mod parity;
 mod render;
+mod session;
 
 use std::cell::{Cell, RefCell};
 use std::ops::Deref;

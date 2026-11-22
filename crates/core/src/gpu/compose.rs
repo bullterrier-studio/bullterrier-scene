@@ -162,15 +162,14 @@ impl Frame<'_> {
             self.gpu.count_upload(bytes);
             Ok::<_, Error>((Stored(self.executor().sent(raster.pixels())), bytes))
         };
-        let stored = match landed.key {
-            Some(key) => {
-                let mut kept = Keyed::new("gpu-raster");
-                kept.digest(&key);
-                self.cache.fetch(&kept.finish(), upload)?
-            }
-            None => Arc::new(upload()?.0),
+        // the key the CPU cache keeps it under, or, for a picture the CPU holds as it is (not kept there), the digest of its pixels
+        // (made once for a picture, however many scenes hold it)
+        let mut kept = Keyed::new("gpu-raster");
+        match landed.key {
+            Some(key) => kept.digest(&key),
+            None => kept.digest(raster.digest()),
         };
-        Ok(stored.0.clone())
+        Ok(self.cache.fetch(&kept.finish(), upload)?.0.clone())
     }
 
     /// `landed` put on its output: the pixels the layer lands on the target, straight RGBA, zero where it does not reach.
