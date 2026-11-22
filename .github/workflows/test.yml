@@ -16,6 +16,9 @@ jobs:
     name: Python ${{ matrix.python }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
+    env:
+      # the runners have no GPU: BT_GPU=none says so, and the GPU tests say they were skipped (the GPU job of project.yml runs them)
+      BT_GPU: none
     strategy:
       fail-fast: false # one red platform must not hide the state of the others
       # `github.event_name` is the caller's event (ci.yml's) when this file is called

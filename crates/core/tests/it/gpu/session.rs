@@ -65,7 +65,9 @@ fn the_same_context_and_scene_give_the_same_bytes_twice() -> Outcome {
 
 #[test]
 fn a_changed_value_gives_the_bytes_of_a_cold_render_of_the_changed_scene() -> Outcome {
-    let (Some(warm), Some(cold)) = (fresh(), fresh()) else { return Ok(()) };
+    let (Some(warm), Some(cold)) = (fresh(), fresh()) else {
+        return Ok(());
+    };
     let values = Values::new().set("two.opacity", 0.9).set("three.opacity", 0.1);
     let used = poster(&mark("#ff0000"))?;
     rendered(&warm, &used, 60)?;
@@ -127,11 +129,22 @@ fn the_device_cache_keeps_what_its_budget_holds_and_nothing_mixes_with_the_cpus(
 #[test]
 fn two_threads_render_different_scenes_on_one_context() -> Outcome {
     let Some(gpu) = gpu() else { return Ok(()) };
-    let (one, other) = (poster(&mark("#ff0000"))?, scene(60, 40, [picture(9, "nine")?, Layer::fill("#80ff80")?.opacity(0.5)?])?);
+    let (one, other) = (
+        poster(&mark("#ff0000"))?,
+        scene(60, 40, [picture(9, "nine")?, Layer::fill("#80ff80")?.opacity(0.5)?])?,
+    );
     let alone = (rendered(&gpu, &one, 60)?, rendered(&gpu, &other, 60)?);
     let together = std::thread::scope(|threads| {
-        let first = threads.spawn(|| (0..4).map(|_| rendered(&gpu, &one, 60)).collect::<Result<Vec<_>, Error>>());
-        let second = threads.spawn(|| (0..4).map(|_| rendered(&gpu, &other, 60)).collect::<Result<Vec<_>, Error>>());
+        let first = threads.spawn(|| {
+            (0..4)
+                .map(|_| rendered(&gpu, &one, 60))
+                .collect::<Result<Vec<_>, Error>>()
+        });
+        let second = threads.spawn(|| {
+            (0..4)
+                .map(|_| rendered(&gpu, &other, 60))
+                .collect::<Result<Vec<_>, Error>>()
+        });
         (first.join(), second.join())
     });
     let (Ok(first), Ok(second)) = together else {
@@ -150,7 +163,9 @@ fn two_threads_render_different_scenes_on_one_context() -> Outcome {
 fn small_device() -> Result<Gpu, Box<dyn std::error::Error>> {
     let (device, queue) = block_on(async {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-        let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions::default()).await?;
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions::default())
+            .await?;
         let required_limits = wgpu::Limits {
             max_storage_buffer_binding_size: 64 * 1024,
             ..wgpu::Limits::downlevel_defaults()
@@ -178,7 +193,10 @@ fn a_size_beyond_the_device_is_a_gpu_error_naming_the_cpu_and_a_bad_size_is_the_
         return Err("a picture beyond the device was rendered".into());
     };
     assert!(matches!(error, Error::Gpu { .. }), "{error:?}");
-    assert!(error.to_string().contains("65 x 65") && error.to_string().contains("CPU"), "{error}");
+    assert!(
+        error.to_string().contains("65 x 65") && error.to_string().contains("CPU"),
+        "{error}"
+    );
     // the CPU's own refusal of a size is the same on the GPU: it is the caller's, not the machine's
     let Err(error) = block_on(small.render(&flat, 0)) else {
         return Err("size 0 was rendered".into());

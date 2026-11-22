@@ -158,7 +158,7 @@ pub(crate) struct Landed {
     total: usize,
     /// What the cache calls the raster the source and looks drew, if it keeps it: the GPU compositor keeps its copy on the
     /// device under the same key (`crate::gpu`, backend-keyed there).
-    #[cfg(feature = "gpu")]
+    #[cfg_attr(not(feature = "gpu"), expect(dead_code, reason = "read by the GPU compositor"))]
     pub(crate) key: Option<crate::cache::Key>,
 }
 
@@ -325,6 +325,49 @@ fn cut(raster: &Raster, rows: std::ops::Range<usize>) -> Raster {
     )
 }
 
+/// What the source draws for `request` with its looks run, kept in the cache where it is worth keeping, and the key it is kept
+/// under (the GPU compositor keeps its copy under the same one).
+///
+/// # Errors
+/// What the source and the looks refuse, and a source or look that cannot be written into a key.
+fn draw_kept(
+    body: &Body,
+    opened: Opened,
+    request: Request,
+    target: &Target,
+    light: bool,
+) -> Result<(Drawn, Option<crate::cache::Key>), Error> {
+    if !body.keeps_drawn() {
+        return Ok((opened.draw(request, &body.finish, light, target.cache, None)?, None));
+    }
+    // the phase and the pixels held round the scene are inputs only of a source that draws on the grid: a picture that
+    // moves, or sits in a group drawn at another phase, keeps its raster
+    let grid = body.source.follows_grid();
+    let (phase, held) = if grid {
+        (request.phase, request.held)
+    } else {
+        ((0.0, 0.0), 0)
+    };
+    // everything below the looks: what a stage of the chain of looks and the finished raster both depend on
+    let mut base = Keyed::new("drawn");
+    body.source.keyed(&mut base)?;
+    base.debug(&(light, Request { phase, held, ..request }));
+    let mut key = base.clone();
+    key.text("finished");
+    body.finish.keyed(&mut key)?;
+    let key = key.finish();
+    let kept = target.cache.fetch(&key, || {
+        let chain = Chain {
+            base: &base,
+            maps: body.source.map_names().unwrap_or_default(),
+        };
+        let drawn = opened.draw(request, &body.finish, light, target.cache, Some(&chain))?;
+        let bytes = size_of_val(drawn.raster.pixels());
+        Ok((Kept::of(drawn), bytes))
+    })?;
+    Ok((kept.drawn(), Some(key)))
+}
+
 /// `body` drawn at the scale it will have, and put on `target`: the source asked for the part of its box that shows, then the
 /// map of the one warp worked out.
 ///
@@ -401,7 +444,6 @@ pub(crate) fn land_by(body: &Body, target: &Target, light: bool, reducing: Reduc
             output: target.output(),
             first: read.first,
             total: read.total,
-            #[cfg(feature = "gpu")]
             key: None,
         });
     }
@@ -412,47 +454,12 @@ pub(crate) fn land_by(body: &Body, target: &Target, light: bool, reducing: Reduc
     } else {
         request.scale.size(request.window)?;
     }
-    #[cfg(feature = "gpu")]
-    let mut drawn_key = None;
-    let drawn = if body.keeps_drawn() {
-        // the phase and the pixels held round the scene are inputs only of a source that draws on the grid: a picture that
-        // moves, or sits in a group drawn at another phase, keeps its raster
-        let grid = body.source.follows_grid();
-        let (phase, held) = if grid {
-            (request.phase, request.held)
-        } else {
-            ((0.0, 0.0), 0)
-        };
-        // everything below the looks: what a stage of the chain of looks and the finished raster both depend on
-        let mut base = Keyed::new("drawn");
-        body.source.keyed(&mut base)?;
-        base.debug(&(light, Request { phase, held, ..request }));
-        let mut key = base.clone();
-        key.text("finished");
-        body.finish.keyed(&mut key)?;
-        let key = key.finish();
-        #[cfg(feature = "gpu")]
-        {
-            drawn_key = Some(key);
-        }
-        let kept = target.cache.fetch(&key, || {
-            let chain = Chain {
-                base: &base,
-                maps: body.source.map_names().unwrap_or_default(),
-            };
-            let drawn = opened.draw(request, &body.finish, light, target.cache, Some(&chain))?;
-            let bytes = size_of_val(drawn.raster.pixels());
-            Ok((Kept::of(drawn), bytes))
-        })?;
-        kept.drawn()
-    } else {
-        opened.draw(request, &body.finish, light, target.cache, None)?
-    };
+    let (drawn, drawn_key) = draw_kept(body, opened, request, target, light)?;
     let (map, clip) = placed(drawn.shape());
-    let (drawn, map, clip) = match reducing {
-        Reducing::Now => reduced(body, &request, target, light, (drawn, map, clip))?,
-        #[cfg(feature = "gpu")]
-        Reducing::Later => (drawn, map, clip),
+    let (drawn, map, clip) = if reducing == Reducing::Now {
+        reduced(body, &request, target, light, (drawn, map, clip))?
+    } else {
+        (drawn, map, clip)
     };
     let total = drawn.raster.height();
     Ok(Landed {
@@ -462,7 +469,6 @@ pub(crate) fn land_by(body: &Body, target: &Target, light: bool, reducing: Reduc
         output: target.output(),
         first: 0,
         total,
-        #[cfg(feature = "gpu")]
         key: drawn_key,
     })
 }

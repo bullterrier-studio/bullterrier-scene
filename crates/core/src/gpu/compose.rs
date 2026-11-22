@@ -17,7 +17,9 @@ use crate::landing::{Landed, Reducing, Target, land_by};
 use crate::layer::Join;
 use crate::mask::{CanvasMask, Use};
 use crate::render::{checked_size, target_of};
-use crate::warp::{Map, Output, fixed_footprint, inverse_homography, is_exact_class, is_identity_of, reduced_map, reduction};
+use crate::warp::{
+    Map, Output, fixed_footprint, inverse_homography, is_exact_class, is_identity_of, reduced_map, reduction,
+};
 use crate::{Error, Layer, Scene};
 
 /// A buffer on the device, as the cache keeps it.
@@ -63,7 +65,10 @@ pub(super) async fn render(gpu: &Gpu, scene: &Scene, size: i128) -> Result<bullt
             return Err(error);
         }
     };
-    gpu.inner.image.adopt(picture, rows, columns, true).map_err(|error| from_image(&error))
+    gpu.inner
+        .image
+        .adopt(picture, rows, columns, true)
+        .map_err(|error| from_image(&error))
 }
 
 /// One render's recording.
@@ -81,7 +86,10 @@ impl Frame<'_> {
     }
 
     fn run(&mut self, kernel: Kernel, call: &Call, bindings: &Bindings<'_>) {
-        self.gpu.inner.executor.dispatch(&mut self.encoder, kernel, call, bindings);
+        self.gpu
+            .inner
+            .executor
+            .dispatch(&mut self.encoder, kernel, call, bindings);
     }
 
     /// A zeroed buffer of `bytes` bytes.
@@ -105,7 +113,11 @@ impl Frame<'_> {
 
     /// A buffer of `bytes` bytes that holds a layer for a moment: the same buffer again if the last of this size has been read.
     fn landing(&mut self, bytes: usize) -> Result<Buffer, Error> {
-        if let Some(found) = self.scratch.iter().find(|buffer| buffer.size() == (bytes as u64).max(16)) {
+        if let Some(found) = self
+            .scratch
+            .iter()
+            .find(|buffer| buffer.size() == (bytes as u64).max(16))
+        {
             return Ok(found.clone());
         }
         let made = self.buffer(bytes)?;
@@ -119,7 +131,8 @@ impl Frame<'_> {
         let joined = self.buffer(columns * rows * 16)?;
         for (index, layer) in layers.iter().enumerate() {
             let name = layer.name.clone().unwrap_or_else(|| format!("layer{}", index + 1));
-            self.lay(layer, target, &joined).map_err(|error| error.in_layer(&name))?;
+            self.lay(layer, target, &joined)
+                .map_err(|error| error.in_layer(&name))?;
         }
         Ok(joined)
     }
@@ -135,7 +148,7 @@ impl Frame<'_> {
             opacity, blend, light, ..
         } = layer.join;
         let landed = land_by(layer.drawable()?, target, light, Reducing::Later)?;
-        let pixels = self.landed(landed)?;
+        let pixels = self.landed(&landed)?;
         let (columns, rows) = target.drawn_size();
         let flags = usize::from(light) | (usize::from(factor.is_some()) << 1);
         self.run(
@@ -173,8 +186,8 @@ impl Frame<'_> {
     }
 
     /// `landed` put on its output: the pixels the layer lands on the target, straight RGBA, zero where it does not reach.
-    fn landed(&mut self, landed: Landed) -> Result<Buffer, Error> {
-        let mut source = self.raster(&landed)?;
+    fn landed(&mut self, landed: &Landed) -> Result<Buffer, Error> {
+        let mut source = self.raster(landed)?;
         let (mut map, mut clip) = (landed.map, landed.clip);
         let mut size = (landed.drawn.raster.width(), landed.drawn.raster.height());
         if let Map::Affine(affine) = map
@@ -315,7 +328,7 @@ impl Frame<'_> {
             body
         };
         let landed = land_by(body, &wide, false, Reducing::Later)?;
-        let pixels = self.landed(landed)?;
+        let pixels = self.landed(&landed)?;
         let size = wide.drawn_size();
         let mut plane = self.buffer(size.0 * size.1 * 4)?;
         self.run(
@@ -333,7 +346,15 @@ impl Frame<'_> {
         if reach != (0, 0) {
             plane = self.blur(plane, size, sigma)?;
             let from = (reach.0, target.window.0 + reach.1 - wide.window.0);
-            plane = self.window(&plane, size, target.drawn_size(), (from.0 as i64, from.1 as i64))?;
+            plane = self.window(
+                &plane,
+                size,
+                target.drawn_size(),
+                (
+                    i64::try_from(from.0).unwrap_or(i64::MAX),
+                    i64::try_from(from.1).unwrap_or(i64::MAX),
+                ),
+            )?;
         }
         if mask.invert {
             plane = self.planes(1, target.drawn_size(), &plane, None)?;
@@ -342,7 +363,13 @@ impl Frame<'_> {
     }
 
     /// A rectangle of `plane` (`from` columns by rows), `out` of it from the offset `at`, the edge's value repeated past it.
-    fn window(&mut self, plane: &Buffer, from: (usize, usize), out: (usize, usize), at: (i64, i64)) -> Result<Buffer, Error> {
+    fn window(
+        &mut self,
+        plane: &Buffer,
+        from: (usize, usize),
+        out: (usize, usize),
+        at: (i64, i64),
+    ) -> Result<Buffer, Error> {
         let made = self.buffer(out.0 * out.1 * 4)?;
         self.run(
             Kernel::Window,
@@ -361,14 +388,23 @@ impl Frame<'_> {
     }
 
     /// `feather::blur`: three box passes along x, then along y, each on the line padded by the pass's reach with its ends.
-    fn blur(&mut self, mut plane: Buffer, size: (usize, usize), (sigma_x, sigma_y): (f64, f64)) -> Result<Buffer, Error> {
+    fn blur(
+        &mut self,
+        mut plane: Buffer,
+        size: (usize, usize),
+        (sigma_x, sigma_y): (f64, f64),
+    ) -> Result<Buffer, Error> {
         for (axis, sigma) in [(0_usize, sigma_x), (1, sigma_y)] {
             if sigma <= 0.0 {
                 continue;
             }
             let (n, f) = feather::box_of(sigma);
             let reach = feather::reach(sigma);
-            let wide = if axis == 0 { (size.0 + 2 * reach, size.1) } else { (size.0, size.1 + 2 * reach) };
+            let wide = if axis == 0 {
+                (size.0 + 2 * reach, size.1)
+            } else {
+                (size.0, size.1 + 2 * reach)
+            };
             let pad = i64::try_from(reach).unwrap_or(i64::MAX);
             let (before_x, before_y) = if axis == 0 { (-pad, 0) } else { (0, -pad) };
             let mut line = self.window(&plane, size, wide, (before_x, before_y))?;
@@ -404,7 +440,10 @@ fn warp_call(map: Map, clip: Rect, output: Output, source: (usize, usize)) -> Ca
     match map {
         Map::Affine(affine) => {
             let inverse = affine.inverse();
-            for (at, value) in [inverse.a, inverse.b, inverse.c, inverse.d, inverse.e, inverse.f].into_iter().enumerate() {
+            for (at, value) in [inverse.a, inverse.b, inverse.c, inverse.d, inverse.e, inverse.f]
+                .into_iter()
+                .enumerate()
+            {
                 call = call.real(at, value);
             }
             call = call
@@ -427,7 +466,11 @@ fn warp_call(map: Map, clip: Rect, output: Output, source: (usize, usize)) -> Ca
         }
         Map::Projective(projective) => {
             let inverse = inverse_homography(projective, clip);
-            call = call.int(4, 2).real(28, (source.0 as f64).hypot(source.1 as f64));
+            call = call.int(4, 2).real(
+                28,
+                f64::from(u32::try_from(source.0).unwrap_or(u32::MAX))
+                    .hypot(f64::from(u32::try_from(source.1).unwrap_or(u32::MAX))),
+            );
             for (row, values) in inverse.iter().enumerate() {
                 for (column, value) in values.iter().enumerate() {
                     call = call.real(16 + 4 * row + column, *value);

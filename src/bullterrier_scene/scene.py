@@ -8,6 +8,7 @@ import numpy as np
 import numpy.typing as npt
 
 from ._native import _core
+from ._native._core import Gpu
 from .layer import Layer
 from .parameter import Addressed, LayerParams, Parameter
 from .plates import Plates, Underbase
@@ -180,15 +181,21 @@ class Scene:
             raise TypeError(f"base: a Path is wanted, got {type(base).__name__}: pass Path({base!r})")
         return cls._of(_core.Scene.from_json(text, Path() if base is None else base))
 
-    def render(self, size: int) -> npt.NDArray[np.float32]:
+    def render(self, size: int, *, gpu: Gpu | None = None) -> npt.NDArray[np.float32]:
         """The picture: a new float32 array (height, width, 4), 0 to 1, straight alpha, rows from the top, sRGB values.
+
+        With `gpu` the layers are put together on that `Gpu` (read back once, at the end): the same picture within a
+        bound, not bit for bit (`docs/api.md`, "On the GPU"). `GpuError` where the machine cannot (a picture larger than
+        the device holds included); nothing falls back to the CPU silently.
 
         `size` is the long side in output pixels, a whole number from 1 to 65,000, and the picture has at most 2^27
         pixels; the canvas keeps its aspect and the short side is rounded up. Transparent where nothing is drawn. A
         smaller size shows the same picture in less detail. `InvalidError` for a size out of range, or for a look or a
         drawing its sibling crate refuses at this size (naming the layer); `ReadError` for a file that cannot be read.
         """
-        return self._core.render(size)
+        if gpu is None:
+            return self._core.render(size)
+        return self._core.render_on(size, gpu)
 
     def plates(self, size: int, *, underbase: Underbase | None = None) -> Plates:
         """The plates at `size` (the long side in output pixels, as `render`): one plane of ink coverage for each ink

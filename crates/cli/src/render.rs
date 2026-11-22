@@ -16,6 +16,10 @@ enum FillArg {
 
 /// The arguments of `render`.
 #[derive(Parser)]
+#[cfg_attr(
+    feature = "gpu",
+    expect(clippy::struct_excessive_bools, reason = "each flag is a switch of the command line")
+)]
 pub(crate) struct Args {
     /// The saved scene (JSON).
     scene: PathBuf,
@@ -54,6 +58,11 @@ pub(crate) struct Args {
     /// PDF: write CMYK through this ICC output profile and embed it.
     #[arg(long, value_name = "FILE.icc")]
     cmyk_profile: Option<PathBuf>,
+    /// Put the layers together on the GPU (within a bound of the CPU's picture, not bit for bit). A machine with no GPU, a
+    /// picture larger than the device holds or past one band, and a PDF are refused, never drawn on the CPU instead.
+    #[cfg(feature = "gpu")]
+    #[arg(long)]
+    gpu: bool,
 }
 
 /// Whether `path` ends in `.{extension}`, in any case: the one place the format of the output is read from its name.
@@ -150,6 +159,10 @@ pub(crate) fn command(args: &Args, out: &mut dyn std::io::Write) -> Result<(), E
         .size
         .unwrap_or_else(|| i64::from(scene.width().max(scene.height())));
     let (columns, rows) = scene.picture_size(size)?;
+    #[cfg(feature = "gpu")]
+    if args.gpu {
+        return on_gpu(args, &scene, size, (columns, rows), pdf.is_some(), &file, out);
+    }
     if columns * rows > BAND_PIXELS {
         // more than a band: drawn and written band by band, never held whole; only a PDF and a PNG can be written so, and a
         // file of any other extension is refused here, not written as a PNG under a name that says otherwise
@@ -173,6 +186,40 @@ pub(crate) fn command(args: &Args, out: &mut dyn std::io::Write) -> Result<(), E
             None => picture.write_with(&args.out, &file)?,
         }
     }
+    say(out, &args.out.display().to_string())
+}
+
+/// `scene` composed on the GPU and written as `render` writes a picture.
+///
+/// # Errors
+/// [`Error::Gpu`] for a PDF (print output is drawn on the CPU), a picture past one band (written band by band on the CPU) or a
+/// machine that cannot; otherwise what the CPU render refuses.
+#[cfg(feature = "gpu")]
+fn on_gpu(
+    args: &Args,
+    scene: &bullterrier_scene::Scene,
+    size: i64,
+    (columns, rows): (usize, usize),
+    is_pdf: bool,
+    file: &WriteOptions,
+    out: &mut dyn std::io::Write,
+) -> Result<(), Error> {
+    if is_pdf || columns * rows > BAND_PIXELS {
+        let why = if is_pdf {
+            "print output (a PDF) is drawn on the CPU".to_owned()
+        } else {
+            format!("a picture of {columns} x {rows} pixels is written band by band, which is done on the CPU")
+        };
+        return Err(Error::Gpu {
+            message: format!("--gpu: {why}; leave out --gpu"),
+        });
+    }
+    let picture = pollster::block_on(async {
+        let gpu = bullterrier_scene::Gpu::request().await?;
+        let held = gpu.render(scene, size).await?;
+        gpu.download(&held).await
+    })?;
+    picture.write_with(&args.out, file)?;
     say(out, &args.out.display().to_string())
 }
 

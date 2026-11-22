@@ -129,7 +129,9 @@ impl Executor {
             ),
         ] {
             if has < needs {
-                return Err(format!("the device's `{name}` is {has}; the GPU compositor needs at least {needs}"));
+                return Err(format!(
+                    "the device's `{name}` is {has}; the GPU compositor needs at least {needs}"
+                ));
             }
         }
         let entry = |binding: u32, ty: wgpu::BufferBindingType| wgpu::BindGroupLayoutEntry {

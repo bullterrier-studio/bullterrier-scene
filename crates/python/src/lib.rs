@@ -22,13 +22,13 @@ use bullterrier_scene::{
 /// bullterrier-scene's Rust core.
 #[pymodule]
 mod _core {
+    #[cfg(feature = "gpu")]
+    #[pymodule_export]
+    use super::gpu::Gpu;
     #[pymodule_export]
     use super::kinds::{Snapshot, layer_kinds, register_layer, registry_restore, registry_snapshot};
     #[pymodule_export]
     use super::{Held, Layer, Plates, Scene, check_page, check_underbase, main};
-    #[cfg(feature = "gpu")]
-    #[pymodule_export]
-    use super::gpu::Gpu;
 
     /// The most layers a scene holds.
     #[pymodule_export]

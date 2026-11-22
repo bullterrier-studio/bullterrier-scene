@@ -221,14 +221,24 @@ impl Gpu {
     /// # Errors
     /// [`Error::Gpu`] if the device fails while reading it, or `image` is another context's.
     pub async fn download(&self, image: &GpuImage) -> Result<Raster, Error> {
-        let image = self.inner.image.download(image).await.map_err(|error| from_image(&error))?;
+        let image = self
+            .inner
+            .image
+            .download(image)
+            .await
+            .map_err(|error| from_image(&error))?;
         let (height, width) = (image.height(), image.width());
         let channels = image.channels();
         let values = image.into_values();
         let pixels = if channels == 4 {
             values
         } else {
-            values.chunks_exact(3).flat_map(|rgb| [rgb[0], rgb[1], rgb[2], 1.0]).collect()
+            values
+                .as_chunks::<3>()
+                .0
+                .iter()
+                .flat_map(|rgb| [rgb[0], rgb[1], rgb[2], 1.0])
+                .collect()
         };
         Ok(Raster::made(width, height, pixels))
     }

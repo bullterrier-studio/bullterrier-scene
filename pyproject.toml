@@ -45,6 +45,8 @@ build-backend = "maturin"
 manifest-path = "crates/python/Cargo.toml"
 python-source = "src"
 module-name = "bullterrier_scene._native._core"
+# the wheel carries the GPU compositor (`bullterrier_scene.Gpu`); a machine with no GPU renders on the CPU as before
+features = ["gpu"]
 # the sdist builds the extension on its own: it needs the pinned toolchain too
 include = [{ path = "rust-toolchain.toml", format = "sdist" }]
 
@@ -129,8 +131,9 @@ lint-workflows = { sequence = ["uv run actionlint", "zizmor --offline .github"],
 # rustfmt follows `mod` but not `include!`: a file pulled in with `include!` is never checked unless it is named here (add it to this
 # task, as `rustfmt --check <file>`).
 rust-fmt = { cmd = "cargo fmt --all --check", help = "Check the Rust formatting (rustfmt.toml)" }
-rust-lint = { cmd = "cargo clippy --workspace --all-targets --locked --quiet -- -D warnings", help = "Lint the Rust code: clippy, dead code, missing docs, unreachable pub, unsafe ([workspace.lints] in Cargo.toml)" }
-rust-doc = { cmd = "cargo doc --workspace --no-deps --locked --quiet", env = { RUSTDOCFLAGS = "-D warnings" }, help = "Build the Rust documentation; any rustdoc warning (a broken link) fails" }
+rust-lint = { shell = "cargo clippy --workspace --all-targets --locked --quiet -- -D warnings && cargo clippy --workspace --all-targets --all-features --locked --quiet -- -D warnings", help = "Lint the Rust code with and without its features: clippy, dead code, missing docs, unreachable pub, unsafe ([workspace.lints] in Cargo.toml)" }
+rust-doc = { cmd = "cargo doc --workspace --all-features --no-deps --locked --quiet", env = { RUSTDOCFLAGS = "-D warnings" }, help = "Build the Rust documentation; any rustdoc warning (a broken link) fails" }
+rust-test-gpu = { cmd = "python tools/gpu_skips.py -- python tools/run_capped.py -- cargo test -p bullterrier-scene --features gpu --locked --quiet --no-fail-fast", help = "Run the core's Rust tests with the GPU compositor, under the memory cap (needs a GPU, or BT_GPU=none), and say how many GPU tests skipped" }
 rust-tools = { cmd = "python tools/rust_tools.py check", help = "Check that the cargo tools the gate runs are installed at the versions Cargo.toml pins" }
 rust-shear = { cmd = "cargo shear", help = "Find Rust dependencies no code uses (cargo-shear)" }
 rust-deny = { cmd = "cargo deny --offline --locked check bans licenses sources", help = "Check the Rust dependencies offline: banned crates, licences, sources (deny.toml)" }
@@ -147,7 +150,7 @@ look = { cmd = "python tools/look.py", help = "Render the example scene to dist/
 project-gates = { cmd = "python -c pass", help = "The project's own gates, run last by check and full (none yet)" }
 project-full = { cmd = "python -c pass", help = "The project's own steps that only full runs (none yet)" }
 # The steps `check` and `full` share, cheapest first, stopping at the first failure
-gates = { sequence = ["ruff format --check .", { ref = "rust-fmt" }, "ruff check .", { ref = "rust-lint" }, { ref = "lint-workflows" }, { ref = "dead-code" }, { ref = "rust-doc" }, "deptry .", { ref = "rust-tools" }, { ref = "rust-test-layout" }, { ref = "rust-shear" }, { ref = "rust-deny" }, "mypy", { ref = "stubtest" }, { ref = "rust-test" }, { ref = "test" }, { ref = "project-gates" }], default_item_type = "cmd", help = "Every gate except the proofs that each gate can fail (format, lint, workflows, dead code, docs, dependencies, types, tests, the project's own)" }
+gates = { sequence = ["ruff format --check .", { ref = "rust-fmt" }, "ruff check .", { ref = "rust-lint" }, { ref = "lint-workflows" }, { ref = "dead-code" }, { ref = "rust-doc" }, "deptry .", { ref = "rust-tools" }, { ref = "rust-test-layout" }, { ref = "rust-shear" }, { ref = "rust-deny" }, "mypy", { ref = "stubtest" }, { ref = "rust-test" }, { ref = "rust-test-gpu" }, { ref = "test" }, { ref = "project-gates" }], default_item_type = "cmd", help = "Every gate except the proofs that each gate can fail (format, lint, workflows, dead code, docs, dependencies, types, tests, the project's own)" }
 fast = { sequence = ["ruff format --check .", { ref = "rust-fmt" }, "ruff check .", { ref = "rust-lint" }, "mypy", { ref = "test" }], default_item_type = "cmd", help = "The inner loop: format, lint, types and the quick tests; no build, no Rust tests, no proofs" }
 # A pass on a clean tree is remembered with its tier, so pushing exactly that tree does not repeat it; `check` runs the proofs only when the
 # change since they last passed touches what they test ([tool.gate-proofs] below), `full` always

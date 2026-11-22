@@ -62,20 +62,36 @@ fn a_picture_the_size_of_the_canvas_is_the_cpu_picture() -> Outcome {
 
 #[test]
 fn a_move_by_whole_pixels_copies_the_pixels() -> Outcome {
-    within(&over(stretched((60, 40), 2)?.place(Place::new().dx(7.0).dy(-3.0))?)?, EXACT_CLASS, "move")
+    within(
+        &over(stretched((60, 40), 2)?.place(Place::new().dx(7.0).dy(-3.0))?)?,
+        EXACT_CLASS,
+        "move",
+    )
 }
 
 #[test]
 fn a_picture_scaled_up_or_down_or_flipped_is_the_cpu_picture() -> Outcome {
     within(&over(stretched((37, 29), 3)?)?, EXACT_CLASS, "scaled up")?;
-    within(&over(stretched((60, 40), 3)?.place(Place::new().scale(0.6))?)?, EXACT_CLASS, "scaled down")?;
-    within(&over(stretched((60, 40), 3)?.place(Place::new().flip_x(true).flip_y(true))?)?, EXACT_CLASS, "flipped")
+    within(
+        &over(stretched((60, 40), 3)?.place(Place::new().scale(0.6))?)?,
+        EXACT_CLASS,
+        "scaled down",
+    )?;
+    within(
+        &over(stretched((60, 40), 3)?.place(Place::new().flip_x(true).flip_y(true))?)?,
+        EXACT_CLASS,
+        "flipped",
+    )
 }
 
 #[test]
 fn a_picture_shrunk_past_2x_is_averaged_down_as_on_the_cpu() -> Outcome {
     within(&over(stretched((300, 200), 4)?)?, EXACT_CLASS, "reduced")?;
-    within(&over(stretched((300, 200), 4)?.place(Place::new().scale(0.7).dx(5.0))?)?, EXACT_CLASS, "reduced and moved")
+    within(
+        &over(stretched((300, 200), 4)?.place(Place::new().scale(0.7).dx(5.0))?)?,
+        EXACT_CLASS,
+        "reduced and moved",
+    )
 }
 
 /// The footprint filter in 32-bit floats: the lengths of the footprint's axes and the angle are worked out in 64 on the CPU for an
@@ -84,9 +100,21 @@ const FOOTPRINT: f32 = 2e-3;
 
 #[test]
 fn a_turn_a_skew_and_a_perspective_are_the_cpu_picture_within_the_footprints_bound() -> Outcome {
-    within(&over(stretched((60, 40), 5)?.place(Place::new().rotate(Deg(17.0)))?)?, FOOTPRINT, "rotate 17")?;
-    within(&over(stretched((60, 40), 5)?.place(Place::new().skew_x(Deg(35.0)))?)?, FOOTPRINT, "skew")?;
-    within(&over(stretched((60, 40), 5)?.place(Place::new().rotate(Deg(90.0)))?)?, EXACT_CLASS, "quarter turn")?;
+    within(
+        &over(stretched((60, 40), 5)?.place(Place::new().rotate(Deg(17.0)))?)?,
+        FOOTPRINT,
+        "rotate 17",
+    )?;
+    within(
+        &over(stretched((60, 40), 5)?.place(Place::new().skew_x(Deg(35.0)))?)?,
+        FOOTPRINT,
+        "skew",
+    )?;
+    within(
+        &over(stretched((60, 40), 5)?.place(Place::new().rotate(Deg(90.0)))?)?,
+        EXACT_CLASS,
+        "quarter turn",
+    )?;
     // the footprint counts its taps by the length of its axes: where the CPU's 64-bit length is just over a whole number and the
     // device's 32-bit one under it, a pixel takes one tap fewer; a perspective is looser than the affine maps
     let layer = stretched((60, 40), 5)?.perspective([[5.0, 4.0], [55.0, 8.0], [58.0, 36.0], [8.0, 32.0]])?;
@@ -99,8 +127,22 @@ const BLEND: f32 = 1e-3;
 #[test]
 fn each_of_the_sixteen_blend_modes_on_noise_is_the_cpu_picture() -> Outcome {
     let names = [
-        "normal", "multiply", "screen", "overlay", "darken", "lighten", "color-dodge", "color-burn", "hard-light", "soft-light",
-        "difference", "exclusion", "hue", "saturation", "color", "luminosity",
+        "normal",
+        "multiply",
+        "screen",
+        "overlay",
+        "darken",
+        "lighten",
+        "color-dodge",
+        "color-burn",
+        "hard-light",
+        "soft-light",
+        "difference",
+        "exclusion",
+        "hue",
+        "saturation",
+        "color",
+        "luminosity",
     ];
     for name in names {
         let blend: Blend = name.parse()?;
@@ -112,27 +154,61 @@ fn each_of_the_sixteen_blend_modes_on_noise_is_the_cpu_picture() -> Outcome {
 #[test]
 fn opacity_and_light_are_the_cpu_picture() -> Outcome {
     for opacity in [0.0, 0.3, 1.0] {
-        within(&over(stretched((60, 40), 7)?.opacity(opacity)?)?, EXACT_CLASS, "opacity")?;
+        within(
+            &over(stretched((60, 40), 7)?.opacity(opacity)?)?,
+            EXACT_CLASS,
+            "opacity",
+        )?;
     }
-    within(&over(stretched((60, 40), 7)?.as_light(true).blend("screen".parse()?))?, BLEND, "light")
+    within(
+        &over(stretched((60, 40), 7)?.as_light(true).blend("screen".parse()?))?,
+        BLEND,
+        "light",
+    )
 }
 
 #[test]
 fn masks_by_alpha_and_luminance_feathered_and_inverted_are_the_cpu_picture() -> Outcome {
     let mask = || stretched((30, 20), 8);
-    within(&over(stretched((60, 40), 9)?.mask(Mask::new(mask()?))?)?, EXACT_CLASS, "alpha mask")?;
-    within(&over(stretched((60, 40), 9)?.mask(Mask::new(mask()?).using(Use::Luminance))?)?, EXACT_CLASS, "luminance mask")?;
-    within(&over(stretched((60, 40), 9)?.mask(Mask::new(mask()?).invert())?)?, EXACT_CLASS, "inverted mask")?;
+    within(
+        &over(stretched((60, 40), 9)?.mask(Mask::new(mask()?))?)?,
+        EXACT_CLASS,
+        "alpha mask",
+    )?;
+    within(
+        &over(stretched((60, 40), 9)?.mask(Mask::new(mask()?).using(Use::Luminance))?)?,
+        EXACT_CLASS,
+        "luminance mask",
+    )?;
+    within(
+        &over(stretched((60, 40), 9)?.mask(Mask::new(mask()?).invert())?)?,
+        EXACT_CLASS,
+        "inverted mask",
+    )?;
     // the feather: three box passes in 32-bit floats against 64-bit sums
-    within(&over(stretched((60, 40), 9)?.mask(Mask::new(mask()?).feather(3.0))?)?, 5e-4, "feathered mask")?;
-    within(&over(stretched((60, 40), 9)?.mask(Mask::new(mask()?).feather(1.5).invert())?)?, 5e-4, "feathered and inverted")?;
+    within(
+        &over(stretched((60, 40), 9)?.mask(Mask::new(mask()?).feather(3.0))?)?,
+        5e-4,
+        "feathered mask",
+    )?;
+    within(
+        &over(stretched((60, 40), 9)?.mask(Mask::new(mask()?).feather(1.5).invert())?)?,
+        5e-4,
+        "feathered and inverted",
+    )?;
     // two masks at once: their product
-    let two = stretched((60, 40), 9)?.mask(Mask::new(mask()?))?.mask(Mask::new(stretched((20, 30), 10)?).feather(2.0))?;
+    let two = stretched((60, 40), 9)?
+        .mask(Mask::new(mask()?))?
+        .mask(Mask::new(stretched((20, 30), 10)?).feather(2.0))?;
     within(&over(two)?, 5e-4, "two masks")
 }
 
 #[test]
 fn a_group_is_the_cpu_picture() -> Outcome {
-    let inner = scene(60, 40, [stretched((60, 40), 11)?, stretched((20, 20), 12)?.opacity(0.5)?])?;
+    let inner = scene(
+        60,
+        40,
+        [stretched((60, 40), 11)?, stretched((20, 20), 12)?.opacity(0.5)?],
+    )?;
     within(&over(Layer::scene(inner).opacity(0.7)?)?, EXACT_CLASS, "group")
 }

@@ -6,7 +6,7 @@ array. The public names are listed in `__all__`.
 
 from importlib import metadata
 
-from ._native._core import MAX_DEPTH, MAX_LAYERS
+from ._native._core import MAX_DEPTH, MAX_LAYERS, Gpu
 from .errors import BullterrierSceneError, FormatError, GpuError, InvalidError, ReadError, WriteError
 from .layer import Layer
 from .parameter import Addressed, LayerParams, Parameter
@@ -29,6 +29,7 @@ __all__ = [
     "Addressed",
     "BullterrierSceneError",
     "FormatError",
+    "Gpu",
     "GpuError",
     "InvalidError",
     "Layer",

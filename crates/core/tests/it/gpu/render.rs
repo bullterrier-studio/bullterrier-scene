@@ -32,7 +32,14 @@ fn a_scene_of_nothing_is_transparent_and_a_blend_of_fills_is_the_cpu_picture() -
     let empty = scene(20, 10, [])?;
     let (gap, _) = gap_to_cpu(&gpu, &empty, 20)?;
     assert_eq!(gap, 0.0);
-    let multiplied = scene(20, 10, [Layer::fill("#806040")?, Layer::fill("#40a0ff")?.blend(Blend::Multiply).opacity(0.7)?])?;
+    let multiplied = scene(
+        20,
+        10,
+        [
+            Layer::fill("#806040")?,
+            Layer::fill("#40a0ff")?.blend(Blend::Multiply).opacity(0.7)?,
+        ],
+    )?;
     let (gap, at) = gap_to_cpu(&gpu, &multiplied, 20)?;
     assert!(gap <= BOUND, "gap {gap} at value {at}");
     Ok(())
