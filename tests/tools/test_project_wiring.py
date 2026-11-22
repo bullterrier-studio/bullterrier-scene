@@ -326,6 +326,8 @@ RENAMED = {  # a way the core crate can drift from the public names -> its edits
         (CORE, '[package]\nname = "bullterrier-scene"\n', '[package]\nname = "bullterrier-scene-core"\n'),
         # every member that depends on the core (the bindings, and whatever crates the project adds)
         ("crates/*/Cargo.toml", "bullterrier-scene.workspace", "bullterrier-scene-core.workspace"),
+        # and the features that switch the core's `gpu` on from them
+        ("crates/*/Cargo.toml", '"bullterrier-scene/gpu"', '"bullterrier-scene-core/gpu"'),
     ],
     "the library renamed": [
         (CORE, '[lib]\nname = "bullterrier_scene"\n', '[lib]\nname = "bullterrier_scene_core"\n'),
