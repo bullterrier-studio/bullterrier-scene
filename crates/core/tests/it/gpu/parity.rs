@@ -116,9 +116,10 @@ fn a_turn_a_skew_and_a_perspective_are_the_cpu_picture_within_the_footprints_bou
         "quarter turn",
     )?;
     // the footprint counts its taps by the length of its axes: where the CPU's 64-bit length is just over a whole number and the
-    // device's 32-bit one under it, a pixel takes one tap fewer; a perspective is looser than the affine maps
+    // device's 32-bit one under it, a pixel takes one tap fewer; a perspective is looser than the affine maps (measured worst 3.5e-3 on
+    // this layer on Apple silicon; 5e-3 leaves room for another adapter's rounding)
     let layer = stretched((60, 40), 5)?.perspective([[5.0, 4.0], [55.0, 8.0], [58.0, 36.0], [8.0, 32.0]])?;
-    within(&over(layer)?, 1e-2, "perspective")
+    within(&over(layer)?, 5e-3, "perspective")
 }
 
 /// A blend's formulas in 32-bit floats against 32-bit floats: a division (colour-dodge, burn, the non-separable modes) amplifies.
