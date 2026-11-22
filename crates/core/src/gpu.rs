@@ -198,7 +198,7 @@ impl Gpu {
     /// targets (the one wait, named in `docs/design-decisions.md`).
     ///
     /// # Errors
-    /// [`Error::Gpu`] if the device fails while reading it, or `image` is another context's.
+    /// [`Error::Gpu`] if the device fails while reading it; [`Error::Invalid`] if `image` is another context's (the caller's mistake).
     pub async fn download(&self, image: &GpuImage) -> Result<Raster, Error> {
         let image = self
             .inner
