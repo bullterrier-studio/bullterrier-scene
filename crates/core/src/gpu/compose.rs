@@ -35,18 +35,21 @@ pub(super) async fn render(gpu: &Gpu, scene: &Scene, size: i128) -> Result<(Buff
     let (columns, rows) = checked_size(width, height, size)?;
     gpu.fits(columns, rows)?;
     let device_cache = gpu.cache();
+    // phase one, on the CPU and under no lock: what each layer's source draws (a drawing, a text, a plugin kind, however long
+    // it takes) and where it lands; phase two records and submits what phase one made
+    cpu_cache.begin_render(false);
+    let target = target_of(width, height, (columns, rows), (0, rows), cpu_cache);
+    let mut landings = land_layers(layers, &target);
     let made = gpu
         .guarded("compose a scene", || {
-            cpu_cache.begin_render(false);
             device_cache.begin_render(false);
-            let target = target_of(width, height, (columns, rows), (0, rows), cpu_cache);
             let mut frame = Frame {
                 gpu,
                 encoder: gpu.inner.executor.encoder(),
                 cache: Arc::clone(&device_cache),
                 scratch: Vec::new(),
             };
-            let joined = frame.draw(layers, &target)?;
+            let joined = frame.draw(layers, &target, &mut landings)?;
             let picture = frame.buffer(columns * rows * 16)?;
             frame.run(
                 Kernel::Straight,
@@ -70,6 +73,40 @@ pub(super) async fn render(gpu: &Gpu, scene: &Scene, size: i128) -> Result<(Buff
         }
     };
     Ok((picture, rows, columns))
+}
+
+/// What `layer` draws its source from at `target`: the landing of the source without its looks where they run on the device (so
+/// the raster that is sent is the unlooked one), else of the whole.
+fn land_for(body: &Body, target: &Target, light: bool) -> Result<Landed, Error> {
+    if on_device(body, light) {
+        land_by(&body.without_looks(), target, light, Reducing::Later)
+    } else {
+        land_by(body, target, light, Reducing::Later)
+    }
+}
+
+/// Whether `body`'s looks all run on the device (and it has some): then they are run there, on the raster the source drew.
+fn on_device(body: &Body, light: bool) -> bool {
+    let looks = body.finish.looks();
+    !light && !looks.is_empty() && looks.iter().all(Look::on_device)
+}
+
+/// The landing of each layer's own source on `target`, in layer order, with the error of a layer that cannot land named for it;
+/// none for a layer that draws nothing (opacity 0) or has no body, which `lay` answers as the CPU does. Layers of masks land
+/// where the mask is recorded.
+fn land_layers(layers: &[Layer], target: &Target) -> Vec<Option<Result<Landed, Error>>> {
+    layers
+        .iter()
+        .enumerate()
+        .map(|(index, layer)| {
+            if layer.join.opacity == 0.0 {
+                return None;
+            }
+            let body = layer.drawable().ok()?;
+            let name = layer.name.clone().unwrap_or_else(|| format!("layer{}", index + 1));
+            Some(land_for(body, target, layer.join.light).map_err(|error| error.in_layer(&name)))
+        })
+        .collect()
 }
 
 /// One render's recording.
@@ -127,12 +164,17 @@ impl Frame<'_> {
     }
 
     /// `layers` one over the other on `target`: premultiplied RGBA on the device.
-    fn draw(&mut self, layers: &[Layer], target: &Target) -> Result<Buffer, Error> {
+    fn draw(
+        &mut self,
+        layers: &[Layer],
+        target: &Target,
+        landings: &mut [Option<Result<Landed, Error>>],
+    ) -> Result<Buffer, Error> {
         let (columns, rows) = target.drawn_size();
         let joined = self.buffer(columns * rows * 16)?;
         for (index, layer) in layers.iter().enumerate() {
             let name = layer.name.clone().unwrap_or_else(|| format!("layer{}", index + 1));
-            self.lay(layer, target, &joined)
+            self.lay(layer, target, &joined, landings[index].take())
                 .map_err(|error| error.in_layer(&name))?;
         }
         Ok(joined)
@@ -140,7 +182,13 @@ impl Frame<'_> {
 
     /// `layer` laid over `joined` (`render::lay`): its source drawn and put where it belongs, each pixel blended at its opacity
     /// and its masks' product.
-    fn lay(&mut self, layer: &Layer, target: &Target, joined: &Buffer) -> Result<(), Error> {
+    fn lay(
+        &mut self,
+        layer: &Layer,
+        target: &Target,
+        joined: &Buffer,
+        landed: Option<Result<Landed, Error>>,
+    ) -> Result<(), Error> {
         if layer.join.opacity == 0.0 {
             return Ok(());
         }
@@ -148,7 +196,8 @@ impl Frame<'_> {
         let Join {
             opacity, blend, light, ..
         } = layer.join;
-        let pixels = self.layer(layer.drawable()?, target, light)?;
+        let body = layer.drawable()?;
+        let pixels = self.layer(body, target, light, landed.transpose()?)?;
         let (columns, rows) = target.drawn_size();
         let flags = usize::from(light) | (usize::from(factor.is_some()) << 1);
         self.run(
@@ -187,16 +236,19 @@ impl Frame<'_> {
 
     /// `body` drawn and put on `target`. Looks that image can run on the device are run there on the raster the source drew, which
     /// is sent once; any other layer is drawn as on the CPU and its raster sent.
-    fn layer(&mut self, body: &Body, target: &Target, light: bool) -> Result<Buffer, Error> {
-        let looks = body.finish.looks();
-        if !light && !looks.is_empty() && looks.iter().all(Look::on_device) {
+    fn layer(&mut self, body: &Body, target: &Target, light: bool, landed: Option<Landed>) -> Result<Buffer, Error> {
+        let landed = match landed {
+            Some(landed) => landed,
+            None => land_for(body, target, light)?,
+        };
+        if on_device(body, light) {
             // the looks leave the alpha as it is and the size, so the raster the source drew places as the looked one does
-            let landed = land_by(&body.without_looks(), target, light, Reducing::Later)?;
-            if let Some(looked) = self.looked(&landed, looks)? {
+            if let Some(looked) = self.looked(&landed, body.finish.looks())? {
                 return self.landed(&landed, Some(looked));
             }
+            return self.landed(&land_by(body, target, light, Reducing::Later)?, None);
         }
-        self.landed(&land_by(body, target, light, Reducing::Later)?, None)
+        self.landed(&landed, None)
     }
 
     /// `landed`'s raster with `looks` run on it on the device, kept there; none where image runs a look only on the CPU's size
@@ -383,7 +435,7 @@ impl Frame<'_> {
         } else {
             body
         };
-        let pixels = self.layer(body, &wide, false)?;
+        let pixels = self.layer(body, &wide, false, None)?;
         let size = wide.drawn_size();
         let mut plane = self.buffer(size.0 * size.1 * 4)?;
         self.run(

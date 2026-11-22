@@ -1,8 +1,13 @@
 //! What a context keeps and counts: the same bytes twice, a changed value against a cold render, what crosses to the device,
 //! the device cache's budget, two threads on one context, and the refusals.
 
-use bullterrier_scene::{Error, Fit, Gpu, Layer, Raster, Scene, Values};
+use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use bullterrier_scene::{Error, Fit, Gpu, Layer, LayerKind, Raster, Scene, Values};
 use pollster::block_on;
+use serde_json::{Value, json};
 
 use super::{fresh, gpu, rendered};
 use crate::common::{Outcome, rectangle, scene};
@@ -229,5 +234,75 @@ fn a_looked_picture_is_sent_once_and_nothing_comes_back_until_the_end() -> Outco
     assert_eq!(gpu.transfers().uploads, 3);
     block_on(gpu.download(&resident))?;
     assert_eq!(gpu.transfers().downloads, 1);
+    Ok(())
+}
+
+/// A plugin kind that, when asked to draw, says so and then waits for the go-ahead of another render on the same context.
+struct Waits {
+    entered: Mutex<Sender<()>>,
+    go: Mutex<Receiver<()>>,
+}
+
+impl LayerKind for Waits {
+    fn name(&self) -> &'static str {
+        "waits"
+    }
+
+    fn options(&self) -> Value {
+        json!({})
+    }
+
+    fn draw(&self, area: [f64; 4], _scale: [f64; 2]) -> Result<Raster, Error> {
+        let stuck = |what: &str| Error::Gpu {
+            message: format!("the plugin kind {what}: another render could not run while this one drew"),
+        };
+        self.entered
+            .lock()
+            .map_err(|_| stuck("lost its channel"))?
+            .send(())
+            .map_err(|_| stuck("lost its channel"))?;
+        self.go
+            .lock()
+            .map_err(|_| stuck("lost its channel"))?
+            .recv_timeout(Duration::from_secs(10))
+            .map_err(|_| stuck("timed out"))?;
+        Raster::rgba(
+            area[2] as usize,
+            area[3] as usize,
+            vec![0.5; area[2] as usize * area[3] as usize * 4],
+        )
+    }
+}
+
+/// What a source draws on the CPU (a plugin kind may take as long as it likes) holds no lock of the context: a render of
+/// another scene on the same context runs while it draws.
+#[test]
+fn a_render_runs_while_another_on_the_same_context_is_drawing_a_plugin_layer() -> Outcome {
+    let Some(gpu) = gpu() else { return Ok(()) };
+    let (entered, entering) = channel();
+    let (go, going) = channel();
+    let slow = scene(
+        60,
+        40,
+        [Layer::make(Arc::new(Waits {
+            entered: Mutex::new(entered),
+            go: Mutex::new(going),
+        }))],
+    )?;
+    let quick = scene(60, 40, [Layer::fill("#203040")?])?;
+    let (slow_result, quick_result) = std::thread::scope(|threads| {
+        let slow_render = threads.spawn(|| rendered(&gpu, &slow, 60));
+        // the slow render is inside its plugin's draw: the quick one must be able to finish now
+        let waited = entering.recv_timeout(Duration::from_secs(10));
+        let quick_render = waited.map_err(|error| error.to_string()).and_then(|()| {
+            let done = rendered(&gpu, &quick, 60);
+            go.send(()).map_err(|error| error.to_string())?;
+            done.map_err(|error| error.to_string())
+        });
+        let _ = go.send(());
+        (slow_render.join(), quick_render)
+    });
+    assert!(quick_result.is_ok(), "{quick_result:?}");
+    assert!(matches!(slow_result, Ok(Ok(_))), "the slow render: {slow_result:?}");
     Ok(())
 }
