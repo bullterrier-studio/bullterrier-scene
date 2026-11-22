@@ -22,6 +22,9 @@
 
 mod footprint;
 
+#[cfg(feature = "gpu")]
+pub(crate) use footprint::{fixed_footprint, inverse_homography};
+
 use std::sync::Arc;
 
 use crate::Raster;
@@ -39,7 +42,7 @@ pub(crate) struct Affine {
 }
 
 impl Affine {
-    const IDENTITY: Self = Self {
+    pub(crate) const IDENTITY: Self = Self {
         a: 1.0,
         b: 0.0,
         c: 0.0,
@@ -68,7 +71,7 @@ impl Affine {
     }
 
     /// The map back. Exact when the determinant is 1 and the entries are small whole or half numbers: a division by 1.
-    pub(super) fn inverse(self) -> Self {
+    pub(crate) fn inverse(self) -> Self {
         let determinant = self.a * self.e - self.b * self.d;
         Self {
             a: self.e / determinant,
@@ -182,13 +185,18 @@ impl Output {
 
 /// Whether `map` and `clip` leave `source` exactly as it is on an output of `columns` by `rows` pixels.
 pub(crate) fn is_identity(source: &Raster, map: Affine, clip: Rect, columns: usize, rows: usize) -> bool {
+    is_identity_of((source.width(), source.height()), map, clip, (columns, rows))
+}
+
+/// [`is_identity`] for a raster of `size` pixels (columns, rows).
+pub(crate) fn is_identity_of(size: (usize, usize), map: Affine, clip: Rect, output: (usize, usize)) -> bool {
     let whole = Rect {
         x: 0.0,
         y: 0.0,
-        width: lossless(source.width()),
-        height: lossless(source.height()),
+        width: lossless(size.0),
+        height: lossless(size.1),
     };
-    map == Affine::IDENTITY && clip == whole && (source.width(), source.height()) == (columns, rows)
+    map == Affine::IDENTITY && clip == whole && size == output
 }
 
 /// The part of `source` inside `clip` (a rectangle in raster pixels) put on an output of `columns` by `rows` pixels by
@@ -288,7 +296,7 @@ pub(crate) fn warp_into(source: View, map: Map, clip: Rect, output: Output, put:
 
 /// Whether the footprint of an output pixel under `map` is a rectangle along the raster's axes: each column of the map has
 /// one entry that is not 0.
-fn is_exact_class(map: Affine) -> bool {
+pub(crate) fn is_exact_class(map: Affine) -> bool {
     (map.a != 0.0) != (map.d != 0.0) && (map.b != 0.0) != (map.e != 0.0)
 }
 

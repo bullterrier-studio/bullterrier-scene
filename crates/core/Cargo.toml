@@ -15,6 +15,11 @@ name = "bullterrier_scene"
 # Set it to true only for a public item whose docs need a runnable bullterrier-scene.
 doctest = false
 
+[features]
+# The GPU compositor (`Gpu`, `Gpu::render`): layers composed on a wgpu device, pictures chained with image's GPU context. Off by
+# default (compile time; a CPU-only build is unchanged); the Python wheel and the command line enable it.
+gpu = ["dep:wgpu", "bullterrier-image/gpu"]
+
 [dependencies]
 bullterrier-image.workspace = true
 bullterrier-vector.workspace = true
@@ -26,9 +31,11 @@ rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+wgpu = { workspace = true, optional = true }
 
 [dev-dependencies]
 lopdf.workspace = true
+pollster.workspace = true
 peak_alloc.workspace = true
 proptest.workspace = true
 tempfile.workspace = true

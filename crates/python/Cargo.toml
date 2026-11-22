@@ -15,10 +15,15 @@ crate-type = ["cdylib"]
 test = false
 doctest = false
 
+[features]
+# `Gpu` and `render(..., gpu=)`: maturin builds the wheel with it ([tool.maturin] in pyproject.toml); a build without it is CPU-only
+gpu = ["bullterrier-scene/gpu", "bullterrier-scene-cli/gpu", "dep:pollster"]
+
 [dependencies]
 bullterrier-scene.workspace = true
 bullterrier-scene-cli.workspace = true
 numpy.workspace = true
+pollster = { workspace = true, optional = true }
 pyo3.workspace = true
 serde_json.workspace = true
 

@@ -16,6 +16,8 @@ mod compose;
 mod data_boundary;
 mod drawing;
 mod groups;
+#[cfg(feature = "gpu")]
+mod gpu;
 mod layer_kinds;
 mod light;
 mod look;

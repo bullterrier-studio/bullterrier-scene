@@ -17,6 +17,8 @@ mod feather;
 mod files;
 mod finish;
 mod geometry;
+#[cfg(feature = "gpu")]
+mod gpu;
 mod landing;
 mod layer;
 mod layer_kind;
@@ -45,6 +47,8 @@ pub use budget::{MAX_DEPTH, MAX_LAYERS};
 pub use error::Error;
 pub use finish::Px;
 pub use geometry::MAX_PIXELS;
+#[cfg(feature = "gpu")]
+pub use gpu::{DEFAULT_CACHE_BYTES, Gpu, Transfers};
 pub use layer::Layer;
 pub use layer_kind::{LayerKind, check_by_position};
 pub use layer_kinds::{LayerKindFactory, LayerKinds};

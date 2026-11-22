@@ -7,7 +7,7 @@ code that already catches that builtin keeps working.
 Dependency direction: the bottom layer. It imports nothing from bullterrier_scene, so every layer may raise them.
 """
 
-__all__ = ["BullterrierSceneError", "FormatError", "InvalidError", "ReadError", "WriteError"]
+__all__ = ["BullterrierSceneError", "FormatError", "GpuError", "InvalidError", "ReadError", "WriteError"]
 
 
 class BullterrierSceneError(Exception):
@@ -32,3 +32,9 @@ class ReadError(BullterrierSceneError, OSError):
 class WriteError(BullterrierSceneError, OSError):
     """A file cannot be written: the folder is not there, the path cannot be written to, or the file is no format the
     writer knows (the message names the path and the reason). No file is made."""
+
+
+class GpuError(BullterrierSceneError, RuntimeError):
+    """This machine cannot do what was asked on the GPU: no adapter, a limit it lacks, a picture larger than the device
+    holds, or a render the GPU does not do (print output). Never a caller's mistake: `except GpuError` and render on the
+    CPU hides no bug."""

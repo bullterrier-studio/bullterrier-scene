@@ -194,6 +194,12 @@ impl Scene {
         self.height
     }
 
+    /// What a render draws: the canvas, the layers as they are drawn, and the cache the scene shares.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn parts(&self) -> (u32, u32, &[Layer], &Cache) {
+        (self.width, self.height, &self.drawn, &self.cache)
+    }
+
     /// The picture of the scene: straight alpha, transparent where nothing is drawn, 0 to 1, sRGB values. `size` is the long
     /// side in output pixels, a whole number from 1 to 65,000, and the picture has at most 2^27 pixels in all; the canvas
     /// keeps its aspect, so one design pixel is `size / max(width, height)` output pixels and the short side is rounded up.

@@ -156,6 +156,10 @@ pub(crate) struct Landed {
     /// The first row of the picture the raster holds and the rows the picture has: a layer drawn by window holds some of them.
     first: usize,
     total: usize,
+    /// What the cache calls the raster the source and looks drew, if it keeps it: the GPU compositor keeps its copy on the
+    /// device under the same key (`crate::gpu`, backend-keyed there).
+    #[cfg(feature = "gpu")]
+    pub(crate) key: Option<crate::cache::Key>,
 }
 
 impl Landed {
@@ -329,6 +333,20 @@ fn cut(raster: &Raster, rows: std::ops::Range<usize>) -> Raster {
 /// limit of 2^27 pixels is on those rows. Every other layer is drawn whole (and kept, where it is worth keeping), and the band
 /// is cut from it by the warp.
 pub(crate) fn land(body: &Body, target: &Target, light: bool) -> Result<Landed, Error> {
+    land_by(body, target, light, Reducing::Now)
+}
+
+/// Whether [`land_by`] averages a raster shrunk past 2x down (the CPU renderer does, and keeps the average in the cache) or
+/// leaves it to the caller (the GPU compositor averages it on the device, `Landed::reduction`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Reducing {
+    Now,
+    #[cfg(feature = "gpu")]
+    Later,
+}
+
+/// [`land`], with the average of a shrunk raster made now or left to the caller.
+pub(crate) fn land_by(body: &Body, target: &Target, light: bool, reducing: Reducing) -> Result<Landed, Error> {
     // a source with no box of its own (a fill) takes the part of the canvas the target holds, margin included, so that a mask
     // that fills the canvas goes on into the margin; but only where nothing acts on the box, for `fit` and `place` work on
     // it and a layer must be the same shape whatever its blur adds
@@ -383,6 +401,8 @@ pub(crate) fn land(body: &Body, target: &Target, light: bool) -> Result<Landed, 
             output: target.output(),
             first: read.first,
             total: read.total,
+            #[cfg(feature = "gpu")]
+            key: None,
         });
     }
     // the one place the drawn-size limit is checked, before any source draws: a source that draws its own pixels allocates
@@ -392,6 +412,8 @@ pub(crate) fn land(body: &Body, target: &Target, light: bool) -> Result<Landed, 
     } else {
         request.scale.size(request.window)?;
     }
+    #[cfg(feature = "gpu")]
+    let mut drawn_key = None;
     let drawn = if body.keeps_drawn() {
         // the phase and the pixels held round the scene are inputs only of a source that draws on the grid: a picture that
         // moves, or sits in a group drawn at another phase, keeps its raster
@@ -408,7 +430,12 @@ pub(crate) fn land(body: &Body, target: &Target, light: bool) -> Result<Landed, 
         let mut key = base.clone();
         key.text("finished");
         body.finish.keyed(&mut key)?;
-        let kept = target.cache.fetch(&key.finish(), || {
+        let key = key.finish();
+        #[cfg(feature = "gpu")]
+        {
+            drawn_key = Some(key);
+        }
+        let kept = target.cache.fetch(&key, || {
             let chain = Chain {
                 base: &base,
                 maps: body.source.map_names().unwrap_or_default(),
@@ -422,7 +449,11 @@ pub(crate) fn land(body: &Body, target: &Target, light: bool) -> Result<Landed, 
         opened.draw(request, &body.finish, light, target.cache, None)?
     };
     let (map, clip) = placed(drawn.shape());
-    let (drawn, map, clip) = reduced(body, &request, target, light, (drawn, map, clip))?;
+    let (drawn, map, clip) = match reducing {
+        Reducing::Now => reduced(body, &request, target, light, (drawn, map, clip))?,
+        #[cfg(feature = "gpu")]
+        Reducing::Later => (drawn, map, clip),
+    };
     let total = drawn.raster.height();
     Ok(Landed {
         drawn,
@@ -431,6 +462,8 @@ pub(crate) fn land(body: &Body, target: &Target, light: bool) -> Result<Landed, 
         output: target.output(),
         first: 0,
         total,
+        #[cfg(feature = "gpu")]
+        key: drawn_key,
     })
 }
 

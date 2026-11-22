@@ -7,7 +7,7 @@ array. The public names are listed in `__all__`.
 from importlib import metadata
 
 from ._native._core import MAX_DEPTH, MAX_LAYERS
-from .errors import BullterrierSceneError, FormatError, InvalidError, ReadError, WriteError
+from .errors import BullterrierSceneError, FormatError, GpuError, InvalidError, ReadError, WriteError
 from .layer import Layer
 from .parameter import Addressed, LayerParams, Parameter
 from .plates import PdfOptions, Plates, Underbase
@@ -29,6 +29,7 @@ __all__ = [
     "Addressed",
     "BullterrierSceneError",
     "FormatError",
+    "GpuError",
     "InvalidError",
     "Layer",
     "LayerParams",

@@ -47,14 +47,11 @@ pub(crate) fn picture_size(width: u32, height: u32, size: i128) -> Result<(usize
     Ok((output(width), output(height)))
 }
 
-/// The rows a band of a picture of `columns` by `rows` has when the caller does not choose: as many as [`BAND_PIXELS`] holds,
-/// and at least one.
-pub(crate) fn default_band_rows(columns: usize, rows: usize) -> usize {
-    (BAND_PIXELS / columns).clamp(1, rows)
-}
-
-/// `layers` drawn on a canvas of `width` by `height` design pixels at `size` output pixels on the long side.
-pub(crate) fn render(width: u32, height: u32, layers: &[Layer], size: i128, cache: &Cache) -> Result<Raster, Error> {
+/// The columns and rows of a whole render at `size`: [`picture_size`], and at most [`MAX_PIXELS`] pixels in all.
+///
+/// # Errors
+/// [`Error::Invalid`] naming `size`.
+pub(crate) fn checked_size(width: u32, height: u32, size: i128) -> Result<(usize, usize), Error> {
     let (columns, rows) = picture_size(width, height, size)?;
     if columns.saturating_mul(rows) > MAX_PIXELS {
         return Err(Error::invalid(
@@ -64,6 +61,18 @@ pub(crate) fn render(width: u32, height: u32, layers: &[Layer], size: i128, cach
             ),
         ));
     }
+    Ok((columns, rows))
+}
+
+/// The rows a band of a picture of `columns` by `rows` has when the caller does not choose: as many as [`BAND_PIXELS`] holds,
+/// and at least one.
+pub(crate) fn default_band_rows(columns: usize, rows: usize) -> usize {
+    (BAND_PIXELS / columns).clamp(1, rows)
+}
+
+/// `layers` drawn on a canvas of `width` by `height` design pixels at `size` output pixels on the long side.
+pub(crate) fn render(width: u32, height: u32, layers: &[Layer], size: i128, cache: &Cache) -> Result<Raster, Error> {
+    let (columns, rows) = checked_size(width, height, size)?;
     cache.begin_render(false);
     band(width, height, layers, (columns, rows), 0..rows, cache)
 }
@@ -106,7 +115,21 @@ fn band(
     rows_of: Range<usize>,
     cache: &Cache,
 ) -> Result<Raster, Error> {
-    let target = Target {
+    let target = target_of(width, height, (columns, rows), (rows_of.start, rows_of.len()), cache);
+    let joined = draw(layers, &target)?;
+    Ok(Raster::made(columns, rows_of.len(), straight(joined)))
+}
+
+/// The target of a picture of `columns` by `rows` pixels of a canvas of `width` by `height` design pixels, of which the rows
+/// `window` (first, count) are drawn: the one place a render's target is made.
+pub(crate) fn target_of(
+    width: u32,
+    height: u32,
+    (columns, rows): (usize, usize),
+    window: (usize, usize),
+    cache: &Cache,
+) -> Target<'_> {
+    Target {
         canvas: Rect {
             x: 0.0,
             y: 0.0,
@@ -117,13 +140,11 @@ fn band(
         columns,
         rows,
         margin: (0, 0),
-        window: (rows_of.start, rows_of.len()),
+        window,
         offset: (0.0, 0.0),
         held: 0,
         cache,
-    };
-    let joined = draw(layers, &target)?;
-    Ok(Raster::made(columns, rows_of.len(), straight(joined)))
+    }
 }
 
 /// `layers` drawn one over the other on `target`: premultiplied red, green, blue and alpha of each of its pixels. The one

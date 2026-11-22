@@ -49,6 +49,14 @@ impl Box1 {
     }
 }
 
+/// The box of one pass of a blur of `sigma` (above 0), as the GPU kernel is told it: the half-width `n` and the weight `f` of the
+/// two values beyond it. The one place the rule is written.
+#[cfg(feature = "gpu")]
+pub(crate) fn box_of(sigma: f64) -> (usize, f64) {
+    let Box1 { n, f } = Box1::of(sigma);
+    (n, f)
+}
+
 /// The pixels a blur of `sigma` (above 0) output pixels reaches to each side; 0 for a sigma of 0, which blurs nothing.
 pub(crate) fn reach(sigma: f64) -> usize {
     if sigma > 0.0 { Box1::of(sigma).reach() } else { 0 }

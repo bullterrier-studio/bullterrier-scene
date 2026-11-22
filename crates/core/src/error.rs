@@ -32,6 +32,13 @@ pub enum Error {
         /// The layer and what went wrong.
         message: String,
     },
+    /// This machine cannot do what was asked on the GPU: no adapter, a missing limit, a picture larger than the device holds
+    /// (naming that the CPU can), a lost device; or a render the GPU compositor does not do (print output). Never a mistake
+    /// of the caller's values, so `except GpuError` can render on the CPU without hiding a bug.
+    Gpu {
+        /// What the machine cannot do, and what to do instead.
+        message: String,
+    },
     /// A file the call cannot write: [`Raster::write`](crate::Raster::write).
     Write {
         /// The file.
@@ -83,7 +90,7 @@ impl Error {
                 path,
                 message: format!("{layer}: {message}"),
             },
-            write @ Self::Write { .. } => write,
+            other @ (Self::Write { .. } | Self::Gpu { .. }) => other,
         }
     }
 }
@@ -95,6 +102,7 @@ impl fmt::Display for Error {
             Self::Format { pointer, message } if pointer.is_empty() => write!(formatter, "{message}"),
             Self::Format { pointer, message } => write!(formatter, "{pointer}: {message}"),
             Self::Read { path, message } | Self::Write { path, message } => write!(formatter, "{path}: {message}"),
+            Self::Gpu { message } => write!(formatter, "{message}"),
         }
     }
 }

@@ -13,9 +13,14 @@ name = "bullterrier_scene_cli"
 # no doctests: the tests of tests/it/ are the examples (as in the core)
 doctest = false
 
+[features]
+# `bt-scene render --gpu`
+gpu = ["bullterrier-scene/gpu", "dep:pollster"]
+
 [dependencies]
 bullterrier-scene.workspace = true
 clap.workspace = true
+pollster = { workspace = true, optional = true }
 serde_json.workspace = true
 
 [dev-dependencies]

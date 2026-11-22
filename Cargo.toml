@@ -24,6 +24,7 @@ clap = { version = "4", default-features = false, features = ["std", "string", "
 miniz_oxide = "0.9"  # the Flate encoder of a PDF's picture (already in the tree through png): `docs/design-decisions.md`, "PDF output"
 moxcms = "0.8"  # RGB to a caller's CMYK profile (already in the tree through image)
 numpy = "0.30"
+pollster = "0.4"  # blocking on the core's async GPU calls at the native edge: the Python bindings, the command line and the core's GPU tests (feature `gpu`)
 pdf-writer = "0.15"  # writes the page's content stream; pdf.rs writes the objects
 png = "0.18"  # the streaming PNG writer of a picture drawn by bands (already in the tree through image): `docs/design-decisions.md`, "Banded rendering"
 proptest = "1.12"
@@ -35,6 +36,8 @@ peak_alloc = "0.3"  # a counting global allocator: the peak-memory test of the P
 pyo3 = { version = "0.30", features = ["abi3-py312"] }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }  # a recipe's order is data (image's own setting); a saved scene reads back the number it wrote
 serde = "1"  # the strict reader of a saved scene (a key written twice is refused)
+# the GPU compositor (`crates/core/src/gpu/`, feature `gpu`): compute shaders in WGSL on Metal (and Vulkan, for CI's software adapter); the one wgpu major of every sibling package, the one image builds with
+wgpu = { version = "30", default-features = false, features = ["std", "wgsl", "metal", "vulkan", "dx12"] }
 sha2 = "0.10"  # the digest of a file a saved scene names (docs/design-decisions.md, "A saved scene")
 
 # Warnings, not errors, so a newer compiler's new lint never breaks a user's install; the gate (`poe check`) runs clippy

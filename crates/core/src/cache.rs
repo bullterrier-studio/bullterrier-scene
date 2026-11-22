@@ -189,6 +189,12 @@ impl Cache {
         kept.repeats_a_scan = false;
     }
 
+    /// The most bytes this cache keeps.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn capacity(&self) -> usize {
+        self.capacity
+    }
+
     /// The value kept under `key`, made the most recently used.
     pub(crate) fn get<T: Send + Sync + 'static>(&self, key: &Key) -> Option<Arc<T>> {
         let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);

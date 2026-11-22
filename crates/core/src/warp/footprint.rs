@@ -211,6 +211,38 @@ fn through_back(source: View, back: &impl Back, clip: Rect, output: Output, put:
     }
 }
 
+/// What the GPU kernel is told of a footprint that is the same everywhere (an affine map's): the numbers `Footprint::of` works
+/// out in 64-bit floats, which a shader cannot.
+#[cfg(feature = "gpu")]
+pub(crate) struct Fixed {
+    pub(crate) plain: bool,
+    pub(crate) taps: (usize, usize),
+    pub(crate) lengths: (f64, f64),
+    pub(crate) along: (f64, f64),
+}
+
+/// The footprint of `map`, whose inverse is the same Jacobian at every pixel, on a raster of `size`.
+#[cfg(feature = "gpu")]
+pub(crate) fn fixed_footprint(map: Affine, (width, height): (usize, usize)) -> Fixed {
+    let inverse = map.inverse();
+    let footprint = Footprint::of(
+        [[inverse.a, inverse.b], [inverse.d, inverse.e]],
+        lossless(width).hypot(lossless(height)),
+    );
+    Fixed {
+        plain: footprint.plain,
+        taps: footprint.taps,
+        lengths: footprint.lengths,
+        along: footprint.along,
+    }
+}
+
+/// The inverse of a perspective, signed as the CPU kernel signs it (the middle of `clip` lands in front of the horizon).
+#[cfg(feature = "gpu")]
+pub(crate) fn inverse_homography(map: Projective, clip: Rect) -> [[f64; 3]; 3] {
+    ProjectiveBack::new(map, clip).inverse
+}
+
 /// What the footprint of an output pixel asks of the sample.
 #[derive(Clone, Copy)]
 struct Footprint {
