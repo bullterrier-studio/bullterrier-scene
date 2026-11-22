@@ -107,6 +107,8 @@ Bands are built (batch B1; "Banded rendering" in [design-decisions.md](design-de
 draws the picture a band of rows at a time and `render_to_png`, `render_to_pdf` write it as it is drawn, so a print size past what
 `render` draws is written. A banded render equals the whole render bit for bit, and `render` is one band.
 
+**On the device (BTSCN-0010).** A render on the GPU holds the join (16 bytes a pixel), one buffer for the layer being landed (reused by the next of its size), the mask planes in play (4 bytes a pixel) and, in the device cache, every source's raster as drawn (16 bytes a pixel, a GPU render of looks keeps its looked pictures too), under a budget of its own (1 GiB, settable) apart from the CPU's 2 GiB. A picture or a layer the device cannot bind in one buffer is `GpuError` naming the CPU.
+
 A stack of full-size float pictures is the wrong way to render a poster: one 12-megapixel float32 RGB picture is about
 144 MB, an A3 poster at 300 dpi about 200 MB a layer. So:
 

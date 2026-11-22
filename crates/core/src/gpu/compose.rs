@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use wgpu::Buffer;
 
+use super::Gpu;
 use super::executor::{Bindings, Call, Executor, Kernel};
-use super::{Gpu, from_image};
 use crate::cache::{Cache, Keyed};
 use crate::feather;
 use crate::geometry::Rect;
@@ -30,7 +30,7 @@ struct Stored(Buffer);
 struct Looked(Option<Buffer>);
 
 /// [`Gpu::render`].
-pub(super) async fn render(gpu: &Gpu, scene: &Scene, size: i128) -> Result<bullterrier_image::GpuImage, Error> {
+pub(super) async fn render(gpu: &Gpu, scene: &Scene, size: i128) -> Result<(Buffer, usize, usize), Error> {
     let (width, height, layers, cpu_cache) = scene.parts();
     let (columns, rows) = checked_size(width, height, size)?;
     gpu.fits(columns, rows)?;
@@ -69,10 +69,7 @@ pub(super) async fn render(gpu: &Gpu, scene: &Scene, size: i128) -> Result<bullt
             return Err(error);
         }
     };
-    gpu.inner
-        .image
-        .adopt(picture, rows, columns, true)
-        .map_err(|error| from_image(&error))
+    Ok((picture, rows, columns))
 }
 
 /// One render's recording.

@@ -42,3 +42,8 @@ tempfile.workspace = true
 
 [lints]
 workspace = true
+
+# `uv run poe bench-gpu`: the GPU compositor's timings against the CPU's
+[[example]]
+name = "bench_gpu"
+required-features = ["gpu"]

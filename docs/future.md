@@ -100,3 +100,24 @@ Each item has the evidence that found it. Fix by the usual rule: reproduce at th
   by its own rules without asking; pushes to the other repositories are authorised; no pushes of this one unless asked.
 - The per-batch plans were written in the git-ignored `.superpowers/plans/`, which may be absent. The decisions are in
   `design-decisions.md`.
+
+## The GPU compositor: what is left (BTSCN-0010, 2026-11-22)
+
+Built: warps, area average, footprint, masks, feather, the sixteen blends, light, a picture's looks through image's executor, the
+device cache, `Gpu`, Python `Gpu` and `render(gpu=)`, `bt-scene render --gpu`. Speed evidence: `api.md`, "Limits, measured" (a layer low
+in the stack changed: 4.5 to 7 times the CPU's time at 1,920; a repeat the CPU's kept joins answer in 3 to 9 ms is 19 to 35 ms on the
+device). Not built, in the order they pay:
+
+1. **Joins kept on the device** (the CPU keeps the join after every other layer): a repeat and a top-layer slider would be one blend.
+2. **Per-dispatch cost:** a uniform buffer and a bind group are made for each of the roughly three kernels a layer takes; a pool of
+   them, or one bind group of the layer's parameters, would cut the recording.
+3. **Groups, and layers the CPU draws, on the device:** a group recurses on the CPU and is sent; text and drawings wait for vector's
+   GPU path (`BTVEC-0014`).
+4. **Bands on the device** (`render_to_png` with a GPU, a picture past what the device binds): bands sized from the device's limit
+   through `render_bands`.
+5. **A light layer's looks and a look that uses a map** on the device (room, `render_from` with maps).
+6. **Image's resample kernel** (`BTIMG-0012`): upload the decoded file once and `render_from`, instead of the CPU framing and resizing
+   a picture before it is sent.
+7. **The recording asynchronous**, for the browser (`BTSCN-0011`): image's calls are polled once now and are ready on native.
+8. **The footprint of a perspective in 32-bit floats** differs from the CPU's where a footprint's length is just over a whole number
+   (a tap more or fewer): the bound is 1e-2; a table of the singular values worked out on the CPU would make it exact.

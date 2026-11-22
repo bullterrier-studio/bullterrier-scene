@@ -60,10 +60,13 @@ fn public_items(text: &str) -> Vec<&str> {
 #[test]
 fn only_the_two_adapter_files_name_the_sibling_crates_and_neither_declares_a_public_item() {
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    // image has a second home, the GPU context (`gpu.rs`), which holds image's context on the device and returns image's
+    // `GpuImage` (the one sibling type in a public signature: `gpu_signatures_name_one_sibling_type`)
     let adapters = [
         ("bullterrier_image", "source/picture.rs"),
         ("bullterrier_vector", "source/drawing.rs"),
     ];
+    let also = [("bullterrier_image", "gpu.rs")];
     for file in rust_files(&source) {
         let text = fs::read_to_string(&file).unwrap_or_else(|error| unreachable!("{}: {error}", file.display()));
         let relative = file
@@ -73,6 +76,9 @@ fn only_the_two_adapter_files_name_the_sibling_crates_and_neither_declares_a_pub
             .replace('\\', "/");
         for (krate, home) in adapters {
             let names = naming(&text, krate);
+            if also.contains(&(krate, relative.as_str())) {
+                continue;
+            }
             if relative == home {
                 assert!(!names.is_empty(), "{home} no longer uses {krate}: is the adapter gone?");
             } else {
@@ -87,6 +93,29 @@ fn only_the_two_adapter_files_name_the_sibling_crates_and_neither_declares_a_pub
             );
         }
     }
+}
+
+/// The GPU context's public items name no sibling type but image's `GpuImage` (what a resident render returns), and image's
+/// context and errors stay private.
+#[cfg(feature = "gpu")]
+#[test]
+fn gpu_signatures_name_one_sibling_type() {
+    let text = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/gpu.rs"))
+        .unwrap_or_else(|error| unreachable!("{error}"));
+    for line in public_items(&text)
+        .into_iter()
+        .filter(|line| line.contains("fn ") || line.contains("struct "))
+    {
+        let tail = line.replace("GpuImage", "");
+        assert!(
+            !tail.contains("ImageGpu") && !tail.contains("bullterrier_image") && !tail.contains("ErrorKind"),
+            "a public item of gpu.rs names a sibling type: {line}"
+        );
+    }
+    assert!(
+        text.contains("-> Result<GpuImage, Error>"),
+        "the resident render returns image's GpuImage"
+    );
 }
 
 #[test]

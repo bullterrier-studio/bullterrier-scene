@@ -102,3 +102,4 @@ here, below them; this file is the project's and an update never changes it.
 3. **Pins move in a commit of their own**, with the gate run; the differential tests of `tests/it/data_boundary.rs` run first and
    name what a sibling changed.
 4. **Straight alpha at every boundary, premultiplied inside; sRGB values** (`docs/design.md`, "Conventions").
+5. **Byte promises are CPU promises.** Threads, bands, cache against cold and the saved bytes are the CPU render's; the GPU compositor (`crates/core/src/gpu/`, feature `gpu`) is held to the bounds of `docs/api.md` ("On the GPU"), never to the byte. The CPU plans a layer (`land_by`) and the device does the per-pixel work; a CPU raster never feeds a render on the device, nor the reverse (separate caches, separate keys). The device is chosen in one place, `Gpu`; every GPU call is `async`; `unsafe` stays forbidden. Image is named in `source/picture.rs` and `gpu.rs` (`tests/it/architecture.rs`).

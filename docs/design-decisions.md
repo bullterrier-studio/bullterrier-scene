@@ -952,3 +952,55 @@ which takes alpha). The look knows each row's kind, so a wrong kind is refused i
 colour in image's. *Reason:* one representation of a colour in one scene, so an editor builds a picker from `parameters()` and
 video can ramp a colour through one setting. *Not done:* a layer's own colour takes no `#rgb` or triple (it keeps its alpha spelling);
 `Kind::Colors` palettes, region and frame colours have no address in image.
+
+## The GPU compositor (BTSCN-0010, 2026-11-22)
+
+Scene composes on the GPU as a second backend beside the CPU, which stays the exact reference (the byte promises of threads,
+bands and the cache are CPU promises; a GPU render is held to a bound). Why this shape:
+
+* **One place chooses it: the context.** `Gpu::render(&scene, size)` and `Gpu::download`, never an option of a scene or a render.
+  Every GPU call is `async`; scene waits for nothing itself (image's native `download` is the one wait, image's note). `Gpu` is
+  `Send + Sync`: threads share one, and submissions are serialised inside it, because the device's error scopes belong to the
+  work between them.
+* **Image's context is built from the same device, through image's own constructors** (`Gpu::new(device, queue)`): image's check
+  of which platforms the GPU backend supports is the one owner, scene copies no list. `Gpu::request` makes the device itself (with
+  the adapter's own buffer limits, as image's does) and hands it to image's constructor.
+* **The boundary rule moves by one file.** Image is named in `source/picture.rs` (looks, readbacks) and now `gpu.rs` (the context
+  holds image's, and a resident render returns image's `GpuImage`: the one sibling type in a public signature, so a chain with video
+  and the web app needs no copy). `tests/it/architecture.rs` holds both: `gpu.rs` names no other sibling type publicly.
+  `GpuImage::buffer` and `Gpu::adopt` are image's addition for this (the packages share wgpu's device, decision 3 of the GPU
+  decision): scene reads a look's picture and returns its own as a `GpuImage`, no readback.
+* **The CPU plans, the device computes.** `land_by` (the CPU's own code) decides where a layer lands, which map puts it there and
+  what raster it is drawn from; the device does the per-pixel work. So the placement rules are written once. The parts that are
+  per-pixel are ported, not reached through hardware texture filtering: the exact whole-pixel copy, bilinear, the exact area
+  average (a map that keeps the axes, and a raster shrunk past 2x averaged first as `warp::reduce` does), the footprint filter
+  (an affine map's is worked out in 64-bit floats on the CPU and handed to the kernel, a perspective's per pixel in 32), the sixteen
+  blend modes, light, masks and their planes, the three box passes of the feather on the line padded as the CPU pads it. Forms:
+  a layer's raster as image holds a picture (straight RGBA, `vec4<f32>`: so a look's picture is a layer's raster with no
+  conversion), the join premultiplied as the CPU's is (deviation from the ticket's "layer pixels premultiplied": the warp's maths
+  is written on straight values and premultiplies inline, so premultiplied layers would cost a conversion for nothing).
+* **What stays on the CPU, and is sent once:** fills, drawings, text, plugin kinds and groups (a group is drawn by the CPU's
+  recursion and sent as one raster; a recursion on the device is a later step), a picture with no look, a look that uses a map or
+  makes a plate, a light layer's looks (its room), and a recipe `render_from` does not take (it resamples): looked on the CPU as before.
+  A raster crosses once, under the key the CPU cache keeps it under (or the digest of its pixels where the CPU holds the picture as it
+  is, not in its cache), in a cache of its own. **A CPU raster never feeds a render on the device, nor the reverse**: separate
+  caches, separate keys.
+* **A picture's looks run on the device without a readback:** the raster the source drew is sent once as an image `GpuImage` with
+  its alpha; each look is `render_from` of the one before (image runs its kernels, and a step with none on the CPU inside it,
+  counted by image); the result keeps the alpha, its colours are brought into 0 to 1 as `Look::apply` does. Image's calls are
+  `async`; the compositor's recording is synchronous (it holds the submission lock), so these are polled once and are ready on
+  native (the error scopes are answered at once there); a device that answers later (a browser) is `GpuError` until the web
+  package makes the recording async (BTSCN-0011).
+* **The device cache** is `Cache` again (the same least-recently-used, expendable and scan-sparing rules, different capacity),
+  holding buffers; its budget is settable (`set_cache_budget`, default 1 GiB; the CPU's `MAX_BYTES` is unchanged). A render that fails
+  after recording into it empties it, since what it recorded was never submitted.
+* **Sizes:** whole renders only. `Gpu::fits` and every buffer check the device's binding limit and name the size and the CPU; bands
+  on the device, `render_to_png` with a GPU and a PDF with a GPU are not built: `bt-scene render --gpu` refuses them by name
+  (`future.md`).
+* **Bounds, not bytes** (the determinism note's interim numbers): see `api.md`, "On the GPU". The first green run met each bound at
+  once on Metal; a mutant of the blend, the feather and the warp each fails the suite (`tests/it/gpu/`).
+* **Cost:** two implementations of each piece (Rust and WGSL), the parity tests, and a feature (`gpu`, off by default for pure
+  Rust callers; on in the wheel and the command line). A wheel on a machine with no GPU is a CPU wheel (`BT_GPU=none` in CPU CI).
+
+**Measured** (release, Apple M4, 13-layer poster of pictures, one shrunk past 2x, a turn, a perspective, a looked picture, a masked
+one, light, a group and blends; medians of 7; `poe bench-gpu`): see `api.md`, "Limits, measured".

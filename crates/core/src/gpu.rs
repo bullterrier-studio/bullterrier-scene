@@ -212,7 +212,11 @@ impl Gpu {
     /// [`Error::Gpu`] if the picture is larger than the device holds (naming that the CPU can) or the device fails; whatever
     /// [`Scene::render`] refuses (naming `size`, or a layer's look, file or drawing).
     pub async fn render(&self, scene: &Scene, size: impl Into<i128>) -> Result<GpuImage, Error> {
-        compose::render(self, scene, size.into()).await
+        let (picture, rows, columns) = compose::render(self, scene, size.into()).await?;
+        self.inner
+            .image
+            .adopt(picture, rows, columns, true)
+            .map_err(|error| from_image(&error))
     }
 
     /// `image` read back as a [`Raster`]: what [`Scene::render`] returns. Image's `download` waits for the device on native
