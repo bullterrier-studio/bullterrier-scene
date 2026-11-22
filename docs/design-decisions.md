@@ -24,7 +24,7 @@ allows exactly those two git sources; a dependency arrives with its first user (
 
 ## The pins: image `89b238f`, vector `beff47d` (2026-11-13; image bumped 2026-11-14 twice, vector 2026-11-21)
 
-`Cargo.toml` pins `bullterrier-image` (`89b238f6dc0f17828e381b8b13163a406b3f7b75`; before it `7f91eefbc4695ae20d01dc2da3de1eaadc13a274`, which has `Recipe::spread` for C5c; before it `c6b58ac`; C1 began at `f319f13`, C5b-lite moved it to image's pushed `main`, with a canvas smaller than the picture allowed (a layer larger than the canvas): `Recipe.to_dict()` writes `format`, `RECIPE_FORMATS` is public, `Options::with_canvas`; the private copy of image's format list is gone) and `bullterrier-vector`
+`Cargo.toml` pins `bullterrier-image` (`dd6b62e7c9ea5d4f6ae75f64ba745733beb5c610`, the GPU foundation; before it `89b238f6dc0f17828e381b8b13163a406b3f7b75`; before it `7f91eefbc4695ae20d01dc2da3de1eaadc13a274`, which has `Recipe::spread` for C5c; before it `c6b58ac`; C1 began at `f319f13`, C5b-lite moved it to image's pushed `main`, with a canvas smaller than the picture allowed (a layer larger than the canvas): `Recipe.to_dict()` writes `format`, `RECIPE_FORMATS` is public, `Options::with_canvas`; the private copy of image's format list is gone) and `bullterrier-vector`
 (`beff47d0e604cfe71b6e5023a2a9c0eb61d2aa11`; before it `ec87b30`, `5442066`), the heads of their `main` when C1 began (vector's was `05debff`; C3 bumped it
 for text), with no feature turned on (image's `onnx` stays off). *Vector's bump brought* V10e (`Window`: a rectangle of the
 output drawn alone, the window drawing B1 and the C2 zoom limit wait for) and V10f (text runs: a text of several fonts and
