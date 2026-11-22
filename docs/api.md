@@ -638,8 +638,8 @@ let cpu = scene.render(1200)?;                        // the CPU path, unchanged
 ```
 
 ```python
-gpu = bts.Gpu()                           # GpuError where there is no GPU, or not one the compositor supports
-picture = scene.render(1200, gpu=gpu)     # a float32 array, as always; composed on the device, read back once
+gpu = bts.Gpu()  # GpuError where there is no GPU, or not one the compositor supports
+picture = scene.render(1200, gpu=gpu)  # a float32 array, as always; composed on the device, read back once
 ```
 
 ```

@@ -6,6 +6,7 @@
 //! The CPU render is the oracle: every GPU picture is compared with it within a bound named beside the test.
 
 mod parity;
+mod recipes;
 mod render;
 mod session;
 
