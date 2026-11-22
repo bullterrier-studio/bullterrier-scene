@@ -33,7 +33,7 @@ pub enum Error {
         message: String,
     },
     /// This machine cannot do what was asked on the GPU: no adapter, a missing limit, a picture larger than the device holds
-    /// (naming that the CPU can), a lost device; or a render the GPU compositor does not do (print output). Never a mistake
+    /// (naming that the CPU can), or a lost device. Never a mistake
     /// of the caller's values, so `except GpuError` can render on the CPU without hiding a bug.
     Gpu {
         /// What the machine cannot do, and what to do instead.

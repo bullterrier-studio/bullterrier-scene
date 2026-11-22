@@ -189,11 +189,28 @@ pub(crate) fn command(args: &Args, out: &mut dyn std::io::Write) -> Result<(), E
     say(out, &args.out.display().to_string())
 }
 
+/// The refusal of `--gpu` for what only the CPU writes: print output (a PDF) and a picture past one band, written band by band.
+/// The caller's choice, so the kind the CPU gives a bad flag; `Error::Gpu` is the machine's alone.
+#[cfg(feature = "gpu")]
+fn only_the_cpu_does(is_pdf: bool, columns: usize, rows: usize) -> Result<(), Error> {
+    let why = if is_pdf {
+        "print output (a PDF) is drawn on the CPU".to_owned()
+    } else if columns * rows > BAND_PIXELS {
+        format!("a picture of {columns} x {rows} pixels is written band by band, which is done on the CPU")
+    } else {
+        return Ok(());
+    };
+    Err(Error::Invalid {
+        address: "--gpu".to_owned(),
+        message: format!("{why}; leave out --gpu"),
+    })
+}
+
 /// `scene` composed on the GPU and written as `render` writes a picture.
 ///
 /// # Errors
-/// [`Error::Gpu`] for a PDF (print output is drawn on the CPU), a picture past one band (written band by band on the CPU) or a
-/// machine that cannot; otherwise what the CPU render refuses.
+/// [`Error::Invalid`] naming `--gpu` for a PDF or a picture past one band (the caller's choice, as on the CPU); [`Error::Gpu`]
+/// for a machine that cannot; otherwise what the CPU render refuses.
 #[cfg(feature = "gpu")]
 fn on_gpu(
     args: &Args,
@@ -204,16 +221,7 @@ fn on_gpu(
     file: &WriteOptions,
     out: &mut dyn std::io::Write,
 ) -> Result<(), Error> {
-    if is_pdf || columns * rows > BAND_PIXELS {
-        let why = if is_pdf {
-            "print output (a PDF) is drawn on the CPU".to_owned()
-        } else {
-            format!("a picture of {columns} x {rows} pixels is written band by band, which is done on the CPU")
-        };
-        return Err(Error::Gpu {
-            message: format!("--gpu: {why}; leave out --gpu"),
-        });
-    }
+    only_the_cpu_does(is_pdf, columns, rows)?;
     let picture = pollster::block_on(async {
         let gpu = bullterrier_scene::Gpu::request().await?;
         let held = gpu.render(scene, size).await?;
@@ -244,4 +252,21 @@ fn value(address: &str, kind: Option<Kind>, text: &str) -> Result<bullterrier_sc
         ),
         _ => text.into(),
     })
+}
+
+#[cfg(all(test, feature = "gpu"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_gpu_flag_the_gpu_cannot_honour_is_the_callers_error_naming_the_flag() {
+        for (is_pdf, columns, rows) in [(true, 10, 10), (false, 5000, 5000)] {
+            let error = only_the_cpu_does(is_pdf, columns, rows);
+            assert!(
+                matches!(&error, Err(Error::Invalid { address, message }) if address == "--gpu" && message.contains("CPU")),
+                "{error:?}"
+            );
+        }
+        assert!(only_the_cpu_does(false, 100, 100).is_ok());
+    }
 }
