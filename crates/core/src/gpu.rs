@@ -107,33 +107,7 @@ impl Gpu {
     /// # Errors
     /// [`Error::Gpu`] if there is no adapter, it gives no device, or the platform is not supported.
     pub async fn request() -> Result<Self, Error> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                ..Default::default()
-            })
-            .await
-            .map_err(|error| Error::Gpu {
-                message: format!(
-                    "no GPU adapter was found ({error}): this machine has no GPU the compositor can use; render on the CPU"
-                ),
-            })?;
-        let wanted = adapter.limits();
-        let required_limits = wgpu::Limits {
-            max_storage_buffer_binding_size: wanted.max_storage_buffer_binding_size,
-            max_buffer_size: wanted.max_buffer_size,
-            ..wgpu::Limits::downlevel_defaults()
-        };
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor {
-                label: Some("bullterrier-scene"),
-                required_limits,
-                ..Default::default()
-            })
-            .await
-            .map_err(|error| failed("give a device", error))?;
-        Self::new(device, queue)
+        Self::on(ImageGpu::request().await.map_err(|error| from_image(&error))?)
     }
 
     /// A context on the caller's `device` and `queue`: the compositor compiles its kernels on that device and keeps its pictures
@@ -142,13 +116,14 @@ impl Gpu {
     /// # Errors
     /// [`Error::Gpu`] naming the limit, if the device allows less than the kernels use, or the platform is not supported.
     pub fn new(device: wgpu::Device, queue: wgpu::Queue) -> Result<Self, Error> {
-        let info = device.adapter_info();
-        let adapter = format!(
-            "{} ({:?}, {:?}, {})",
-            info.name, info.backend, info.device_type, info.driver
-        );
-        let image = ImageGpu::new(device.clone(), queue.clone()).map_err(|error| from_image(&error))?;
-        let executor = Executor::new(device, queue).map_err(|message| Error::Gpu { message })?;
+        Self::on(ImageGpu::new(device, queue).map_err(|error| from_image(&error))?)
+    }
+
+    /// The context on image's, whose device the compositor compiles its kernels on.
+    fn on(image: ImageGpu) -> Result<Self, Error> {
+        let adapter = image.adapter().to_owned();
+        let executor =
+            Executor::new(image.device().clone(), image.queue().clone()).map_err(|message| Error::Gpu { message })?;
         Ok(Self {
             inner: Arc::new(Context {
                 executor,
