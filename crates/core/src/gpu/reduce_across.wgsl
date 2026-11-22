@@ -8,15 +8,15 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     if id.x >= out_columns() || id.y >= out_rows() {
         return;
     }
-    let from = int_at(2u);
-    let step = f32(from) / f32(out_columns());
+    let source_len = int_at(2u);
+    let step = f32(source_len) / f32(out_columns());
     let start = f32(id.x) * step;
     let end = f32(id.x + 1u) * step;
-    let last = min(u32(ceil(end)), from);
+    let last = min(u32(ceil(end)), source_len);
     var sum = vec4<f32>(0.0);
     for (var at = u32(floor(start)); at < last; at++) {
         let weight = (min(end, f32(at + 1u)) - max(start, f32(at))) / step;
-        let q = src[id.y * from + at];
+        let q = src[id.y * source_len + at];
         sum += weight * vec4<f32>(q.rgb * q.a, q.a);
     }
     dest[id.y * out_columns() + id.x] = sum;

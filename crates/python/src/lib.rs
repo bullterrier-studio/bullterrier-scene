@@ -3,6 +3,8 @@
 //! `bullterrier_scene.errors`, imported when the first one is raised: importing the extension imports nothing of the package.
 
 mod error;
+#[cfg(feature = "gpu")]
+mod gpu;
 mod kinds;
 
 use std::borrow::Cow;
@@ -24,6 +26,9 @@ mod _core {
     use super::kinds::{Snapshot, layer_kinds, register_layer, registry_restore, registry_snapshot};
     #[pymodule_export]
     use super::{Held, Layer, Plates, Scene, check_page, check_underbase, main};
+    #[cfg(feature = "gpu")]
+    #[pymodule_export]
+    use super::gpu::Gpu;
 
     /// The most layers a scene holds.
     #[pymodule_export]
@@ -678,6 +683,12 @@ impl Scene {
         let raster = wrap(py, py.detach(|| self.0.render(size)))?;
         let (height, width) = (raster.height(), raster.width());
         PyArray1::from_vec(py, raster.into_pixels()).reshape([height, width, 4])
+    }
+
+    /// The picture as `render` gives it, composed on `gpu` and read back.
+    #[cfg(feature = "gpu")]
+    fn render_on<'py>(&self, py: Python<'py>, size: i128, gpu: &gpu::Gpu) -> PyResult<Bound<'py, PyArray3<f32>>> {
+        gpu::render(py, &self.0, size, gpu)
     }
 
     /// The plates at `size`: one plane for each ink the layers name. `underbase` is (garment, choke, tolerance, feather, name) for
