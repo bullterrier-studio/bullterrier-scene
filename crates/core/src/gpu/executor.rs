@@ -16,6 +16,7 @@ pub(super) enum Kernel {
     Plane,
     Planes,
     Join,
+    Recolour,
 }
 
 impl Kernel {
@@ -30,6 +31,7 @@ impl Kernel {
             Self::Plane => include_str!("plane.wgsl"),
             Self::Planes => include_str!("planes.wgsl"),
             Self::Join => include_str!("join.wgsl"),
+            Self::Recolour => include_str!("recolour.wgsl"),
         }
     }
 }

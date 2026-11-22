@@ -441,6 +441,62 @@ impl Look {
     }
 }
 
+/// A picture a look made on the device (image's `GpuImage`): the compositor reads its buffer and sends nothing back.
+#[cfg(feature = "gpu")]
+pub(crate) struct Resident(bullterrier_image::GpuImage);
+
+#[cfg(feature = "gpu")]
+impl Resident {
+    /// The device buffer: `vec4<f32>` a pixel, straight RGBA.
+    pub(crate) fn buffer(&self) -> &wgpu::Buffer {
+        self.0.buffer()
+    }
+}
+
+/// A look on the device, as the CPU's `apply` runs it on a layer that is not light, has no window and no room: image's executor
+/// does the effects (a step it has no kernel for runs on the CPU inside it, counted) and the picture stays on the device.
+#[cfg(feature = "gpu")]
+impl Resident {
+    /// `layer` sent to the device once, with its alpha (a look never sees it and keeps it).
+    ///
+    /// # Errors
+    /// [`Error::Gpu`] for a machine that cannot hold it.
+    pub(crate) fn upload(gpu: &bullterrier_image::Gpu, layer: &Raster) -> Result<Resident, Error> {
+        let image = bullterrier_image::Image::rgba(layer.height(), layer.width(), layer.pixels())
+            .map_err(|error| refused(&error))?;
+        crate::gpu::ready(gpu.upload_image(&image))?
+            .map(Resident)
+            .map_err(|error| crate::gpu::from_image(&error))
+    }
+}
+
+#[cfg(feature = "gpu")]
+impl Look {
+    /// Whether this look can run on the device: it makes the picture and uses no map (`render_from` has none).
+    pub(crate) fn on_device(&self) -> bool {
+        self.output == Output::Picture && self.recipe.known_maps().is_empty()
+    }
+
+    /// The look run on a picture a look before it made, still on the device; none for a recipe `render_from` does not take.
+    ///
+    /// # Errors
+    /// As [`render_on`](Self::render_on).
+    pub(crate) fn render_after(
+        &self,
+        gpu: &bullterrier_image::Gpu,
+        before: &Resident,
+        canvas: (u32, u32),
+    ) -> Result<Option<Resident>, Error> {
+        let options = Options::default().with_canvas(canvas.0, canvas.1).with_threads(0);
+        match crate::gpu::ready(gpu.render_from(&before.0, &self.recipe, &self.presets, options))? {
+            Ok(made) => Ok(Some(Resident(made))),
+            // a recipe that needs a resample or a frame is not one `render_from` takes: the layer is looked on the CPU
+            Err(error) if error.kind() == bullterrier_image::ErrorKind::Recipe => Ok(None),
+            Err(error) => Err(crate::gpu::from_image(&error)),
+        }
+    }
+}
+
 impl Picture {
     /// A picture held in memory.
     pub(crate) fn held(raster: Raster) -> Self {

@@ -14,9 +14,10 @@ use crate::cache::{Cache, Keyed};
 use crate::feather;
 use crate::geometry::Rect;
 use crate::landing::{Landed, Reducing, Target, land_by};
-use crate::layer::Join;
+use crate::layer::{Body, Join};
 use crate::mask::{CanvasMask, Use};
 use crate::render::{checked_size, target_of};
+use crate::source::picture::{Look, Resident};
 use crate::warp::{
     Map, Output, fixed_footprint, inverse_homography, is_exact_class, is_identity_of, reduced_map, reduction,
 };
@@ -24,6 +25,9 @@ use crate::{Error, Layer, Scene};
 
 /// A buffer on the device, as the cache keeps it.
 struct Stored(Buffer);
+
+/// A layer's looks run on the device, or none where they are looked on the CPU.
+struct Looked(Option<Buffer>);
 
 /// [`Gpu::render`].
 pub(super) async fn render(gpu: &Gpu, scene: &Scene, size: i128) -> Result<bullterrier_image::GpuImage, Error> {
@@ -147,8 +151,7 @@ impl Frame<'_> {
         let Join {
             opacity, blend, light, ..
         } = layer.join;
-        let landed = land_by(layer.drawable()?, target, light, Reducing::Later)?;
-        let pixels = self.landed(&landed)?;
+        let pixels = self.layer(layer.drawable()?, target, light)?;
         let (columns, rows) = target.drawn_size();
         let flags = usize::from(light) | (usize::from(factor.is_some()) << 1);
         self.run(
@@ -185,9 +188,65 @@ impl Frame<'_> {
         Ok(self.cache.fetch(&kept.finish(), upload)?.0.clone())
     }
 
+    /// `body` drawn and put on `target`. Looks that image can run on the device are run there on the raster the source drew, which
+    /// is sent once; any other layer is drawn as on the CPU and its raster sent.
+    fn layer(&mut self, body: &Body, target: &Target, light: bool) -> Result<Buffer, Error> {
+        let looks = body.finish.looks();
+        if !light && !looks.is_empty() && looks.iter().all(Look::on_device) {
+            // the looks leave the alpha as it is and the size, so the raster the source drew places as the looked one does
+            let landed = land_by(&body.without_looks(), target, light, Reducing::Later)?;
+            if let Some(looked) = self.looked(&landed, looks)? {
+                return self.landed(&landed, Some(looked));
+            }
+        }
+        self.landed(&land_by(body, target, light, Reducing::Later)?, None)
+    }
+
+    /// `landed`'s raster with `looks` run on it on the device, kept there; none where image runs a look only on the CPU's size
+    /// and frame (a recipe that resamples), which is then looked on the CPU.
+    fn looked(&mut self, landed: &Landed, looks: &[Look]) -> Result<Option<Buffer>, Error> {
+        let mut key = Keyed::new("gpu-looked");
+        match landed.key {
+            Some(kept) => key.digest(&kept),
+            None => key.digest(landed.drawn.raster.digest()),
+        };
+        for look in looks {
+            key.debug(&landed.request.canvas_of(look.px()));
+            look.keyed(&mut key)?;
+        }
+        let cache = Arc::clone(&self.cache);
+        let stored = cache.fetch(&key.finish(), || {
+            let image = &self.gpu.inner.image;
+            let raster = &landed.drawn.raster;
+            let mut resident = Resident::upload(image, raster)?;
+            for look in looks {
+                match look.render_after(image, &resident, landed.request.canvas_of(look.px()))? {
+                    Some(made) => resident = made,
+                    None => return Ok((Looked(None), 0)),
+                }
+            }
+            let bytes = raster.width() * raster.height() * 16;
+            let out = self.buffer(bytes)?;
+            self.run(
+                Kernel::Recolour,
+                &Call::new(raster.width(), raster.height()),
+                &Bindings {
+                    src: Some(resident.buffer()),
+                    dst: &out,
+                    aux: Some(resident.buffer()),
+                },
+            );
+            Ok((Looked(Some(out)), bytes))
+        })?;
+        Ok(stored.0.clone())
+    }
+
     /// `landed` put on its output: the pixels the layer lands on the target, straight RGBA, zero where it does not reach.
-    fn landed(&mut self, landed: &Landed) -> Result<Buffer, Error> {
-        let mut source = self.raster(landed)?;
+    fn landed(&mut self, landed: &Landed, looked: Option<Buffer>) -> Result<Buffer, Error> {
+        let mut source = match looked {
+            Some(looked) => looked,
+            None => self.raster(landed)?,
+        };
         let (mut map, mut clip) = (landed.map, landed.clip);
         let mut size = (landed.drawn.raster.width(), landed.drawn.raster.height());
         if let Map::Affine(affine) = map
@@ -327,8 +386,7 @@ impl Frame<'_> {
         } else {
             body
         };
-        let landed = land_by(body, &wide, false, Reducing::Later)?;
-        let pixels = self.landed(&landed)?;
+        let pixels = self.layer(body, &wide, false)?;
         let size = wide.drawn_size();
         let mut plane = self.buffer(size.0 * size.1 * 4)?;
         self.run(

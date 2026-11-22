@@ -286,3 +286,20 @@ impl Gpu {
         self.inner.bytes.fetch_add(bytes as u64, Ordering::Relaxed);
     }
 }
+
+/// The answer of `future`, which a device answers at once: the calls of image's context that wait for nothing but the device's
+/// error scopes, and on native those are ready when asked. Where the answer is not there, the machine drives its device from
+/// elsewhere (a browser), and the compositor's recording, which is synchronous, cannot wait for it.
+///
+/// # Errors
+/// [`Error::Gpu`] naming that, for a future that is not ready at its first poll.
+pub(crate) fn ready<T>(future: impl std::future::Future<Output = T>) -> Result<T, Error> {
+    use std::task::{Context, Poll, Waker};
+    match std::pin::pin!(future).poll(&mut Context::from_waker(Waker::noop())) {
+        Poll::Ready(value) => Ok(value),
+        Poll::Pending => Err(Error::Gpu {
+            message: "this device answers asynchronously, which a render with looks on the device does not wait for yet: render on the CPU"
+                .to_owned(),
+        }),
+    }
+}

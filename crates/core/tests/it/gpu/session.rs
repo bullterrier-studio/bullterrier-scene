@@ -204,3 +204,30 @@ fn a_size_beyond_the_device_is_a_gpu_error_naming_the_cpu_and_a_bad_size_is_the_
     assert!(matches!(error, Error::Invalid { .. }), "{error:?}");
     Ok(())
 }
+
+#[test]
+fn a_looked_picture_is_sent_once_and_nothing_comes_back_until_the_end() -> Outcome {
+    let Some(gpu) = fresh() else { return Ok(()) };
+    let grade = r#"{"steps": [{"effect": "grade", "params": {"contrast": 1.4}}, {"effect": "levels", "params": {"gamma": 1.3}}]}"#;
+    let looked = scene(
+        60,
+        40,
+        [
+            Layer::fill("#102030")?,
+            picture(4, "photo")?.look(grade)?,
+            picture(5, "other")?.opacity(0.5)?,
+        ],
+    )?;
+    let resident = block_on(gpu.render(&looked, 60))?;
+    let sent = gpu.transfers();
+    // the fill, the looked picture (one upload, the two looks chained from it) and the plain one
+    assert_eq!((sent.uploads, sent.downloads), (3, 0), "{sent:?}");
+    block_on(gpu.render(&looked, 60))?;
+    assert_eq!(gpu.transfers().uploads, 3, "the looked picture is kept on the device");
+    // a slider on the other layer sends nothing and runs no look again
+    block_on(gpu.render(&looked.with_values(&Values::new().set("other.opacity", 0.9))?, 60))?;
+    assert_eq!(gpu.transfers().uploads, 3);
+    block_on(gpu.download(&resident))?;
+    assert_eq!(gpu.transfers().downloads, 1);
+    Ok(())
+}

@@ -153,6 +153,8 @@ pub(crate) struct Landed {
     pub(crate) map: Map,
     pub(crate) clip: Rect,
     pub(crate) output: Output,
+    /// What the layer was drawn for: the canvas and the scale its looks are given.
+    pub(crate) request: Request,
     /// The first row of the picture the raster holds and the rows the picture has: a layer drawn by window holds some of them.
     first: usize,
     total: usize,
@@ -442,6 +444,7 @@ pub(crate) fn land_by(body: &Body, target: &Target, light: bool, reducing: Reduc
             map,
             clip,
             output: target.output(),
+            request,
             first: read.first,
             total: read.total,
             key: None,
@@ -467,6 +470,7 @@ pub(crate) fn land_by(body: &Body, target: &Target, light: bool, reducing: Reduc
         map,
         clip,
         output: target.output(),
+        request,
         first: 0,
         total,
         key: drawn_key,

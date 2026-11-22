@@ -28,7 +28,7 @@ def test_a_gpu_is_refused_by_name_on_a_platform_the_backend_does_not_support():
 def poster() -> Scene:
     ground = Layer.fill("#204080")
     noise = np.random.default_rng(3).random((20, 30, 4), dtype=np.float32)
-    return Scene(60, 40).add([ground, Layer.picture(noise).fit((0, 0, 60, 40), "cover").opacity(0.7)])
+    return Scene(60, 40).add(ground, Layer.picture(noise).fit((0, 0, 60, 40), "cover").opacity(0.7))
 
 
 @needs_gpu

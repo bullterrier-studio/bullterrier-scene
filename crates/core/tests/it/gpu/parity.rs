@@ -212,3 +212,33 @@ fn a_group_is_the_cpu_picture() -> Outcome {
     )?;
     within(&over(Layer::scene(inner).opacity(0.7)?)?, EXACT_CLASS, "group")
 }
+
+/// A look is image's own kernels (1e-4 of the CPU's f32 each, image's bound) on a picture kept on the device.
+const LOOK: f32 = 5e-4;
+
+#[test]
+fn a_look_on_a_picture_runs_on_the_device_and_is_the_cpu_picture() -> Outcome {
+    let grade = r#"{"steps": [{"effect": "grade", "params": {"contrast": 1.4, "saturation": 1.2}}]}"#;
+    within(&over(stretched((60, 40), 13)?.look(grade)?)?, LOOK, "grade")?;
+    // two looks: the second starts from the first's picture, never read back
+    let chain = r#"{"steps": [{"effect": "grade", "params": {"contrast": 1.3}}, {"effect": "levels", "params": {"gamma": 1.4}}]}"#;
+    within(&over(stretched((60, 40), 13)?.look(chain)?)?, LOOK, "grade then levels")?;
+    // a look the device has no kernel for runs on the CPU inside image's executor: the picture is the same
+    let vignette = r#"{"steps": [{"effect": "vignette"}]}"#;
+    within(
+        &over(stretched((60, 40), 13)?.look(vignette)?)?,
+        LOOK,
+        "a step with no kernel",
+    )?;
+    // a looked layer that is placed, masked and shrunk: the looks run at the drawn size, the warp after
+    within(
+        &over(
+            stretched((200, 140), 14)?
+                .look(grade)?
+                .place(Place::new().rotate(Deg(11.0)).scale(0.8))?
+                .mask(Mask::new(stretched((30, 20), 15)?).feather(2.0))?,
+        )?,
+        FOOTPRINT,
+        "looked, placed, masked",
+    )
+}
