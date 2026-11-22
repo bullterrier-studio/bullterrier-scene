@@ -290,6 +290,7 @@ impl LayerKind for Waits {
         json!({})
     }
 
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "a test size")]
     fn draw(&self, area: [f64; 4], _scale: [f64; 2]) -> Result<Raster, Error> {
         let stuck = |what: &str| Error::Gpu {
             message: format!("the plugin kind {what}: another render could not run while this one drew"),
@@ -304,11 +305,8 @@ impl LayerKind for Waits {
             .map_err(|_| stuck("lost its channel"))?
             .recv_timeout(Duration::from_secs(10))
             .map_err(|_| stuck("timed out"))?;
-        Raster::rgba(
-            area[2] as usize,
-            area[3] as usize,
-            vec![0.5; area[2] as usize * area[3] as usize * 4],
-        )
+        let (columns, rows) = (area[2] as usize, area[3] as usize);
+        Raster::rgba(columns, rows, vec![0.5; columns * rows * 4])
     }
 }
 
