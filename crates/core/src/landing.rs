@@ -154,6 +154,7 @@ pub(crate) struct Landed {
     pub(crate) clip: Rect,
     pub(crate) output: Output,
     /// What the layer was drawn for: the canvas and the scale its looks are given.
+    #[cfg_attr(not(feature = "gpu"), expect(dead_code, reason = "read by the GPU compositor"))]
     pub(crate) request: Request,
     /// The first row of the picture the raster holds and the rows the picture has: a layer drawn by window holds some of them.
     first: usize,

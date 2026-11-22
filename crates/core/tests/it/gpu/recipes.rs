@@ -40,13 +40,17 @@ fn photo(width: usize, height: usize, seed: u64) -> Result<Raster, Error> {
 
 /// A disc of `radius` at `centre` on a frame, as a drawing.
 fn disc(frame: (u32, u32), centre: (f64, f64), radius: f64, colour: &str) -> String {
-    let path: String = (0..48)
+    let points: Vec<String> = (0..48)
         .map(|step| {
             let angle = f64::from(step) * std::f64::consts::TAU / 48.0;
-            let (x, y) = (centre.0 + radius * angle.cos(), centre.1 + radius * angle.sin());
-            format!("{}{x:.3} {y:.3}", if step == 0 { "M" } else { " L" })
+            format!(
+                "{:.3} {:.3}",
+                centre.0 + radius * angle.cos(),
+                centre.1 + radius * angle.sin()
+            )
         })
         .collect();
+    let path = format!("M{}", points.join(" L"));
     format!(
         r#"{{"root":[{{"stack":{{"items":[[{{"path":"{path} Z"}}]],"size":[{},{}]}}}},{{"fill":{{"color":"{colour}"}}}}],"version":1}}"#,
         frame.0, frame.1
@@ -212,6 +216,11 @@ fn wow_poster() -> Result<Scene, Error> {
 /// The fraction of values more than one level apart and the largest gap, in 8-bit levels.
 fn levels_apart(cpu: &Raster, gpu: &Raster) -> (f64, u32) {
     assert_eq!(cpu.pixels().len(), gpu.pixels().len());
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a value from 0 to 1 as an 8-bit level"
+    )]
     let level = |value: f32| (value * 255.0 + 0.5) as u32;
     let (mut over_one, mut worst) = (0_usize, 0_u32);
     for (left, right) in cpu.pixels().iter().zip(gpu.pixels()) {
@@ -233,9 +242,7 @@ fn three_scenes_after_the_demos_hold_the_recipe_budget() -> Outcome {
         ("song poster", wow_poster()?),
     ] {
         let size = 270;
-        let on_cpu = scene.render(size)?;
-        let on_gpu = rendered(&gpu, &scene, size)?;
-        let (share, worst) = levels_apart(&on_cpu, &on_gpu);
+        let (share, worst) = levels_apart(&scene.render(size)?, &rendered(&gpu, &scene, size)?);
         assert!(
             share <= 0.001,
             "{name}: {share:.5} of values are more than one level apart"

@@ -83,6 +83,9 @@ fn ms(time: Duration) -> String {
     format!("{:8.1}", time.as_secs_f64() * 1000.0)
 }
 
+/// How a case makes its scene for run `n`.
+type Make = Box<dyn FnMut(usize) -> Result<Scene, Error>>;
+
 /// Runs of each case: the median of this many.
 const RUNS: usize = 7;
 
@@ -165,14 +168,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // a slider move: opacity of one layer, a new value each run
         let moved = |layer: &str, base: &Scene| {
             let (layer, base) = (layer.to_owned(), base.clone());
-            move |run: usize| base.with_values(&Values::new().set(&format!("{layer}.opacity"), 0.2 + 0.05 * run as f64))
+            move |run: usize| {
+                base.with_values(&Values::new().set(
+                    format!("{layer}.opacity"),
+                    0.2 + 0.05 * f64::from(u8::try_from(run).unwrap_or(0)),
+                ))
+            }
         };
         let warm = poster()?;
         warm.render(size)?;
         block_on(gpu.render(&warm, size))?;
-        let cases: Vec<(&str, Box<dyn FnMut(usize) -> Result<Scene, Error>>, bool)> = vec![
+        let cases: Vec<(&str, Make, bool)> = vec![
             ("drawn cold (a scene made afresh)", Box::new(|_| poster()), true),
-            ("drawn again", Box::new(|_| Ok(warm.clone())), false),
+            (
+                "drawn again",
+                Box::new({
+                    let warm = warm.clone();
+                    move |_| Ok(warm.clone())
+                }),
+                false,
+            ),
             ("top layer's opacity moved", Box::new(moved("l13", &warm)), false),
             ("bottom layer's opacity moved", Box::new(moved("l1", &warm)), false),
         ];
