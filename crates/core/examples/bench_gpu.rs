@@ -1,4 +1,4 @@
-//! `uv run poe bench-gpu`: a 13-layer poster on the CPU and on the GPU, at 1,200 px and at 1080p: drawn cold, drawn again, and
+//! `uv run poe bench-gpu`: a 13-layer poster on the CPU and on the GPU, at 1,200 and at 1,920 px on the long side: drawn cold, drawn again, and
 //! with the top layer's and the bottom layer's opacity moved, as a slider does. The GPU is timed on the device alone (the work
 //! waited for, nothing read back) and with the picture read back. Release build, one process; medians of several runs.
 
