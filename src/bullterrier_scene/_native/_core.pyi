@@ -12,6 +12,7 @@ import numpy.typing as npt
 __all__ = [
     "MAX_DEPTH",
     "MAX_LAYERS",
+    "Gpu",
     "Held",
     "Layer",
     "Plates",
