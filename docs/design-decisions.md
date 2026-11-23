@@ -43,11 +43,20 @@ file, `ReadError`). *Reason:* scene's pictures are exactly 0 to 1 (a `Raster` re
 alpha divides by an alpha that colours never pass), and this is the one place an outside contract with a tolerance enters.
 *Consequence:* the render holds no clamp of its own.
 
-## No WebAssembly build yet (2026-11-08)
+## A WebAssembly package, CPU (2026-11-23)
 
-Generated with `wasm = false`. *Reason:* nobody has shown that image's crate (rayon, rustfft, image decoders) builds for
-`wasm32-unknown-unknown`, and scene's browser story is open. *Consequence:* `copier update` with `wasm = true` adds the gate
-when a page needs it.
+`crates/wasm` builds the core for `wasm32-unknown-unknown` (`wasm: true`); `docs/javascript-api.md` is its API. *Reason:* the
+spike (`docs/future.md`) showed the core builds and renders there, and a page that edits a scene (a slider on a layer) needs the
+render in the browser. Image gained `read_bytes` and `read_map_bytes` (a pin bump) and the core `Files` so a scene reads from
+bytes the page hands in; the browser has no folder and no network. CPU only: the GPU half is parked. *Consequences:* a file value
+cannot be set in the browser and a `make` layer is refused (no Python there); the package is tested in Node against the Python
+package's pixels (`tests/wasm/`), within the one tolerance.
+
+*Size* (release, `+simd128`; Apple M4, 2026-11-23): 14.4 MB raw, 15.0 MB after `wasm-bindgen`, 8.8 MB after `wasm-opt -Oz`,
+10.0 MB after `-O3`; brotli 2.9, 2.85, 2.77 and 2.77 MB. About 1.8 MB of the raw module is data, mostly vector's bundled fonts;
+the rest is code (image, vector, the PDF and PNG writers). A split by crate is not measured. *Speed* in Node, case (a) of
+`tests/wasm/` (a picture, a feathered map mask, a grade) at 400 px, median of 5, load average about 3: `fromJson` 1.1 ms, a cold
+render 6.6 ms, one value changed and rendered 5.9 ms. The spike's 13-layer poster at 1,200 px is in `docs/future.md`.
 
 ## Blending in sRGB values, straight alpha at the boundary (2026-11-08)
 

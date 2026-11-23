@@ -67,6 +67,8 @@ poster = bts.Scene(W, H).add(
 imageio.save(poster.render(1200), "poster.png")
 ```
 
+In a browser page or Node, a saved scene renders through the WebAssembly package ([docs/javascript-api.md](docs/javascript-api.md)).
+
 The same from a shell, for a scene saved as JSON ([docs/cli.md](docs/cli.md)):
 
 ```bash
