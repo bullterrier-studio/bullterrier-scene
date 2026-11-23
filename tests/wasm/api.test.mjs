@@ -152,6 +152,14 @@ test("a size that is no whole number is a TypeError, one outside the range an In
   assert.match(failure(() => scene.render(3)).message, /options/);
 });
 
+test("a text that is no string is a TypeError naming text", () => {
+  for (const text of [42, undefined, {}, { version: 1 }, null]) {
+    const error = failure(() => Scene.fromJson(text));
+    assert.equal(error.name, "TypeError", String(text));
+    assert.match(error.message, /text/);
+  }
+});
+
 test("files are Uint8Arrays by path; anything else is a TypeError naming it", () => {
   const error = failure(() => Scene.fromJson(masked, { files: { "a.png": "x" } }));
   assert.equal(error.name, "TypeError");

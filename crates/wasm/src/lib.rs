@@ -51,6 +51,10 @@ export interface SceneParameter {
 
 #[wasm_bindgen]
 extern "C" {
+    /// A saved scene's JSON text.
+    #[wasm_bindgen(typescript_type = "string")]
+    pub type Text;
+
     /// What a scene is read with.
     #[wasm_bindgen(typescript_type = "SceneOptions")]
     pub type SceneOptions;
@@ -204,12 +208,14 @@ impl Scene {
     /// (`make`) is refused: the package has none.
     ///
     /// # Errors
-    /// A `TypeError` naming `options` or `files` unless each is an object, or `files.<path>` for bytes that are no
+    /// A `TypeError` naming `text` unless it is a string, `options` or `files` unless each is an object, or `files.<path>` for bytes that are no
     /// `Uint8Array`; `FormatError` (with `pointer`, the JSON Pointer of the value) for text that is no saved scene;
     /// `ReadError` (with `path`) for a file the document names that `files` lacks; `InvalidError` (with `address`) for a
     /// value the scene refuses.
     #[wasm_bindgen(js_name = fromJson)]
-    pub fn from_json(text: &str, options: Option<SceneOptions>) -> Result<Scene, JsValue> {
+    pub fn from_json(text: &Text, options: Option<SceneOptions>) -> Result<Scene, JsValue> {
+        let given: &JsValue = text.as_ref();
+        let text = given.as_string().ok_or_else(|| refuse("text", "a string", given))?;
         let options = options.map(JsValue::from);
         let mut files = core::Files::given();
         if let Some(options) = object_of(options.as_ref(), "options", "an object")? {
@@ -223,7 +229,7 @@ impl Scene {
                 }
             }
         }
-        raised(core::Scene::from_json_with(text, &files, &core::LayerKinds::new())).map(Scene)
+        raised(core::Scene::from_json_with(&text, &files, &core::LayerKinds::new())).map(Scene)
     }
 
     /// The canvas's width in design pixels.
