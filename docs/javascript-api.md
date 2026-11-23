@@ -57,6 +57,10 @@ file, a drawing file) comes from `files`, by the path exactly as the document wr
 Every `Scene` a call returns (`fromJson`, `withValues`) holds wasm memory until `free()`. In a slider loop, free the previous
 scene after each `withValues`. A render's `data` is a copy the page owns: nothing to free.
 
+Scenes made by `withValues` share one cache (bound 2 GiB), and wasm memory never shrinks: `free()` releases the scene, not what
+it cached. Measured on a poster at 640x800: 400 MB after the first render, 1,090 MB after 20 distinct values of one slider
+(about 29 MiB per new value; repeated values add nothing). A bound the caller sets is not built yet (BTSCN-0014).
+
 ## Build
 
 `uv run poe wasm-test` builds the package for Node (`--target nodejs`, into the ignored `pkg/`) and tests it. For a page or a Web
