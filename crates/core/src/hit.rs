@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use crate::cache::Cache;
 use crate::landing::Target;
+use crate::layer::Base;
 use crate::render::{lay, picture_size, target_of};
 use crate::source::scene::Group;
 use crate::{Error, Layer};
@@ -14,15 +15,15 @@ use crate::{Error, Layer};
 /// cut, as `Raster::write` rounds), so a layer is at the pixels where it shows at all.
 const SEEN: f32 = 0.5 / 255.0;
 
-/// The address of the topmost of `layers`, on a canvas of `width` by `height`, at the pixel (`x`, `y`) of the picture at
-/// `size`, or `None`.
+/// The address of the topmost of `layers` (as added, and as drawn), on a canvas of `width` by `height`, at the pixel (`x`, `y`)
+/// of the picture at `size`, or `None`.
 ///
 /// # Errors
 /// [`Error::Invalid`] naming `size` for a size outside 1 to 65,000, `x` or `y` for a pixel outside the picture; whatever a
 /// layer cannot draw, naming the layer.
 pub(crate) fn layer_at(
     (width, height): (u32, u32),
-    layers: &[Layer],
+    layers: (&[Layer], &[Layer]),
     (x, y): (i128, i128),
     size: i128,
     cache: &Cache,
@@ -45,24 +46,31 @@ fn within(field: &str, at: i128, count: usize) -> Result<usize, Error> {
     })
 }
 
-/// The address of the topmost of `layers` that leaves alpha at `column` of the row `target` draws, each drawn as `alone` makes it
+/// The address of the topmost of `layers` (as added, and as drawn: references resolved) that leaves alpha at `column` of the row
+/// `target` draws, each drawn as `alone` makes it
 /// (the layer itself on the canvas; inside a group, the group with that layer alone in it, and so on out).
 fn topmost(
-    layers: &[Layer],
+    (added, drawn): (&[Layer], &[Layer]),
     target: &Target,
     column: usize,
     alone: &dyn Fn(Layer) -> Result<Layer, Error>,
 ) -> Result<Option<String>, Error> {
-    for (index, layer) in layers.iter().enumerate().rev() {
+    for (index, (added, layer)) in added.iter().zip(drawn).enumerate().rev() {
         let name = layer.name.clone().unwrap_or_else(|| format!("layer{}", index + 1));
         let mut row = vec![0.0_f32; target.drawn_size().0 * 4];
         lay(&alone(layer.clone())?, target, &mut row).map_err(|error| error.in_layer(&name))?;
         if row[column * 4 + 3] < SEEN {
             continue;
         }
-        if let Some(group) = layer.drawable()?.source.group() {
+        // a reference to a group draws it but has no addresses inside it: it is the answer itself
+        if let Some(group) = layer
+            .drawable()?
+            .source
+            .group()
+            .filter(|_| !matches!(added.base, Base::Of(_)))
+        {
             let inner = |inner: Layer| alone(layer.with_source(Arc::new(Group::new(group.drawing(vec![inner]))))?);
-            if let Some(found) = topmost(group.drawn(), target, column, &inner)? {
+            if let Some(found) = topmost((group.layers(), group.drawn()), target, column, &inner)? {
                 return Ok(Some(format!("{name}.scene.{found}")));
             }
         }

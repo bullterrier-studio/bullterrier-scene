@@ -886,8 +886,6 @@ impl Source for Picture {
     }
 }
 
-// Inline, because no public route reaches this: image gives no NaN on demand, and the overshoot it does give is tested through a
-// look.
 /// `value` with each whole number written one way, as an integer: `2.0` as `2`, as JavaScript writes it, so that a look read
 /// back from a document a page edited has the key it had. Past 2^53 a float is left as it is (an integer there may not be one).
 #[expect(
@@ -913,6 +911,8 @@ fn whole_numbers_one_way(value: Value) -> Value {
     }
 }
 
+// Inline, because no public route reaches this: image gives no NaN on demand, and the overshoot it does give is tested through a
+// look.
 #[cfg(test)]
 mod tests {
     use super::into_range;

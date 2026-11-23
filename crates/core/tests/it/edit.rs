@@ -64,6 +64,28 @@ fn the_layer_at_a_pixel_is_the_topmost_that_covers_it_through_masks_perspective_
 }
 
 #[test]
+fn a_reference_to_a_group_is_the_answer_itself_for_it_has_no_inner_addresses() -> Outcome {
+    let inner = scene(100, 100, [boxed("#ff00ff", [0.0, 0.0, 10.0, 10.0])?.named("a")?])?;
+    let referred = scene(
+        100,
+        100,
+        [
+            Layer::scene(inner).named("g")?,
+            Layer::of("g").place(Place::new().dx(50.0))?.named("r")?,
+        ],
+    )?;
+    assert_eq!(referred.layer_at(5, 5, 100)?.as_deref(), Some("g.scene.a"));
+    assert_eq!(referred.layer_at(55, 5, 100)?.as_deref(), Some("r"));
+    assert!(
+        referred
+            .parameters()
+            .iter()
+            .all(|parameter| !parameter.address.starts_with("r.scene."))
+    );
+    Ok(())
+}
+
+#[test]
 fn a_pixel_where_no_layer_covers_has_none_and_one_outside_the_picture_is_refused() -> Outcome {
     let bare = scene(100, 50, [boxed("#ff0000", [0.0, 0.0, 10.0, 10.0])?])?;
     assert_eq!(

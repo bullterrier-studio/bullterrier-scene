@@ -239,8 +239,9 @@ impl Scene {
     /// opacity, light), it leaves alpha that an 8-bit picture keeps (at least 0.5 / 255): a blend mode changes its colour, not
     /// where it is, and a layer at opacity 0 or masked away is not there. The layers are asked top first. In a group, the
     /// answer is the topmost inner layer that shows there alone through the group's place, looks and masks, or the group if
-    /// none does alone. A mask layer is never the answer. Each layer asked is drawn for the one row of the pixel; a looked
-    /// layer is drawn whole at `size` once (kept in the cache, as a render at `size` keeps it).
+    /// none does alone. A mask layer is never the answer; a reference to a group is the answer itself (it has no addresses
+    /// inside). Each layer asked is drawn for the one row of the pixel, as a band of a render is: a look image can band runs
+    /// on that row and the margin it reaches each time, one it cannot is drawn whole at `size` once and kept.
     ///
     /// # Errors
     /// [`Error::Invalid`] naming `size` for a size outside 1 to 65,000, `x` or `y` for a pixel outside the picture; whatever
@@ -253,7 +254,7 @@ impl Scene {
     ) -> Result<Option<String>, Error> {
         hit::layer_at(
             (self.width, self.height),
-            &self.drawn,
+            (&self.layers, &self.drawn),
             (x.into(), y.into()),
             size.into(),
             &self.cache,
