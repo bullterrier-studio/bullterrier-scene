@@ -669,11 +669,14 @@ impl Scene {
 
     /// The scene a JSON document describes; a relative path in it is relative to `base`.
     #[staticmethod]
-    #[expect(clippy::needless_pass_by_value, reason = "pyo3 hands the extracted path over")]
     fn from_json(py: Python<'_>, text: &str, base: PathBuf) -> PyResult<Self> {
         wrap(
             py,
-            bullterrier_scene::Scene::from_json_with(text, &base, &kinds::current(py)?),
+            bullterrier_scene::Scene::from_json_with(
+                text,
+                &bullterrier_scene::Files::folder(base),
+                &kinds::current(py)?,
+            ),
         )
         .map(Self)
     }

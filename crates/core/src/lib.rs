@@ -45,6 +45,7 @@ mod warp;
 pub use blend::Blend;
 pub use budget::{MAX_DEPTH, MAX_LAYERS};
 pub use error::Error;
+pub use files::Files;
 pub use finish::Px;
 pub use geometry::MAX_PIXELS;
 #[cfg(feature = "gpu")]

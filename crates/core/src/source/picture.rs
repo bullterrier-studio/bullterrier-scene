@@ -555,9 +555,10 @@ impl Picture {
     }
 }
 
-/// What `read` makes of the file `file`: the one the cache holds if the file is in the state it was when it was read (its size and
-/// modification time are the same: **limit**, a change that keeps both is not seen), else read now and kept. `floats` says how
-/// many floats the value holds. A file that cannot be asked is read, and refused, as before.
+/// What `read` makes of the file `file`: the one the cache holds if the file is in the state it was when it was read (on disk,
+/// its size and modification time are the same: **limit**, a change that keeps both is not seen; given, its bytes' digest),
+/// else read now and kept. `floats` says how many floats the value holds. A file that cannot be asked is read, and refused,
+/// as before.
 fn kept<T: Send + Sync + 'static>(
     cache: &Cache,
     what: &str,
@@ -578,9 +579,9 @@ fn kept<T: Send + Sync + 'static>(
 
 /// The map in the file `file`: a grey picture read as image reads a map (upright, 0 to 1).
 fn read_map(file: &Located) -> Result<Map, Error> {
-    file.verified()?;
+    let bytes = file.bytes()?;
     let path = file.resolved();
-    let layer = bullterrier_image::read_map(&path).map_err(|error| Error::Read {
+    let layer = bullterrier_image::read_map_bytes(&bytes).map_err(|error| Error::Read {
         path: path.display().to_string(),
         message: error.to_string(),
     })?;
@@ -605,16 +606,38 @@ fn resized(map: &Map, window: Rect, size: (usize, usize)) -> Vec<f32> {
         .collect()
 }
 
-/// The recipe in the recipe file `path`, as the JSON document `Layer::look` takes, read now.
+/// The recipe in the recipe file `file`, as the JSON document `Layer::look` takes, read now. On disk, as image reads a recipe
+/// file (TOML; a file it names is found beside it); a given file is JSON if its name ends in `.json`, else TOML, named by its
+/// file name when it names itself not (a path it names is not resolved: there is no folder).
 ///
 /// # Errors
-/// [`Error::Read`] if the file cannot be read, [`Error::Invalid`] naming `look` if it holds no recipe.
-pub(crate) fn recipe_file(path: &Path) -> Result<Value, Error> {
-    std::fs::metadata(path).map_err(|error| Error::Read {
-        path: path.display().to_string(),
-        message: error.to_string(),
-    })?;
-    let recipe = Recipe::from_file(path).map_err(|error| refused(&error))?;
+/// [`Error::Read`] if the file cannot be read or is not UTF-8, [`Error::Invalid`] naming `look` if it holds no recipe.
+pub(crate) fn recipe_file(file: &Located) -> Result<Value, Error> {
+    let bytes = file.bytes()?;
+    let recipe = if file.given_digest().is_none() {
+        Recipe::from_file(&file.resolved())
+    } else {
+        let text = std::str::from_utf8(&bytes).map_err(|error| Error::Read {
+            path: file.resolved().display().to_string(),
+            message: format!("a recipe file is UTF-8 text: {error}"),
+        })?;
+        let path = file.written();
+        let json = path
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("json"));
+        let read = if json {
+            Recipe::from_json(text)
+        } else {
+            Recipe::from_toml(text)
+        };
+        read.map(|mut recipe| {
+            if recipe.name.is_none() {
+                recipe.name = path.file_stem().map(|stem| stem.to_string_lossy().into_owned());
+            }
+            recipe
+        })
+    };
+    let recipe = recipe.map_err(|error| refused(&error))?;
     serde_json::to_value(&recipe).map_err(|error| Error::invalid("look", error.to_string()))
 }
 
@@ -651,9 +674,9 @@ pub(crate) fn write(raster: &Raster, path: &Path, dpi: Option<f64>) -> Result<()
 
 /// The picture in `file`: upright, in sRGB values, with its alpha if it has one.
 fn read(file: &Located) -> Result<Raster, Error> {
-    file.verified()?;
+    let bytes = file.bytes()?;
     let path = file.resolved();
-    let image = bullterrier_image::read(&path).map_err(|error| Error::Read {
+    let image = bullterrier_image::read_bytes(&bytes).map_err(|error| Error::Read {
         path: path.display().to_string(),
         message: error.to_string(),
     })?;

@@ -13,7 +13,7 @@ use serde_json::{Map, Number, Value, json};
 use crate::blend::Blend;
 use crate::budget::{MAX_DEPTH, MAX_LAYERS};
 use crate::error::label;
-use crate::files::{Fingerprint, Located, hex_of};
+use crate::files::{Files, Fingerprint, Located, hex_of};
 use crate::finish::Px;
 use crate::layer::Base;
 use crate::mask::{Mask, MaskBy, Use};
@@ -90,7 +90,7 @@ impl Form {
                 })?;
                 Ok(json!({"path": path, "sha256": file.digest()?}))
             }
-            Self::Compare => Ok(json!({"path": file.resolved().to_string_lossy()})),
+            Self::Compare => Ok(json!({"path": file.resolved().to_string_lossy(), "sha256": file.given_digest()})),
         }
     }
 
@@ -329,17 +329,18 @@ impl Scene {
     /// too deep), a look or a drawing its crate does not read, a version skew included. [`Error::Read`] for a font, a look
     /// file or a drawing file that cannot be read.
     pub fn from_json(text: &str, base: &Path) -> Result<Self, Error> {
-        Self::from_json_with(text, base, &LayerKinds::new())
+        Self::from_json_with(text, &Files::folder(base), &LayerKinds::new())
     }
 
-    /// As [`Scene::from_json`], reading a layer of a registered kind (`{"make": {"kind": ..., "options": ...}}`) through
-    /// `kinds`.
+    /// As [`Scene::from_json`], reading each file the document names from `files` (a folder, or bytes given by the path as
+    /// written) and a layer of a registered kind (`{"make": {"kind": ..., "options": ...}}`) through `kinds`.
     ///
     /// # Errors
-    /// As [`Scene::from_json`]; and [`Error::Format`] at `/layers/N/make/kind` for a kind `kinds` does not hold (the
+    /// As [`Scene::from_json`]; [`Error::Read`] naming the path as written for a file `files` neither gives nor has a folder
+    /// for (a picture and a map too); and [`Error::Format`] at `/layers/N/make/kind` for a kind `kinds` does not hold (the
     /// message lists the kinds it holds), and at `/layers/N/make/options` for options the kind refuses.
-    pub fn from_json_with(text: &str, base: &Path, kinds: &LayerKinds) -> Result<Self, Error> {
-        read_scene(&parse(text)?, "", base, kinds, 0)
+    pub fn from_json_with(text: &str, files: &Files, kinds: &LayerKinds) -> Result<Self, Error> {
+        read_scene(&parse(text)?, "", files, kinds, 0)
     }
 }
 
@@ -564,8 +565,8 @@ fn refused(at: &str, within: Option<&Map<String, Value>>, error: Error) -> Error
     }
 }
 
-/// The folder `base` and `written` as a file of the scene: `{"path": ..., "sha256": ...}` (the digest is optional on reading).
-fn read_file(value: &Value, at: &str, base: &Path) -> Result<Located, Error> {
+/// A file of the scene, found in `files`: `{"path": ..., "sha256": ...}` (the digest is optional on reading).
+fn read_file(value: &Value, at: &str, files: &Files) -> Result<Located, Error> {
     let wanted = "a file is {\"path\": ..., \"sha256\": ...}";
     let map = object(value, at, wanted)?;
     known_keys(map, at, "a file", &["path", "sha256"])?;
@@ -580,7 +581,7 @@ fn read_file(value: &Value, at: &str, base: &Path) -> Result<Located, Error> {
         .get("sha256")
         .map(|digest| text(digest, &escaped(at, "sha256"), "a digest (text)").map(str::to_owned))
         .transpose()?;
-    Ok(Located::saved(path, base, digest))
+    files.locate(path, digest)
 }
 
 /// The refusal of a scene or a mask layer nested more than `MAX_DEPTH` deep in the document. Every level of nesting the
@@ -599,7 +600,7 @@ fn too_deep(at: &str, depth: usize) -> Result<(), Error> {
 }
 
 /// `depth` is how many scenes and mask layers the value is inside.
-fn read_scene(value: &Value, at: &str, base: &Path, kinds: &LayerKinds, depth: usize) -> Result<Scene, Error> {
+fn read_scene(value: &Value, at: &str, files: &Files, kinds: &LayerKinds, depth: usize) -> Result<Scene, Error> {
     too_deep(at, depth)?;
     let map = object(value, at, "a scene is an object")?;
     known_keys(map, at, "a scene", &["version", "canvas", "layers"])?;
@@ -648,7 +649,7 @@ fn read_scene(value: &Value, at: &str, base: &Path, kinds: &LayerKinds, depth: u
     let layers = items
         .iter()
         .enumerate()
-        .map(|(index, item)| read_layer(item, &escaped(&layers_at, &index.to_string()), base, kinds, depth))
+        .map(|(index, item)| read_layer(item, &escaped(&layers_at, &index.to_string()), files, kinds, depth))
         .collect::<Result<Vec<_>, _>>()?;
     scene
         .add(layers)
@@ -686,7 +687,7 @@ fn refused_by_the_scene(layers_at: &str, items: &[Value], error: Error) -> Error
     }
 }
 
-fn read_layer(value: &Value, at: &str, base: &Path, kinds: &LayerKinds, depth: usize) -> Result<Layer, Error> {
+fn read_layer(value: &Value, at: &str, files: &Files, kinds: &LayerKinds, depth: usize) -> Result<Layer, Error> {
     too_deep(at, depth)?;
     let map = object(value, at, "a layer is an object")?;
     known_keys(map, at, "a layer", &LAYER_KEYS)?;
@@ -716,7 +717,7 @@ fn read_layer(value: &Value, at: &str, base: &Path, kinds: &LayerKinds, depth: u
         });
     }
     let member = |key: &str| escaped(at, key);
-    let mut layer = read_source(map, source, at, base, kinds, depth)?;
+    let mut layer = read_source(map, source, at, files, kinds, depth)?;
     if let Some(fit) = map.get("fit") {
         layer = read_fit(layer, fit, &member("fit"))?;
     }
@@ -740,14 +741,14 @@ fn read_layer(value: &Value, at: &str, base: &Path, kinds: &LayerKinds, depth: u
         let at = member("masks");
         let items = masks.as_array().ok_or_else(|| wrong(&at, "a list of masks", masks))?;
         for (index, item) in items.iter().enumerate() {
-            layer = read_mask(layer, item, &escaped(&at, &index.to_string()), base, kinds, depth)?;
+            layer = read_mask(layer, item, &escaped(&at, &index.to_string()), files, kinds, depth)?;
         }
     }
     if let Some(looks) = map.get("looks") {
         let at = member("looks");
         let items = looks.as_array().ok_or_else(|| wrong(&at, "a list of looks", looks))?;
         for (index, item) in items.iter().enumerate() {
-            layer = read_look(layer, item, &escaped(&at, &index.to_string()), base)?;
+            layer = read_look(layer, item, &escaped(&at, &index.to_string()), files)?;
         }
     }
     if let Some(opacity) = map.get("opacity") {
@@ -792,7 +793,7 @@ fn read_source(
     map: &Map<String, Value>,
     source: &str,
     at: &str,
-    base: &Path,
+    files: &Files,
     kinds: &LayerKinds,
     depth: usize,
 ) -> Result<Layer, Error> {
@@ -803,7 +804,7 @@ fn read_source(
             let mut layer = if value.is_null() {
                 Layer::picture_hole()
             } else {
-                Layer::picture_saved(read_file(value, &at_source, base)?)
+                Layer::picture_saved(read_file(value, &at_source, files)?)
             };
             if let Some(maps) = map.get("maps") {
                 let maps_at = escaped(at, "maps");
@@ -812,7 +813,7 @@ fn read_source(
                     layer = if given.is_null() {
                         layer.map_hole(name)
                     } else {
-                        layer.map_saved(name, read_file(given, &file_at, base)?)
+                        layer.map_saved(name, read_file(given, &file_at, files)?)
                     }
                     .map_err(|error| refused(&file_at, None, error))?;
                 }
@@ -821,10 +822,13 @@ fn read_source(
         }
         "drawing" => {
             let document = match value {
-                Value::String(path) => std::fs::read_to_string(base.join(path)).map_err(|error| Error::Read {
-                    path: base.join(path).display().to_string(),
-                    message: error.to_string(),
-                })?,
+                Value::String(path) => {
+                    let file = files.locate(path, None)?;
+                    String::from_utf8(file.bytes()?.to_vec()).map_err(|error| Error::Read {
+                        path: file.resolved().display().to_string(),
+                        message: format!("a drawing file is UTF-8 text: {error}"),
+                    })?
+                }
                 Value::Object(_) => value.to_string(),
                 other => {
                     return Err(wrong(
@@ -836,11 +840,11 @@ fn read_source(
             };
             Layer::drawing(&document).map_err(|error| refused(at, Some(map), error))?
         }
-        "text" => read_text(map, at, base)?,
+        "text" => read_text(map, at, files)?,
         "fill" => {
             Layer::fill(text(value, &at_source, "a colour (text)")?).map_err(|error| refused(at, Some(map), error))?
         }
-        "scene" => Layer::scene(read_scene(value, &at_source, base, kinds, depth + 1)?),
+        "scene" => Layer::scene(read_scene(value, &at_source, files, kinds, depth + 1)?),
         "make" => read_make(value, &at_source, kinds)?,
         _ => Layer::of(text(value, &at_source, "the name of a layer (text)")?),
     };
@@ -864,12 +868,12 @@ fn read_make(value: &Value, at: &str, kinds: &LayerKinds) -> Result<Layer, Error
         .map_err(|error| refused(at, Some(map), error))
 }
 
-fn read_text(map: &Map<String, Value>, at: &str, base: &Path) -> Result<Layer, Error> {
+fn read_text(map: &Map<String, Value>, at: &str, files: &Files) -> Result<Layer, Error> {
     let content = text(&map["text"], &escaped(at, "text"), "the words (text)")?;
     let font_at = escaped(at, "font");
     let mut type_set = match map.get("font") {
         Some(Value::String(name)) => Text::new(name),
-        Some(file) => Text::from_saved(read_file(file, &font_at, base)?),
+        Some(file) => Text::from_saved(read_file(file, &font_at, files)?),
         None => {
             return Err(Error::Format {
                 pointer: at.to_owned(),
@@ -970,14 +974,14 @@ fn read_mask(
     layer: Layer,
     value: &Value,
     at: &str,
-    base: &Path,
+    files: &Files,
     kinds: &LayerKinds,
     depth: usize,
 ) -> Result<Layer, Error> {
     let map = object(value, at, "a mask is {\"layer\": ...} or {\"map\": \"name\"}")?;
     known_keys(map, at, "a mask", &["layer", "map", "use", "feather", "invert"])?;
     let by: MaskBy = match (map.get("layer"), map.get("map")) {
-        (Some(inner), None) => read_layer(inner, &escaped(at, "layer"), base, kinds, depth + 1)?.into(),
+        (Some(inner), None) => read_layer(inner, &escaped(at, "layer"), files, kinds, depth + 1)?.into(),
         (None, Some(name)) => MaskBy::from(text(name, &escaped(at, "map"), "the name of a map (text)")?),
         _ => {
             return Err(Error::Format {
@@ -1005,9 +1009,9 @@ fn read_mask(
     layer.mask(mask).map_err(|error| refused(at, Some(map), error))
 }
 
-fn read_look(layer: Layer, value: &Value, at: &str, base: &Path) -> Result<Layer, Error> {
+fn read_look(layer: Layer, value: &Value, at: &str, files: &Files) -> Result<Layer, Error> {
     if let Value::String(path) = value {
-        return layer.look_file(base.join(path));
+        return layer.look_saved(&files.locate(path, None)?);
     }
     let map = object(
         value,

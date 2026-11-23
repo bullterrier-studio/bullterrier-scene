@@ -15,6 +15,7 @@ mod cache;
 mod compose;
 mod data_boundary;
 mod drawing;
+mod files;
 #[cfg(feature = "gpu")]
 mod gpu;
 mod groups;

@@ -101,12 +101,12 @@ impl Drawing {
                     },
                     other => other,
                 })?;
-                let font = Font::new(bytes.clone())
+                let font = Font::new(bytes.to_vec())
                     .and_then(|font| font.named("font"))
                     .map_err(|error| Error::invalid("font", format!("{}: {error}", file.resolved().display())))?;
                 (
                     font,
-                    Inputs::new().set("font", bytes.clone()),
+                    Inputs::new().set("font", bytes.to_vec()),
                     Some(digest_bytes(&bytes)),
                 )
             }

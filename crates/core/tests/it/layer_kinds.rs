@@ -4,7 +4,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use bullterrier_scene::{Error, Layer, LayerKind, LayerKindFactory, LayerKinds, Raster, Scene};
+use bullterrier_scene::{Error, Files, Layer, LayerKind, LayerKindFactory, LayerKinds, Raster, Scene};
 use serde_json::{Value, json};
 
 use crate::common::counting::{Counting, CountingFactory};
@@ -234,7 +234,7 @@ fn a_scene_with_layers_made_by_name_is_written_and_read_back_equal_and_draws_the
         json!({"make": {"kind": "stripes", "options": {"period": 3.5}}, "opacity": 0.75})
     );
     let (again, _) = registry()?;
-    let back = Scene::from_json_with(&text, Path::new(""), &again)?;
+    let back = Scene::from_json_with(&text, &Files::folder(""), &again)?;
     assert_eq!(back, one);
     assert_eq!(back.to_json()?, text);
     for size in [40, 81] {
@@ -249,7 +249,8 @@ fn a_document_naming_a_kind_the_registry_lacks_is_a_format_error_at_the_kind() -
     let text = plugged(&kinds)?.to_json()?;
     let swapped = text.replace("\"stripes\"", "\"stripez\"");
     for table in [LayerKinds::new(), kinds.clone()] {
-        let Err(Error::Format { pointer, message }) = Scene::from_json_with(&swapped, Path::new(""), &table) else {
+        let Err(Error::Format { pointer, message }) = Scene::from_json_with(&swapped, &Files::folder(""), &table)
+        else {
             return Err("an unknown kind was read".into());
         };
         assert_eq!(pointer, "/layers/1/make/kind");
@@ -290,7 +291,7 @@ fn a_document_with_options_the_factory_refuses_or_a_made_layer_of_the_wrong_shap
         ),
     ];
     for (document, pointer) in cases {
-        let refused = Scene::from_json_with(&document, Path::new(""), &kinds);
+        let refused = Scene::from_json_with(&document, &Files::folder(""), &kinds);
         assert!(
             matches!(&refused, Err(Error::Format { pointer: at, .. }) if at == pointer),
             "{pointer}: {refused:?}"
@@ -299,7 +300,7 @@ fn a_document_with_options_the_factory_refuses_or_a_made_layer_of_the_wrong_shap
     // a megabyte of options is read once and refused by the factory in a line
     let huge = text.replace("\"period\":3.5", &format!("\"period\":\"{}\"", "9".repeat(1 << 20)));
     assert!(matches!(
-        Scene::from_json_with(&huge, Path::new(""), &kinds),
+        Scene::from_json_with(&huge, &Files::folder(""), &kinds),
         Err(Error::Format { pointer, .. }) if pointer == "/layers/1/make/options"
     ));
     Ok(())

@@ -357,7 +357,12 @@ impl Layer {
     /// # Errors
     /// As [`Layer::look_file`].
     pub fn look_file_in(self, px: Px, path: impl AsRef<Path>) -> Result<Self, Error> {
-        self.looked(&recipe_file(path.as_ref())?, px)
+        self.looked(&recipe_file(&Located::new(path.as_ref()))?, px)
+    }
+
+    /// This layer with the look of the recipe file `file` of a saved scene, in design pixels, read now.
+    pub(crate) fn look_saved(self, file: &Located) -> Result<Self, Error> {
+        self.looked(&recipe_file(file)?, Px::Design)
     }
 
     /// This layer with the look `recipe`: run on what its source drew, or, for a reference, kept to be run on that of the layer

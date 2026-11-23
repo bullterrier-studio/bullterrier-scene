@@ -8,3 +8,4 @@ All notable changes to this project are documented here, in the [Keep a Changelo
 ### Added
 
 - **A GPU compositor** (feature `gpu`): `Gpu`, `Gpu::render`, `Gpu::download`; Python `Gpu`, `render(size, gpu=)`; `bt-scene render --gpu`; `GpuError`. Supported on macOS and the browser; on other platforms experimental, refused unless `BT_GPU_EXPERIMENTAL=1`.
+- **A saved scene's files from bytes** (Rust): `Files` (`folder`, `given`, `with`); `Scene::from_json_with(text, &Files, &LayerKinds)` replaces its `base` argument (breaking).
