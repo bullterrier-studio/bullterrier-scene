@@ -266,7 +266,8 @@ impl Look {
         Ok(document)
     }
 
-    /// Writes into `key` the look's document: the recipe as image writes it, the same text for the same look. **Limit:** a file a
+    /// Writes into `key` the look's document: the recipe as image writes it, the same text for the same look (a whole number
+    /// written `2.0` or `2` is one number: a page's `JSON.stringify` writes `2`). **Limit:** a file a
     /// recipe names (a table or a picture given as a path) is in the document by its path, not by its content.
     ///
     /// # Errors
@@ -275,7 +276,7 @@ impl Look {
         let fingerprint = if let Some(found) = self.fingerprint.get() {
             *found
         } else {
-            let text = self.document()?.to_string();
+            let text = whole_numbers_one_way(self.document()?).to_string();
             *self.fingerprint.get_or_init(|| digest_bytes(text.as_bytes()))
         };
         key.digest(&fingerprint);
@@ -887,6 +888,31 @@ impl Source for Picture {
 
 // Inline, because no public route reaches this: image gives no NaN on demand, and the overshoot it does give is tested through a
 // look.
+/// `value` with each whole number written one way, as an integer: `2.0` as `2`, as JavaScript writes it, so that a look read
+/// back from a document a page edited has the key it had. Past 2^53 a float is left as it is (an integer there may not be one).
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "a whole float of at most 2^53 is the same i64"
+)]
+fn whole_numbers_one_way(value: Value) -> Value {
+    match value {
+        Value::Number(number) => match number.as_f64() {
+            Some(float) if number.is_f64() && float.fract() == 0.0 && float.abs() <= 9_007_199_254_740_992.0 => {
+                json!(float as i64)
+            }
+            _ => Value::Number(number),
+        },
+        Value::Array(items) => Value::Array(items.into_iter().map(whole_numbers_one_way).collect()),
+        Value::Object(members) => Value::Object(
+            members
+                .into_iter()
+                .map(|(name, member)| (name, whole_numbers_one_way(member)))
+                .collect(),
+        ),
+        other => other,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::into_range;

@@ -192,6 +192,24 @@ fn a_new_stack_shares_the_cache_so_a_layer_that_did_not_change_is_not_drawn_agai
 }
 
 #[test]
+fn a_look_read_again_with_a_whole_number_written_another_way_is_found_in_the_cache() -> Outcome {
+    // JavaScript writes 2.0 as 2: a layer read back from an edited document is the same look, and is not drawn again
+    let kind = Counting::new(0.2);
+    let looked = |exposure: &str| -> Result<Layer, Error> {
+        Layer::make(kind.clone())
+            .look(&format!(
+                r#"{{"steps": [{{"effect": "grade", "params": {{"exposure": {exposure}}}}}]}}"#
+            ))?
+            .named("photo")
+    };
+    let first = scene(100, 50, [looked("2.0")?])?;
+    first.render(100)?;
+    first.with_layers([looked("2")?])?.render(100)?;
+    assert_eq!(kind.draws(), 1);
+    Ok(())
+}
+
+#[test]
 fn a_new_stack_is_checked_as_add_checks_it() -> Outcome {
     let source = scene(
         10,
