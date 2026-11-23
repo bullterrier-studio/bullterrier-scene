@@ -3,6 +3,7 @@ parity is the core's own test). `BT_GPU=none` says the machine has no GPU: the t
 without it a missing GPU fails them."""
 
 import os
+import platform
 import sys
 
 import numpy as np
@@ -16,13 +17,15 @@ needs_gpu = pytest.mark.skipif(NO_GPU, reason="BT_GPU=none: this machine has no 
 
 
 @pytest.mark.skipif(
-    sys.platform == "darwin" or os.environ.get("BT_GPU") == "llvmpipe",
-    reason="the GPU backend runs on macOS, and on CI's one test bed (BT_GPU=llvmpipe)",
+    sys.platform == "darwin" or os.environ.get("BT_GPU_EXPERIMENTAL") == "1",
+    reason="the GPU backend runs on macOS, and elsewhere only with BT_GPU_EXPERIMENTAL=1",
 )
 def test_a_gpu_is_refused_by_name_on_a_platform_the_backend_does_not_support():
     # not behind BT_GPU=none: the refusal needs no GPU, only the wheel built with the compositor
-    with pytest.raises(GpuError, match="macOS and the browser"):
+    with pytest.raises(GpuError, match="macOS and the browser") as refused:
         Gpu()
+    assert platform.system().lower() in str(refused.value)
+    assert "BT_GPU_EXPERIMENTAL=1" in str(refused.value)
 
 
 def poster() -> Scene:

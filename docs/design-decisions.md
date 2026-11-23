@@ -1001,6 +1001,7 @@ bands and the cache are CPU promises; a GPU render is held to a bound). Why this
   once on Metal; a mutant of the blend, the feather and the warp each fails the suite (`tests/it/gpu/`).
 * **Cost:** two implementations of each piece (Rust and WGSL), the parity tests, and a feature (`gpu`, off by default for pure
   Rust callers; on in the wheel and the command line). A wheel on a machine with no GPU is a CPU wheel (`BT_GPU=none` in CPU CI).
+* **Platforms:** supported on macOS and the browser; elsewhere experimental, refused unless `BT_GPU_EXPERIMENTAL=1` (image's switch, inherited by building on its context).
 
 **Measured** (release, Apple M4, 13-layer poster of pictures, one shrunk past 2x, a turn, a perspective, a looked picture, a masked
 one, light, a group and blends; medians of 7; `poe bench-gpu`): see `api.md`, "Limits, measured".

@@ -7,4 +7,4 @@ All notable changes to this project are documented here, in the [Keep a Changelo
 
 ### Added
 
-- **A GPU compositor** (feature `gpu`): `Gpu`, `Gpu::render`, `Gpu::download`; Python `Gpu`, `render(size, gpu=)`; `bt-scene render --gpu`; `GpuError`.
+- **A GPU compositor** (feature `gpu`): `Gpu`, `Gpu::render`, `Gpu::download`; Python `Gpu`, `render(size, gpu=)`; `bt-scene render --gpu`; `GpuError`. Supported on macOS and the browser; on other platforms experimental, refused unless `BT_GPU_EXPERIMENTAL=1`.
