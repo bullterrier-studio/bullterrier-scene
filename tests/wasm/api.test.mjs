@@ -170,6 +170,14 @@ test("a scene written by toJson and read back with the same files renders the sa
   assert.match(JSON.parse(saved).layers[1].picture.sha256, /^[0-9a-f]{64}$/);
 });
 
+test("a render is straight alpha, each level rounded to 8 bits as a file keeps it", () => {
+  const half = JSON.stringify({ version: 1, canvas: { width: 4, height: 2 }, layers: [{ fill: "#ff0000", opacity: 0.5 }] });
+  const { data } = Scene.fromJson(half).render();
+  // by hand: red stays 1 (straight, not 0.5 premultiplied); alpha 0.5 * 255 + 0.5 = 128 cut
+  assert.deepEqual([...data.subarray(0, 4)], [255, 0, 0, 128]);
+  assert.deepEqual([...data.subarray(data.length - 4)], [255, 0, 0, 128]);
+});
+
 test("a render is a plain object whose data is a JavaScript array to keep", () => {
   const out = Scene.fromJson(poster).render({ size: 12 });
   assert.equal(Object.getPrototypeOf(out), Object.prototype);
