@@ -607,8 +607,8 @@ fn resized(map: &Map, window: Rect, size: (usize, usize)) -> Vec<f32> {
 }
 
 /// The recipe in the recipe file `file`, as the JSON document `Layer::look` takes, read now. On disk, as image reads a recipe
-/// file (TOML; a file it names is found beside it); a given file is JSON if its name ends in `.json`, else TOML, named by its
-/// file name when it names itself not (a path it names is not resolved: there is no folder).
+/// file (TOML whatever the name; a file it names is found beside it); a given file by the same rule, named by its file name
+/// when it names itself not (a path it names is not resolved: there is no folder).
 ///
 /// # Errors
 /// [`Error::Read`] if the file cannot be read or is not UTF-8, [`Error::Invalid`] naming `look` if it holds no recipe.
@@ -621,18 +621,12 @@ pub(crate) fn recipe_file(file: &Located) -> Result<Value, Error> {
             path: file.resolved().display().to_string(),
             message: format!("a recipe file is UTF-8 text: {error}"),
         })?;
-        let path = file.written();
-        let json = path
-            .extension()
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("json"));
-        let read = if json {
-            Recipe::from_json(text)
-        } else {
-            Recipe::from_toml(text)
-        };
-        read.map(|mut recipe| {
+        Recipe::from_toml(text).map(|mut recipe| {
             if recipe.name.is_none() {
-                recipe.name = path.file_stem().map(|stem| stem.to_string_lossy().into_owned());
+                recipe.name = file
+                    .written()
+                    .file_stem()
+                    .map(|stem| stem.to_string_lossy().into_owned());
             }
             recipe
         })

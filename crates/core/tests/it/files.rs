@@ -145,26 +145,33 @@ fn given_bytes_that_are_not_the_saved_digest_are_a_read_error_at_render_naming_b
     Ok(())
 }
 
-/// A given look file is TOML, or JSON when its name ends in `.json`: the same recipe in either draws the same look.
+/// A look file is read by image's one rule, given or in a folder: TOML whatever its name, named after the file when the
+/// recipe names itself not; JSON text is refused both ways.
 #[test]
-fn a_given_look_file_is_read_as_json_or_toml_by_its_name() -> Outcome {
+fn a_given_look_file_is_read_as_the_same_file_in_a_folder_is() -> Outcome {
+    let folder = tempfile::tempdir()?;
+    let json = r#"{"steps":[{"effect":"grade","params":{"exposure":1.0}}]}"#;
+    std::fs::write(folder.path().join("night.toml"), NIGHT_TOML)?;
+    std::fs::write(folder.path().join("night.json"), json)?;
+    let files = Files::given()
+        .with("night.toml", NIGHT_TOML.as_bytes())
+        .with("night.json", json.as_bytes());
     let with_look = |look: &str| {
         format!(
             r##"{{"version":1,"canvas":{{"width":8,"height":8}},"layers":[{{"fill":"#406080","looks":["{look}"]}}]}}"##
         )
     };
-    let files = Files::given().with("night.toml", NIGHT_TOML.as_bytes()).with(
-        "night.json",
-        r#"{"steps":[{"effect":"grade","params":{"exposure":1.0}}]}"#.as_bytes(),
+    let by_folder = Scene::from_json(&with_look("night.toml"), folder.path())?;
+    let by_bytes = from_given(&with_look("night.toml"), &files)?;
+    let saved = by_bytes.to_json()?;
+    assert_eq!(saved, by_folder.to_json()?);
+    let document: serde_json::Value = serde_json::from_str(&saved)?;
+    assert_eq!(document["layers"][0]["looks"][0]["recipe"]["name"], "night");
+    let refused = |read: Result<Scene, Error>| matches!(read, Err(Error::Invalid { address, .. }) if address == "look");
+    assert!(refused(Scene::from_json(&with_look("night.json"), folder.path())));
+    assert!(
+        refused(from_given(&with_look("night.json"), &files)),
+        "JSON text in a look file is refused from a folder"
     );
-    let by_toml = from_given(&with_look("night.toml"), &files)?.render(8)?;
-    let by_json = from_given(&with_look("night.json"), &files)?.render(8)?;
-    assert!(same_look(&by_json, &by_toml));
-    let plain = Scene::from_json(
-        r##"{"version":1,"canvas":{"width":8,"height":8},"layers":[{"fill":"#406080"}]}"##,
-        Path::new(""),
-    )?
-    .render(8)?;
-    assert!(!same_look(&by_toml, &plain), "the look did nothing");
     Ok(())
 }

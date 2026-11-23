@@ -722,7 +722,7 @@ joined). A font file is read at load (the box of a text needs the font), digest 
 **A path where a look or a drawing belongs** (`"looks": ["looks/night.toml"]`, `"drawing": "logo.json"`) is read when the scene
 is loaded and written inline by the next `to_json()`.
 **Files given as bytes (Rust).** `Scene::from_json_with(text, &Files::given().with("photo.png", bytes), &kinds)` reads every file
-the document names (picture, map, font, look, drawing) from the bytes given by the path exactly as written (`Files::folder(base)` reads the disk; `from_json` is that); one not given is `Error::Read` naming the path at load, a digest that is not the bytes' `Error::Read` at render. A given look file is JSON if its name ends in `.json`, else TOML.
+the document names (picture, map, font, look, drawing) from the bytes given by the path exactly as written (`Files::folder(base)` reads the disk; `from_json` is that); one not given is `Error::Read` naming the path at load, a digest that is not the bytes' `Error::Read` at render.
 
 **Errors.** `FormatError` (also a `ValueError`) starts with the JSON Pointer of the value that is wrong and says what is
 wrong: text that is not JSON (the pointer is empty), an object that writes a key twice (the pointer of the second), a `version`
