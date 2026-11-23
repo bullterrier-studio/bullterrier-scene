@@ -760,7 +760,7 @@ is bounded (`MAX_DEPTH`, `MAX_LAYERS`); the walks over references are iterative,
   keyword-only. `place` has no required argument, so all of it is keyword-only.
 - **Colours** are `"#rrggbb"` or `"#rrggbbaa"` everywhere, one spelling in all three libraries (vector refuses `"#rgb"`).
 - **Paths.** A `pathlib.Path` is a file, a `str` is text or a name.
-- **Looks the same.** No route to a picture promises equal bytes (thread count, bands against whole, cache against cold, GPU against CPU, one platform against another). Two routes give pictures that look the same: rounded to 8 bits, at most 1/255 apart on 99.9% of samples and at most 2/255 on all. The tests state it once (`tests/it/common/`, `tests/same_look.py`). Kept as they are: an effect does what its parameters say, the same seed gives the same look, and a golden is compared to its stored file.
+- **Looks the same.** No route to a picture promises equal bytes (thread count, bands against whole, cache against cold, GPU against CPU, one platform against another). Two routes give pictures that look the same: rounded to 8 bits, at most 1/255 apart on 99.9% of samples and at most 2/255 on all. The tests state it once (`crates/core/tests/it/common/looks.rs`, and `same_look` in `tests/conftest.py`). Kept as they are: an effect does what its parameters say, the same seed gives the same look, and a golden is compared to its stored file.
 - **Alpha and colour.** Straight alpha at every boundary, premultiplied inside; blends in sRGB values.
 - **A look and a drawing keep their own words.** Blend modes of a layer are CSS names (`soft-light`); inside a look image's
   stay (`soft_light`).
