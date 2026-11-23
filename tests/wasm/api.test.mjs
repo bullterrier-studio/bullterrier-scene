@@ -207,3 +207,73 @@ test("a render is a plain object whose data is a JavaScript array to keep", () =
   assert.deepEqual(Object.keys(out).sort(), ["data", "height", "width"]);
   assert.ok(out.data instanceof Uint8ClampedArray);
 });
+
+// 100 by 100: paper, a red card (10..50), a group moved 50 right holding `a` (0..10 by 80..90)
+const editable = JSON.stringify({
+  version: 1,
+  canvas: { width: 100, height: 100 },
+  layers: [
+    { name: "paper", fill: "#ffffff" },
+    { name: "card", fill: "#ff0000", fit: { box: [10, 10, 40, 40], how: "stretch" } },
+    {
+      name: "g",
+      scene: { version: 1, canvas: { width: 100, height: 100 }, layers: [{ name: "a", fill: "#ff00ff", fit: { box: [0, 80, 10, 10], how: "stretch" } }] },
+      place: { dx: 50 },
+    },
+  ],
+});
+
+test("layerAt is the address of the topmost layer that shows at a pixel of the render at size, or null", () => {
+  const scene = Scene.fromJson(editable);
+  assert.equal(scene.layerAt(20, 20, { size: 100 }), "card");
+  assert.equal(scene.layerAt(5, 5, { size: 100 }), "paper");
+  assert.equal(scene.layerAt(52, 82, { size: 100 }), "g.scene.a");
+  assert.equal(scene.layerAt(10, 10, { size: 50 }), "card", "the pixel of the picture at size 50");
+  assert.equal(scene.layerAt(20, 20), "card", "size defaults to the canvas's long side");
+  assert.equal(Scene.fromJson(JSON.stringify({ version: 1, canvas: { width: 4, height: 4 }, layers: [] })).layerAt(1, 1), null);
+});
+
+test("layerAt refuses a pixel outside the picture by an InvalidError, and a point that is no whole number by a TypeError", () => {
+  const scene = Scene.fromJson(editable);
+  const outside = failure(() => scene.layerAt(100, 0, { size: 100 }));
+  assert.equal(outside.name, "InvalidError");
+  assert.equal(outside.address, "x");
+  for (const [x, y, named] of [[1.5, 0, /x/], [0, "3", /y/], [0, null, /y/]]) {
+    const error = failure(() => scene.layerAt(x, y));
+    assert.equal(error.name, "TypeError", String([x, y]));
+    assert.match(error.message, named);
+  }
+});
+
+test("withLayers takes the layers as the document writes them: a reorder keeps the addresses, a removal drops its own", () => {
+  const scene = Scene.fromJson(editable).withValues({ "card.dx": 3 });
+  const layers = JSON.parse(scene.toJson()).layers;
+  const addresses = (s) => s.parameters().map((parameter) => parameter.address).sort();
+  const reordered = scene.withLayers([layers[1], layers[0], layers[2]]);
+  assert.deepEqual(addresses(reordered), addresses(scene));
+  assert.equal(reordered.parameters().find((parameter) => parameter.address === "card.dx").value, 3);
+  assert.equal(reordered.layerAt(20, 20, { size: 100 }), "paper", "the paper is over the card now");
+  const without = scene.withLayers(layers.filter((layer) => layer.name !== "card"));
+  assert.ok(addresses(without).every((address) => !address.startsWith("card.")));
+  assert.equal(without.layerAt(20, 20, { size: 100 }), "paper");
+  // the same picture as a scene read afresh from the edited document
+  const afresh = Scene.fromJson(JSON.stringify({ ...JSON.parse(editable), layers: [layers[1], layers[0], layers[2]] }));
+  assert.equal(differenceInLooks(reordered.render().data, afresh.render().data), null);
+  assert.equal(scene.parameters().length, Scene.fromJson(editable).parameters().length, "the scene itself is left as it is");
+});
+
+test("withLayers reads files as fromJson does, and names a bad layer by its JSON Pointer", () => {
+  const files = maskedFiles();
+  const scene = Scene.fromJson(masked, { files });
+  const layers = JSON.parse(scene.toJson()).layers;
+  assert.equal(failure(() => scene.withLayers(layers)).name, "ReadError", "the files the layers name are handed in again");
+  assert.equal(differenceInLooks(scene.withLayers(layers, { files }).render({ size: 200 }).data, scene.render({ size: 200 }).data), null);
+  const bad = failure(() => scene.withLayers([{ fill: "#ffffff", opacity: "x" }], { files }));
+  assert.equal(bad.name, "FormatError");
+  assert.equal(bad.pointer, "/layers/0/opacity");
+  for (const layersGiven of [{}, "[]", null]) {
+    const error = failure(() => scene.withLayers(layersGiven));
+    assert.equal(error.name, "TypeError");
+    assert.match(error.message, /layers/);
+  }
+});

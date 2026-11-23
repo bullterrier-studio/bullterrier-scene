@@ -67,6 +67,18 @@ extern "C" {
     #[wasm_bindgen(typescript_type = "RenderOptions")]
     pub type RenderOptions;
 
+    /// The layers of a scene, as the document writes them.
+    #[wasm_bindgen(typescript_type = "object[]")]
+    pub type Layers;
+
+    /// What new layers are read with: the files they name.
+    #[wasm_bindgen(typescript_type = "Pick<SceneOptions, \"files\">")]
+    pub type LayersOptions;
+
+    /// A pixel's column or row.
+    #[wasm_bindgen(typescript_type = "number")]
+    pub type Whole;
+
     /// The values to set, by address.
     #[wasm_bindgen(typescript_type = "Record<string, number | boolean | string | number[]>")]
     pub type Values;
@@ -127,6 +139,46 @@ fn entries(object: &Object) -> impl Iterator<Item = (String, JsValue)> {
 /// A member of `object`, `undefined` when it has none.
 fn member(object: &Object, key: &str) -> Result<JsValue, JsValue> {
     Reflect::get(object, &key.into())
+}
+
+/// `given` as a whole number (`what` names it), or a `TypeError`.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "a whole number: cut to i128 it is the same number, or one past any size or pixel the core takes, which it refuses"
+)]
+fn whole(what: &str, expected: &str, given: &JsValue) -> Result<i128, JsValue> {
+    given
+        .as_f64()
+        .filter(|number| number.is_finite() && number.fract() == 0.0)
+        .map(|number| number as i128)
+        .ok_or_else(|| refuse(what, expected, given))
+}
+
+/// The files `options.files` gives: the bytes of each by the path as the document writes it.
+fn files_of(options: &Object) -> Result<core::Files, JsValue> {
+    let mut files = core::Files::given();
+    let given = member(options, "files")?;
+    if let Some(given) = object_of(Some(&given), "files", "an object of paths to Uint8Arrays")? {
+        for (path, bytes) in entries(given) {
+            let bytes = bytes
+                .dyn_ref::<Uint8Array>()
+                .ok_or_else(|| refuse(&format!("files.{path}"), "a Uint8Array", &bytes))?;
+            files = files.with(path, bytes.to_vec());
+        }
+    }
+    Ok(files)
+}
+
+/// The long side `options.size` asks for, or the canvas's long side.
+fn size_of(scene: &core::Scene, options: Option<RenderOptions>) -> Result<i128, JsValue> {
+    let options = options.map(JsValue::from);
+    if let Some(options) = object_of(options.as_ref(), "options", "an object")? {
+        let given = member(options, "size")?;
+        if !given.is_undefined() {
+            return whole("size", "a whole number of pixels", &given);
+        }
+    }
+    Ok(i128::from(scene.width().max(scene.height())))
 }
 
 /// The value a JavaScript value sets at `address`: a number, a boolean, a text, or three numbers (a colour).
@@ -222,10 +274,6 @@ impl Scene {
     /// `ReadError` (with `path`) for a file the document names that `files` lacks; `InvalidError` (with `address`) for a
     /// value the scene refuses.
     #[wasm_bindgen(js_name = fromJson)]
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "a whole number: cut to i128 it is the same number, or one past any usize, which is refused"
-    )]
     pub fn from_json(text: &Text, options: Option<SceneOptions>) -> Result<Scene, JsValue> {
         let given: &JsValue = text.as_ref();
         let text = given.as_string().ok_or_else(|| refuse("text", "a string", given))?;
@@ -235,21 +283,11 @@ impl Scene {
         if let Some(options) = object_of(options.as_ref(), "options", "an object")? {
             let given = member(options, "cacheBytes")?;
             if !given.is_undefined() {
-                cache_bytes = given
-                    .as_f64()
-                    .filter(|number| number.fract() == 0.0)
-                    .and_then(|number| usize::try_from(number as i128).ok())
-                    .ok_or_else(|| refuse("cacheBytes", "a whole number of bytes from 0 to 2^32 - 1", &given))?;
+                let expected = "a whole number of bytes from 0 to 2^32 - 1";
+                cache_bytes = usize::try_from(whole("cacheBytes", expected, &given)?)
+                    .map_err(|_| refuse("cacheBytes", expected, &given))?;
             }
-            let given = member(options, "files")?;
-            if let Some(given) = object_of(Some(&given), "files", "an object of paths to Uint8Arrays")? {
-                for (path, bytes) in entries(given) {
-                    let bytes = bytes
-                        .dyn_ref::<Uint8Array>()
-                        .ok_or_else(|| refuse(&format!("files.{path}"), "a Uint8Array", &bytes))?;
-                    files = files.with(path, bytes.to_vec());
-                }
-            }
+            files = files_of(options)?;
         }
         raised(core::Scene::from_json_with(&text, &files, &core::LayerKinds::new()))
             .map(|scene| Scene(scene.with_cache_budget(cache_bytes)))
@@ -309,27 +347,11 @@ impl Scene {
     /// or drawing refuses this size; `ReadError` for a file that is not the one the scene was saved with.
     #[wasm_bindgen(unchecked_return_type = "Rendered")]
     #[expect(
-        clippy::cast_possible_truncation,
-        reason = "a whole number: cut to i128 it is the same number, or one past any size the core takes, which it refuses"
-    )]
-    #[expect(
         clippy::cast_precision_loss,
         reason = "a side is at most 65,000 pixels, far inside f64's 53 bits"
     )]
     pub fn render(&self, options: Option<RenderOptions>) -> Result<JsValue, JsValue> {
-        let options = options.map(JsValue::from);
-        let mut size = i128::from(self.0.width().max(self.0.height()));
-        if let Some(options) = object_of(options.as_ref(), "options", "an object")? {
-            let given = member(options, "size")?;
-            if !given.is_undefined() {
-                size = given
-                    .as_f64()
-                    .filter(|number| number.is_finite() && number.fract() == 0.0)
-                    .map(|number| number as i128)
-                    .ok_or_else(|| refuse("size", "a whole number of pixels", &given))?;
-            }
-        }
-        let picture = raised(self.0.render(size))?;
+        let picture = raised(self.0.render(size_of(&self.0, options)?))?;
         let bytes: Vec<u8> = picture.pixels().iter().map(|&level| eight_bit(level)).collect();
         // a plain object holding a copy in JavaScript's memory: nothing to free, and the array is the same on every read
         let rendered = Object::new();
@@ -337,6 +359,62 @@ impl Scene {
         Reflect::set(&rendered, &"height".into(), &JsValue::from_f64(picture.height() as f64))?;
         Reflect::set(&rendered, &"data".into(), &Uint8ClampedArray::from(bytes.as_slice()))?;
         Ok(rendered.into())
+    }
+
+    /// The address of the topmost layer that shows at the pixel (`x`, `y`) of `render(options)`'s picture (column and row from
+    /// the top left), or `null` where none does: the start of its `parameters()` addresses (its name, `layer<n>` for one
+    /// without, `group.scene.inner` inside a group). A layer shows where, drawn alone, it leaves alpha an 8-bit picture keeps;
+    /// a blend mode changes its colour, not where it is; at opacity 0 or masked away it is not there.
+    ///
+    /// # Errors
+    /// A `TypeError` naming `x` or `y` unless each is a whole number, and as `render` for `options`; `InvalidError` (with
+    /// `address` `x` or `y`) for a pixel outside the picture, and as `render`.
+    #[wasm_bindgen(js_name = layerAt, unchecked_return_type = "string | null")]
+    pub fn layer_at(&self, x: &Whole, y: &Whole, options: Option<RenderOptions>) -> Result<JsValue, JsValue> {
+        let x = whole("x", "a whole number, a column of the picture", x.as_ref())?;
+        let y = whole("y", "a whole number, a row of the picture", y.as_ref())?;
+        let found = raised(self.0.layer_at(x, y, size_of(&self.0, options)?))?;
+        // `null`, not the `undefined` an `Option` becomes
+        Ok(found.map_or(JsValue::NULL, JsValue::from))
+    }
+
+    /// A new scene of this canvas with `layers` as its stack, bottom first, each a layer as the document writes it (an item of
+    /// `JSON.parse(scene.toJson()).layers`, changed, moved, left out or new; a group is a layer with a `scene`), with
+    /// `options.files` the bytes of each file they name, as `fromJson` takes them. It shares this scene's cache: a layer that
+    /// did not change is not drawn again. A named layer keeps its addresses wherever it goes. This scene is left as it is.
+    ///
+    /// # Errors
+    /// A `TypeError` naming `layers` unless it is an array, and as `fromJson` for `options`; `FormatError` (with `pointer`,
+    /// from `/layers/<index>`) for an item that is no layer; `ReadError` and `InvalidError` as `fromJson`.
+    #[wasm_bindgen(js_name = withLayers)]
+    pub fn with_layers(&self, layers: &Layers, options: Option<LayersOptions>) -> Result<Scene, JsValue> {
+        let given: &JsValue = layers.as_ref();
+        if !Array::is_array(given) {
+            return Err(refuse(
+                "layers",
+                "an array of layers as the document writes them",
+                given,
+            ));
+        }
+        let options = options.map(JsValue::from);
+        let files = match object_of(options.as_ref(), "options", "an object")? {
+            Some(options) => files_of(options)?,
+            None => core::Files::given(),
+        };
+        // the document of this canvas, as the core writes it, holding the given layers
+        let mut document: serde_json::Value = serde_json::from_str(&raised(
+            core::Scene::new(self.0.width(), self.0.height()).and_then(|empty| empty.to_json()),
+        )?)
+        .map_err(|error| JsValue::from(Error::new(&error.to_string())))?;
+        let text = JSON::stringify(given)?.as_string().unwrap_or_default();
+        document["layers"] =
+            serde_json::from_str(&text).map_err(|error| JsValue::from(Error::new(&error.to_string())))?;
+        let read = raised(core::Scene::from_json_with(
+            &document.to_string(),
+            &files,
+            &core::LayerKinds::new(),
+        ))?;
+        raised(self.0.with_layers(read.layers().iter().cloned())).map(Scene)
     }
 
     /// The scene as a saved scene's JSON: `fromJson` reads it back, with the same files. Each file is written by its path
