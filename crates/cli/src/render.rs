@@ -58,7 +58,7 @@ pub(crate) struct Args {
     /// PDF: write CMYK through this ICC output profile and embed it.
     #[arg(long, value_name = "FILE.icc")]
     cmyk_profile: Option<PathBuf>,
-    /// Put the layers together on the GPU (within a bound of the CPU's picture, not bit for bit). A machine with no GPU, a
+    /// Put the layers together on the GPU (within the bounds of `docs/api.md`, "On the GPU"). A machine with no GPU, a
     /// picture larger than the device holds or past one band, and a PDF are refused, never drawn on the CPU instead.
     #[cfg(feature = "gpu")]
     #[arg(long)]

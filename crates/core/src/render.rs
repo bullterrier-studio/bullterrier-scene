@@ -79,7 +79,7 @@ pub(crate) fn render(width: u32, height: u32, layers: &[Layer], size: i128, cach
 
 /// `layers` drawn as the bands of the picture, each `band_rows` rows (the last has what is left), top to bottom: `sink` is
 /// given the rows a band is and the band, and a refusal of it ends the render and is the render's. The bands put together are
-/// the picture [`render`] makes, bit for bit, whatever `band_rows`; no more than a band of the picture is held at a time.
+/// the picture [`render`] makes, within the one tolerance, whatever `band_rows`; no more than a band of the picture is held at a time.
 pub(crate) fn render_bands(
     (width, height): (u32, u32),
     layers: &[Layer],
@@ -322,7 +322,7 @@ pub(crate) fn straight(mut joined: Vec<f32>) -> Vec<f32> {
 }
 
 // Inline, because no public route counts the layers a render lays: a prefix of the join kept in the cache is read with no
-// layer drawn, and the picture is the same bit for bit (the oracles of `tests/it/cache.rs`).
+// layer drawn, and the picture is the same within the one tolerance (the oracles of `tests/it/cache.rs`).
 #[cfg(test)]
 thread_local! {
     static LAID: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };

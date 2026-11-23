@@ -3,7 +3,7 @@
 //! from it (`add`, `with_values`), so changing one value redraws only what depends on it.
 //!
 //! A cached value is found by a [`Key`]: the digest of every input that reaches the value, written by whoever makes it
-//! (`Source::keyed`, `Finish::keyed`, `Layer::keyed`). A result is the same with or without the cache, bit for bit, as long as
+//! (`Source::keyed`, `Finish::keyed`, `Layer::keyed`). A result is the same with or without the cache, within the one tolerance, as long as
 //! a key holds every input: `tests/it/cache.rs` and `tests/test_cache.py` change each address of the example scenes on a
 //! used scene and compare the picture with a cold scene's.
 

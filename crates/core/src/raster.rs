@@ -152,7 +152,7 @@ impl Raster {
     /// Writes the picture to the file `path`, in the format its extension names: `.png` gives an 8-bit RGBA PNG (straight
     /// alpha, sRGB values, image's sRGB profile, no other metadata), `.webp` a lossless WebP, and `.jpg` an 8-bit JPEG of a picture with no transparency (a
     /// picture with any alpha below 1 is refused for a `.jpg`, as image's writer refuses an alpha channel). Each level is written as image's writer rounds it,
-    /// `level * 255 + 0.5` cut to a whole number (0.5 gives 128). The same picture gives the same bytes. A file already
+    /// `level * 255 + 0.5` cut to a whole number (0.5 gives 128). A file already
     /// there is replaced; none is made for a refusal.
     ///
     /// # Errors
@@ -163,7 +163,7 @@ impl Raster {
     }
 
     /// [`write`](Self::write) with the `options`: the resolution a PNG or a JPEG says it prints at. A file with no `dpi` is
-    /// the file `write` makes, byte for byte.
+    /// the file `write` makes, within the one tolerance.
     ///
     /// # Errors
     /// As [`write`](Self::write); [`Error::Write`] naming `path` for a `.webp`, which holds no resolution, given a `dpi`.
@@ -173,7 +173,7 @@ impl Raster {
 
     /// Writes the picture to the file `path` as a one-page PDF at a physical size: the picture is one lossless (Flate) image
     /// on a page of `width / dpi` by `height / dpi` inches, with the bleed, crop marks, flattening and CMYK profile the
-    /// `options` ask for. The same picture and options give the same bytes. A file already there is replaced; none is made
+    /// `options` ask for. A file already there is replaced; none is made
     /// for a refusal. The picture stays raster: nothing is kept as vectors.
     ///
     /// # Errors

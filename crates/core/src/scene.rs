@@ -224,7 +224,7 @@ impl Scene {
 
     /// The picture of [`render`](Scene::render), drawn a band of rows at a time: `sink` is given each band in order, top to
     /// bottom, as the rows it is (`0..band_rows`, then the next `band_rows`, the last with what is left) and the band's picture
-    /// (the whole width, those rows). The bands put together are the picture `render` makes, bit for bit, whatever
+    /// (the whole width, those rows). The bands put together are the picture `render` makes, within the one tolerance, whatever
     /// `band_rows`. The picture is never held whole: what is held is a band, the scene's cache and what the layers need
     /// whole (below).
     ///

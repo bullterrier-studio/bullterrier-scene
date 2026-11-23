@@ -185,7 +185,7 @@ class Scene:
         """The picture: a new float32 array (height, width, 4), 0 to 1, straight alpha, rows from the top, sRGB values.
 
         With `gpu` the layers are put together on that `Gpu` (read back once, at the end): the same picture within a
-        bound, not bit for bit (`docs/api.md`, "On the GPU"). `GpuError` where the machine cannot (a picture larger than
+        bound (`docs/api.md`, "On the GPU"). `GpuError` where the machine cannot (a picture larger than
         the device holds included); nothing falls back to the CPU silently.
 
         `size` is the long side in output pixels, a whole number from 1 to 65,000, and the picture has at most 2^27
@@ -217,11 +217,11 @@ class Scene:
         """The picture of `render`, drawn a band of rows at a time, so that the whole picture is never held.
 
         `sink(first_row, band)` is called with each band in order, top to bottom: the row it starts at and its float32
-        array (rows, width, 4), `band_rows` rows (the last has what is left). The bands put together are
-        `render(size)` bit for bit, whatever `band_rows`. A layer with no look is drawn for the rows of a band alone
-        where its source can be; a layer with a look is drawn whole once and cut per band. An exception of `sink` ends
-        the render and is raised as it is. The 2^27 pixel limit of `render` is on a band here, so a picture past it can
-        be drawn this way. `InvalidError` naming `band_rows` for 0, more than the picture's rows or a band of more than
-        2^27 pixels, and as `render` for the rest.
+        array (rows, width, 4), `band_rows` rows (the last has what is left). The bands put together
+        look the same as `render(size)`, whatever `band_rows`. A layer with no look is drawn for the rows of a band
+        alone where its source can be; a layer with a look is drawn whole once and cut per band. An exception of `sink`
+        ends the render and is raised as it is. The 2^27 pixel limit of `render` is on a band here, so a picture past
+        it can be drawn this way. `InvalidError` naming `band_rows` for 0, more than the picture's rows or a band of
+        more than 2^27 pixels, and as `render` for the rest.
         """
         self._core.render_bands(size, band_rows, sink)

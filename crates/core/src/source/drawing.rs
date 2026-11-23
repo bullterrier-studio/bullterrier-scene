@@ -390,7 +390,7 @@ impl Source for Drawing {
                 (width as f64 / one, height as f64 / one),
                 Size::px(width as f64, height as f64),
             );
-            // the rows asked for are the crop of the whole box's raster, byte for byte (vector's window render); a window vector
+            // the rows asked for are the crop of the whole box's raster, within the one tolerance (vector's window render); a window vector
             // refuses (a side past 65,000 pixels, 2^27 pixels in all) is a raster its whole render refuses too
             #[expect(clippy::cast_precision_loss, reason = "a side of at most 65,000 pixels")]
             let window = Window::px(0.0, first as f64, width as f64, (end - first) as f64);

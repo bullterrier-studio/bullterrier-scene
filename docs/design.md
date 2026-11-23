@@ -105,7 +105,7 @@ Image and vector each made sensible choices alone; a scene puts their output sid
 
 Bands are built (batch B1; "Banded rendering" in [design-decisions.md](design-decisions.md) has the numbers): `Scene::render_bands`
 draws the picture a band of rows at a time and `render_to_png`, `render_to_pdf` write it as it is drawn, so a print size past what
-`render` draws is written. A banded render equals the whole render bit for bit, and `render` is one band.
+`render` draws is written. A banded render equals the whole render within the one tolerance, and `render` is one band.
 
 **On the device (BTSCN-0010).** A render on the GPU holds the join (16 bytes a pixel), one buffer for the layer being landed (reused by the next of its size), the mask planes in play (4 bytes a pixel) and, in the device cache, every source's raster as drawn (16 bytes a pixel, a GPU render of looks keeps its looked pictures too), under a budget of its own (1 GiB, settable) apart from the CPU's 2 GiB. A picture or a layer the device cannot bind in one buffer is `GpuError` naming the CPU.
 
@@ -122,7 +122,7 @@ A stack of full-size float pictures is the wrong way to render a poster: one 12-
    `Options::with_window`: a window of the whole raster, so each pixel is the whole render's) when its source can draw rows, the layer
    is not light, and image can band the recipe; else **whole** once and cut (image's whole-picture effects, a layer whose raster is not
    the canvas's size, looks of a recipe image does not clear to the bit: a blur summed by a Fourier transform, `grain` clumped past about 8 working pixels). A drawing is drawn for the rows a band reads (vector's window render is the crop of its
-   whole render, byte for byte). A plugin kind is drawn whole once, unless it says its pixels depend on their place alone
+   whole render, within the one tolerance). A plugin kind is drawn whole once, unless it says its pixels depend on their place alone
    (`LayerKind::by_position`): then it is asked for the rows a band reads. These are the memory floor of a banded render.
 3. **Finished layers are held as float32.** Decision 2 of the roadmap, settled at B1 with the peak measurements.
 4. **Vector draws a window**, exact to the byte, so a drawing is drawn by band. A window vector refuses (a side past 65,000 pixels, 2^27 in all) is a raster its whole render refuses too: there is no whole fallback.

@@ -36,7 +36,7 @@ effects it gets. The scene then draws everything at the size you ask for, from a
   <tr>
     <td width="33%" valign="top"><b>One template, many pictures</b><br>Swap the photo, the title or a colour and render again. A hundred covers from one scene is a loop, not a hundred files.</td>
     <td width="33%" valign="top"><b>Any size, same picture</b><br>Draft small, print large. Every layer is drawn at the final size by the package that owns it, so the draft shows what the print will.</td>
-    <td width="33%" valign="top"><b>Big canvases without big memory</b><br>A large picture is drawn a strip at a time and written as it is made, so an A0 print at 300 dpi (139 megapixels) goes to a PNG in under 2 GB, past what <code>render</code> draws whole. The strips put together are the whole picture, bit for bit. A layer with a look is still drawn whole once.</td>
+    <td width="33%" valign="top"><b>Big canvases without big memory</b><br>A large picture is drawn a strip at a time and written as it is made, so an A0 print at 300 dpi (139 megapixels) goes to a PNG in under 2 GB, past what <code>render</code> draws whole. The strips put together are the whole picture, within the one tolerance. A layer with a look is still drawn whole once.</td>
   </tr>
 </table>
 

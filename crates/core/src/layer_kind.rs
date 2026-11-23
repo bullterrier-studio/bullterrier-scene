@@ -15,7 +15,7 @@ pub(crate) fn rows_area(area: [f64; 4], total: usize, first: usize, end: usize) 
 }
 
 /// Checks the promise of [`LayerKind::by_position`] for `kind` on `area` at `scale`: the rows of what it draws for the rectangle
-/// are, bit for bit, what it draws when asked for those rows alone, for bands of one row, of two and of a third of the rows. Run it
+/// are, within the one tolerance, what it draws when asked for those rows alone, for bands of one row, of two and of a third of the rows. Run it
 /// in the tests of a kind that says yes, on a rectangle and a scale that are not whole numbers.
 ///
 /// # Errors
