@@ -214,7 +214,7 @@ impl Scene {
     /// names (a picture, a map, a font, a look, a drawing), by the path exactly as the document writes it. A file the
     /// document names is read from those bytes when the scene is read, never from a disk. A layer of a plugin's kind
     /// (`make`) is refused: the package has none. `options.cacheBytes` bounds the cache this scene and the scenes made from it
-    /// share ([`CACHE_BYTES`] unless given).
+    /// share (256 MiB unless given).
     ///
     /// # Errors
     /// A `TypeError` naming `text` unless it is a string, `options` or `files` unless each is an object, or `files.<path>` for bytes that are no
