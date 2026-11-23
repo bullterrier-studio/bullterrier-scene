@@ -389,6 +389,27 @@ impl Layer {
         }
     }
 
+    /// The name the layer was given ([`named`](Self::named)), or `None`: such a layer is `layer<n>` by its place in a scene.
+    #[must_use]
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
+
+    /// This layer drawing `source` in place of its own, with everything else as it is.
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] for a reference no scene has resolved.
+    pub(crate) fn with_source(&self, source: Arc<dyn Source>) -> Result<Self, Error> {
+        let body = Body {
+            source,
+            ..self.drawable()?.clone()
+        };
+        Ok(Self {
+            base: Base::Body(body),
+            ..self.clone()
+        })
+    }
+
     /// This layer called `name`: letters, digits and `_`, starting with a letter; unique in its scene. A layer without a
     /// name is `layer1`, `layer2`... by its place in the scene.
     ///

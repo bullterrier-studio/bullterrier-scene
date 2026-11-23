@@ -9,7 +9,7 @@ use crate::budget::Budget;
 use crate::cache::Cache;
 use crate::pdf::PdfStream;
 use crate::stream::PngStream;
-use crate::{Error, Layer, PdfOptions, Plates, Raster, WriteOptions, plates, reference, render};
+use crate::{Error, Layer, PdfOptions, Plates, Raster, WriteOptions, hit, plates, reference, render};
 
 /// The longest a canvas side is, in design pixels.
 const MAX_CANVAS: u32 = 100_000;
@@ -163,6 +163,19 @@ impl Scene {
         })
     }
 
+    /// A scene of this canvas with `layers` as its stack, bottom first, sharing this scene's cache: an editor's change to the
+    /// tree of layers (add, remove, reorder, regroup into a [`Layer::scene`]) is a new list, from [`layers`](Scene::layers),
+    /// and a layer that did not change is not drawn again. A named layer keeps its addresses wherever it goes (`x.<field>`,
+    /// or `g.scene.x.<field>` inside the group `g`); one without a name is `layer<n>` by its new place. This scene is left as
+    /// it is.
+    ///
+    /// # Errors
+    /// As [`add`](Scene::add) on an empty canvas: a name used twice, a reference that names no layer of the new stack, too
+    /// many layers or too deep.
+    pub fn with_layers(&self, layers: impl IntoIterator<Item = Layer>) -> Result<Self, Error> {
+        self.emptied().add(layers)
+    }
+
     /// The plates of the scene at `size`: one plane of ink coverage for each ink its layers name ([`Layer::inks`]), in the order
     /// the inks first appear, bottom layer first. Plate `i` is what the scene draws when only the layers that print in ink `i`
     /// are on it, each as the shape of its ink (the plane its look separates, or its alpha), placed, masked and faded as it is
@@ -216,6 +229,35 @@ impl Scene {
     /// sibling crate refuses at this size.
     pub fn render(&self, size: impl Into<i128>) -> Result<Raster, Error> {
         render::render(self.width, self.height, &self.drawn, size.into(), &self.cache)
+    }
+
+    /// The address of the topmost layer that shows at the pixel (`x`, `y`) of [`render(size)`](Scene::render)'s picture (column
+    /// and row from the top left), or `None` where none does: the start of its [`parameters`](Scene::parameters) addresses (its
+    /// name, `layer<n>` for one without, `group.scene.inner` for a layer inside a group).
+    ///
+    /// A layer shows at a pixel where, drawn alone as the render draws it (placed, in perspective, looked, masked, at its
+    /// opacity, light), it leaves alpha that an 8-bit picture keeps (at least 0.5 / 255): a blend mode changes its colour, not
+    /// where it is, and a layer at opacity 0 or masked away is not there. The layers are asked top first. In a group, the
+    /// answer is the topmost inner layer that shows there alone through the group's place, looks and masks, or the group if
+    /// none does alone. A mask layer is never the answer. Each layer asked is drawn for the one row of the pixel; a looked
+    /// layer is drawn whole at `size` once (kept in the cache, as a render at `size` keeps it).
+    ///
+    /// # Errors
+    /// [`Error::Invalid`] naming `size` for a size outside 1 to 65,000, `x` or `y` for a pixel outside the picture; whatever
+    /// a layer cannot draw, as for [`render`](Scene::render).
+    pub fn layer_at(
+        &self,
+        x: impl Into<i128>,
+        y: impl Into<i128>,
+        size: impl Into<i128>,
+    ) -> Result<Option<String>, Error> {
+        hit::layer_at(
+            (self.width, self.height),
+            &self.drawn,
+            (x.into(), y.into()),
+            size.into(),
+            &self.cache,
+        )
     }
 
     /// The columns and rows of the picture at `size`, the long side in output pixels: what [`render`](Scene::render) and

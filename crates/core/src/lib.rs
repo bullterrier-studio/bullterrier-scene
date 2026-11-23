@@ -19,6 +19,7 @@ mod finish;
 mod geometry;
 #[cfg(feature = "gpu")]
 mod gpu;
+mod hit;
 mod landing;
 mod layer;
 mod layer_kind;

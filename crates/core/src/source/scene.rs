@@ -43,6 +43,10 @@ impl Source for Group {
         Ok(vec![("scene", scene_document(&self.scene, form)?)])
     }
 
+    fn group(&self) -> Option<&Scene> {
+        Some(&self.scene)
+    }
+
     /// The parameters of the scene, each under `scene.`.
     fn parameters(&self) -> Vec<Parameter> {
         self.scene

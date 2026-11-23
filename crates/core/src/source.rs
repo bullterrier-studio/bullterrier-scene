@@ -14,7 +14,7 @@ use crate::finish::Px;
 use crate::finish::{Chain, Finish};
 use crate::geometry::{MAX_PIXELS, Rect, Scale, whole_up};
 use crate::parameters::{Parameter, Value};
-use crate::{Error, Map, Raster};
+use crate::{Error, Map, Raster, Scene};
 
 pub(crate) mod drawing;
 pub(crate) mod fill;
@@ -352,6 +352,11 @@ pub(crate) trait Source: Send + Sync + fmt::Debug {
     /// [`Error::Invalid`] for a picture or a map held in memory when the document is to be saved, [`Error::Read`] for a file
     /// whose digest cannot be made.
     fn document(&self, form: Form) -> Result<Vec<(&'static str, serde_json::Value)>, Error>;
+
+    /// The scene this source draws, if it is a group: what a hit test looks inside.
+    fn group(&self) -> Option<&Scene> {
+        None
+    }
 
     /// The names of the maps this source holds, or `None` if it has no picture to hold them.
     fn map_names(&self) -> Option<Vec<&str>> {
