@@ -65,6 +65,20 @@ what it costs under 2 GiB (the decoded photo, its matte and the unchanged layers
 at once; the memory stops at the bound plus what a render holds (258 MiB there). The default sits in `crates/wasm`, not the core:
 it is the browser's number. Figures: `docs/javascript-api.md`, "Memory".
 
+## Editor support: a hit test and one tree edit (2026-11-23)
+
+`Scene::layer_at(x, y, size)` names the topmost layer that shows at a pixel of `render(size)`, and `Scene::with_layers(layers)`
+is a new stack on the same canvas sharing the cache. *Reason:* an editor needs "what did I click" and add, remove, reorder and
+regroup without a cold render. One list-replacing call covers every tree edit in the caller's own list operations (a JavaScript
+page edits the document's `layers` array); five methods would each be a smaller copy of it. A layer's answer is its address,
+the prefix of its `parameters()` addresses, so a click leads straight to its controls. "Shows" is the alpha an 8-bit picture
+keeps (at least 0.5 / 255) of the layer drawn alone by the renderer's own `lay`, so placement, perspective, masks, looks,
+opacity and light are the render's, with no threshold to tune; blend modes change colour, not coverage. A group answers the
+topmost inner layer that shows through one-layer copies of the group (its place, masks and looks apply), else itself; a
+reference to a group has no inner addresses and answers itself. *Consequence:* an unnamed layer's address follows its place,
+so an editor names its layers; a look's cache key writes whole numbers one way (`2.0` as `2`), since a page's
+`JSON.stringify` drops the `.0` and the edited layer would otherwise miss the cache.
+
 ## Blending in sRGB values, straight alpha at the boundary (2026-11-08)
 
 Vector blends sRGB values and returns straight alpha; the W3C spec blends the same way. *Reason:* a drawing must look the same
