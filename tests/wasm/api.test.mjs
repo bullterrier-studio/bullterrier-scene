@@ -168,6 +168,21 @@ test("files are Uint8Arrays by path; anything else is a TypeError naming it", ()
   assert.match(failure(() => Scene.fromJson(masked, "files")).message, /options/);
 });
 
+test("cacheBytes is a whole number of bytes the cache keeps at most; anything else is a TypeError naming it", () => {
+  for (const cacheBytes of [-1, 1.5, "64", null, NaN, Infinity, 2 ** 32]) {
+    const error = failure(() => Scene.fromJson(poster, { cacheBytes }));
+    assert.equal(error.name, "TypeError", String(cacheBytes));
+    assert.match(error.message, /cacheBytes/);
+  }
+  // a budget changes no picture: a cache that keeps nothing draws every layer again, after a first render as before it
+  const cold = Scene.fromJson(masked, { files: maskedFiles() }).withValues({ "photo.opacity": 0.5 }).render({ size: 200 }).data;
+  for (const cacheBytes of [0, 2 ** 32 - 1]) {
+    const scene = Scene.fromJson(masked, { files: maskedFiles(), cacheBytes });
+    scene.render({ size: 200 });
+    assert.equal(differenceInLooks(scene.withValues({ "photo.opacity": 0.5 }).render({ size: 200 }).data, cold), null, String(cacheBytes));
+  }
+});
+
 test("a scene written by toJson and read back with the same files renders the same picture", () => {
   const files = maskedFiles();
   const saved = Scene.fromJson(masked, { files }).toJson();

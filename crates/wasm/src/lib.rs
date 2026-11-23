@@ -10,9 +10,13 @@ use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(typescript_custom_section)]
 const TYPES: &str = r#"
-/** What a scene is read with: `files` are the bytes of each file the document names, by the path exactly as it writes it. */
+/**
+ * What a scene is read with: `files` are the bytes of each file the document names, by the path exactly as it writes it;
+ * `cacheBytes` is the most the cache of this scene and the scenes made from it keeps (default 256 MiB, 0 keeps nothing).
+ */
 export interface SceneOptions {
     files?: Record<string, Uint8Array>;
+    cacheBytes?: number;
 }
 
 /** What a render is asked for: `size` is the long side in pixels, a whole number from 1 to 65,000 (default: the canvas's). */
@@ -196,6 +200,10 @@ fn eight_bit(level: f32) -> u8 {
     (level * 255.0 + 0.5) as u8
 }
 
+/// The most bytes the cache of a scene read here keeps unless `cacheBytes` says: wasm memory never shrinks and ends at 4 GiB
+/// (a phone's tab far sooner), against the native 2 GiB. Measured with demo 57 (`docs/javascript-api.md`, "Memory").
+const CACHE_BYTES: usize = 256 << 20;
+
 /// A scene: a canvas and its layers, as a saved scene writes them.
 #[wasm_bindgen(js_name = Scene)]
 pub struct Scene(core::Scene);
@@ -205,20 +213,34 @@ impl Scene {
     /// The scene a saved scene's JSON `text` writes (`toJson` writes one), with `options.files` the bytes of each file it
     /// names (a picture, a map, a font, a look, a drawing), by the path exactly as the document writes it. A file the
     /// document names is read from those bytes when the scene is read, never from a disk. A layer of a plugin's kind
-    /// (`make`) is refused: the package has none.
+    /// (`make`) is refused: the package has none. `options.cacheBytes` bounds the cache this scene and the scenes made from it
+    /// share ([`CACHE_BYTES`] unless given).
     ///
     /// # Errors
     /// A `TypeError` naming `text` unless it is a string, `options` or `files` unless each is an object, or `files.<path>` for bytes that are no
-    /// `Uint8Array`; `FormatError` (with `pointer`, the JSON Pointer of the value) for text that is no saved scene;
+    /// `Uint8Array`, `cacheBytes` unless it is a whole number from 0 to 2^32 - 1; `FormatError` (with `pointer`, the JSON Pointer of the value) for text that is no saved scene;
     /// `ReadError` (with `path`) for a file the document names that `files` lacks; `InvalidError` (with `address`) for a
     /// value the scene refuses.
     #[wasm_bindgen(js_name = fromJson)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a whole number: cut to i128 it is the same number, or one past any usize, which is refused"
+    )]
     pub fn from_json(text: &Text, options: Option<SceneOptions>) -> Result<Scene, JsValue> {
         let given: &JsValue = text.as_ref();
         let text = given.as_string().ok_or_else(|| refuse("text", "a string", given))?;
         let options = options.map(JsValue::from);
         let mut files = core::Files::given();
+        let mut cache_bytes = CACHE_BYTES;
         if let Some(options) = object_of(options.as_ref(), "options", "an object")? {
+            let given = member(options, "cacheBytes")?;
+            if !given.is_undefined() {
+                cache_bytes = given
+                    .as_f64()
+                    .filter(|number| number.fract() == 0.0)
+                    .and_then(|number| usize::try_from(number as i128).ok())
+                    .ok_or_else(|| refuse("cacheBytes", "a whole number of bytes from 0 to 2^32 - 1", &given))?;
+            }
             let given = member(options, "files")?;
             if let Some(given) = object_of(Some(&given), "files", "an object of paths to Uint8Arrays")? {
                 for (path, bytes) in entries(given) {
@@ -229,7 +251,8 @@ impl Scene {
                 }
             }
         }
-        raised(core::Scene::from_json_with(&text, &files, &core::LayerKinds::new())).map(Scene)
+        raised(core::Scene::from_json_with(&text, &files, &core::LayerKinds::new()))
+            .map(|scene| Scene(scene.with_cache_budget(cache_bytes)))
     }
 
     /// The canvas's width in design pixels.
