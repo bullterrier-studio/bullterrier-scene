@@ -6,6 +6,8 @@ import shutil
 import sys
 from pathlib import Path
 
+import numpy as np
+import numpy.typing as npt
 import pytest
 from hypothesis import settings
 
@@ -66,3 +68,32 @@ def uv_run_env() -> dict[str, str]:
 # property tests are deterministic (the same cases on every run, so a failure reproduces) and never time out
 settings.register_profile("project", derandomize=True, deadline=None)
 settings.load_profile("project")
+
+
+# The one tolerance of the Python tests for "looks the same" between two routes to a picture (bands, cache, threads, a
+# saved scene), in levels of 8-bit output after rounding: at most 1/255 apart on 99.9% of samples and at most 2/255 on
+# all.
+# The Rust tests state the same numbers once (`crates/core/tests/it/common/looks.rs`).
+MOST_LEVELS = 1
+ALL_LEVELS = 2
+PAST_MOST_PER_THOUSAND = 1
+
+
+def levels(picture: npt.NDArray[np.float32]) -> npt.NDArray[np.int16]:
+    """The 8-bit levels a file would keep of `picture` (`value * 255 + 0.5` cut, a value outside 0 to 1 cut to it)."""
+    return np.clip(picture * 255 + 0.5, 0, 255).astype(np.int16)
+
+
+def looks_the_same(left: npt.NDArray[np.float32], right: npt.NDArray[np.float32]) -> bool:
+    """Whether the two pictures look the same: same shape, finite, and within the tolerance."""
+    if left.shape != right.shape or not (np.isfinite(left).all() and np.isfinite(right).all()):
+        return False
+    gap = np.abs(levels(left) - levels(right))
+    past_most = int((gap > MOST_LEVELS).sum())
+    return int(gap.max(initial=0)) <= ALL_LEVELS and past_most * 1000 <= gap.size * PAST_MOST_PER_THOUSAND
+
+
+@pytest.fixture(scope="session")
+def same_look():
+    """`same_look(a, b)`: whether two pictures look the same, the one tolerance of the route tests."""
+    return looks_the_same

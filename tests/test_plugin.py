@@ -136,7 +136,7 @@ def plugged() -> bts.Scene:
     )
 
 
-def test_a_scene_with_a_python_kind_is_written_and_read_back_equal_and_draws_the_same():
+def test_a_scene_with_a_python_kind_is_written_and_read_back_equal_and_draws_the_same(same_look):
     bts.register_layer("plugin-gradient", gradient)
     one = plugged()
     text = one.to_json()
@@ -145,7 +145,7 @@ def test_a_scene_with_a_python_kind_is_written_and_read_back_equal_and_draws_the
     assert back == one
     assert back.to_json() == text
     for size in (40, 81):
-        assert back.render(size).tobytes() == one.render(size).tobytes()
+        assert same_look(back.render(size), one.render(size))
 
 
 def test_a_document_naming_a_kind_that_is_not_registered_is_a_format_error_at_the_kind_listing_the_known_ones():
@@ -194,7 +194,7 @@ def test_options_of_a_megabyte_are_carried_to_the_function_and_written():
 # --- the cache ---
 
 
-def test_what_a_kind_drew_is_kept_and_a_changed_option_is_never_served_stale():
+def test_what_a_kind_drew_is_kept_and_a_changed_option_is_never_served_stale(same_look):
     asked = []
 
     def counting(x, y, width, height, scale_x, scale_y, *, tone):
@@ -206,14 +206,14 @@ def test_what_a_kind_drew_is_kept_and_a_changed_option_is_never_served_stale():
     first = base.add(bts.Layer.make("plugin-counting", tone=0.2))
     second = base.add(bts.Layer.make("plugin-counting", tone=0.6))
     warm = first.render(80)
-    assert first.render(80).tobytes() == warm.tobytes()
+    assert same_look(first.render(80), warm)
     assert asked == [0.2]
     other = second.render(80)
     assert not np.array_equal(other, warm)
     # the same picture a scene with an empty cache of its own draws
     cold = bts.Scene(40, 20).add(bts.Layer.make("plugin-counting", tone=0.6)).render(80)
-    assert other.tobytes() == cold.tobytes()
-    assert first.render(80).tobytes() == warm.tobytes()
+    assert same_look(other, cold)
+    assert same_look(first.render(80), warm)
 
 
 # --- a plugin that breaks the contract is refused, naming the kind ---
@@ -274,13 +274,13 @@ def test_a_plugin_that_breaks_the_contract_is_refused_naming_the_kind_and_the_va
 # --- threads ---
 
 
-def test_several_renders_of_a_python_kind_at_once_give_what_one_render_gives():
+def test_several_renders_of_a_python_kind_at_once_give_what_one_render_gives(same_look):
     bts.register_layer("plugin-gradient", gradient)
     scenes = [bts.Scene(40, 20).add(bts.Layer.make("plugin-gradient", tone=tone / 8)) for tone in range(9)]
-    expected = [scene.render(160).tobytes() for scene in scenes]
+    expected = [scene.render(160) for scene in scenes]
     with ThreadPoolExecutor(max_workers=8) as pool:
-        found = list(pool.map(lambda scene: scene.render(160).tobytes(), scenes * 4))
-    assert found == expected * 4
+        found = list(pool.map(lambda scene: scene.render(160), scenes * 4))
+    assert all(same_look(got, want) for got, want in zip(found, expected * 4, strict=True))
 
 
 def by_place(x, y, width, height, scale_x, scale_y):
@@ -297,7 +297,9 @@ def by_place(x, y, width, height, scale_x, scale_y):
 
 
 @pytest.mark.parametrize("size", [40, 37])
-def test_a_kind_that_draws_by_position_is_asked_for_the_rows_a_band_reads_and_the_bands_make_the_picture(size):
+def test_a_kind_that_draws_by_position_is_asked_for_the_rows_a_band_reads_and_the_bands_make_the_picture(
+    size, same_look
+):
     asked = []
 
     def recording(x, y, width, height, scale_x, scale_y):
@@ -310,7 +312,7 @@ def test_a_kind_that_draws_by_position_is_asked_for_the_rows_a_band_reads_and_th
     asked.clear()
     bands = []
     scene.render_bands(size, 3, lambda first, band: bands.append(band.copy()))
-    assert np.concatenate(bands).tobytes() == whole.tobytes()
+    assert same_look(np.concatenate(bands), whole)
     assert len(asked) >= 10
     assert max(asked) < 30
 

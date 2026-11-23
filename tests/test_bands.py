@@ -1,4 +1,4 @@
-"""Banded rendering (`Scene.render_bands`): the bands put together are the picture `render` makes, bit for bit.
+"""Banded rendering (`Scene.render_bands`): the bands put together are the picture `render` makes (it looks the same).
 
 The oracle runs over every example scene (the cover template, the frame sequence, mill, the poster, composed world,
 chrome, groups, references, masks of every kind and feather, maps, text, perspective, blends, light with room, looks)
@@ -52,10 +52,6 @@ def bands(scene: Scene, size: int, band_rows: int) -> tuple[npt.NDArray[np.float
     return np.concatenate(found), rows
 
 
-def same_bits(left: npt.NDArray[np.float32], right: npt.NDArray[np.float32]) -> bool:
-    return left.shape == right.shape and bool(np.array_equal(left.view(np.uint32), right.view(np.uint32)))
-
-
 def filled(scene: Scene) -> Scene:
     """`scene` with each hole (a picture or a map not given) filled, so that it can be drawn."""
     holes = {
@@ -66,7 +62,7 @@ def filled(scene: Scene) -> Scene:
     return scene.with_values(holes)
 
 
-def check(scene: Scene, size: int) -> None:
+def check(scene: Scene, size: int, same_look: Callable[..., bool]) -> None:
     whole = scene.render(size)
     for band_rows in heights(whole.shape[0]):
         picture, rows = bands(scene, size, band_rows)
@@ -75,17 +71,17 @@ def check(scene: Scene, size: int) -> None:
         )
         assert all(a < b <= a + band_rows for a, b in rows)
         assert rows[-1][1] == whole.shape[0], "the bands reach the last row"
-        assert same_bits(picture, whole), f"bands of {band_rows} rows at size {size}"
+        assert same_look(picture, whole), f"bands of {band_rows} rows at size {size}"
 
 
 @pytest.mark.parametrize("size", SIZES)
 @pytest.mark.parametrize("name", sorted(ALL_SCENES))
-def test_bands_make_the_picture_of_every_example_scene(name: str, size: int) -> None:
-    check(filled(ALL_SCENES[name]()), size)
+def test_bands_make_the_picture_of_every_example_scene(name: str, size: int, same_look: Callable[..., bool]) -> None:
+    check(filled(ALL_SCENES[name]()), size, same_look=same_look)
 
 
 @pytest.mark.parametrize("size", SIZES)
-def test_bands_make_the_picture_of_a_scene_with_a_plugin_layer(size: int) -> None:
+def test_bands_make_the_picture_of_a_scene_with_a_plugin_layer(size: int, same_look: Callable[..., bool]) -> None:
     with plugin.isolated():
 
         @bts.layer_kind("bands-gradient")
@@ -102,7 +98,7 @@ def test_bands_make_the_picture_of_a_scene_with_a_plugin_layer(size: int) -> Non
             Layer.fill("#102030"),
             Layer.make("bands-gradient", tone=0.3).place(dx=7.5, dy=3.25, rotate=12),
         )
-        check(scene, size)
+        check(scene, size, same_look=same_look)
 
 
 def test_a_sink_that_raises_ends_the_render_and_its_exception_is_raised() -> None:

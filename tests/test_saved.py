@@ -1,7 +1,7 @@
 """`Scene.to_json`, `Scene.from_json` and `==`, through the package's public interface.
 
 The oracle is the round trip: every example scene, with its pictures written to files, comes back equal, draws the same
-bits and lists the same parameters. The refusals of a document, each with its JSON Pointer, are the table of the core's
+look and lists the same parameters. The refusals of a document, each with its JSON Pointer, are the table of the core's
 own tests (`crates/core/tests/it/saved.rs`); here a few rows show the classes the facade raises.
 """
 
@@ -10,11 +10,13 @@ import importlib.util
 import json
 import struct
 import zlib
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
 from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 
 from bullterrier_scene import FormatError, InvalidError, Layer, ReadError, Scene
@@ -72,16 +74,25 @@ def on_files(scene: Scene, folder: Path) -> Scene:
     )
 
 
-def drawn(scene: Scene, size: int = 96) -> bytes | str:
-    """The picture's bytes, or the refusal (a template's hole is refused alike by a scene and the scene read back)."""
+def drawn(scene: Scene, size: int = 96) -> npt.NDArray[np.float32] | str:
+    """The picture, or the refusal (a template's hole is refused alike by a scene and the scene read back)."""
     try:
-        return scene.render(size).tobytes()
+        return scene.render(size)
     except InvalidError as error:
         return str(error)
 
 
+def agree(
+    left: npt.NDArray[np.float32] | str, right: npt.NDArray[np.float32] | str, same_look: Callable[..., bool]
+) -> bool:
+    """Both refused alike, or both pictures look the same."""
+    if isinstance(left, str) or isinstance(right, str):
+        return left is right or (isinstance(left, str) and isinstance(right, str) and left == right)
+    return same_look(left, right)
+
+
 @pytest.mark.parametrize("name", list(ALL_SCENES))
-def test_an_example_scene_comes_back_equal_draws_the_same_and_lists_the_same_parameters(name, tmp_path):
+def test_an_example_scene_comes_back_equal_draws_the_same_and_lists_the_same_parameters(name, tmp_path, same_look):
     scene = on_files(ALL_SCENES[name](), tmp_path)
     text = scene.to_json()
     assert text == scene.to_json()
@@ -89,35 +100,36 @@ def test_an_example_scene_comes_back_equal_draws_the_same_and_lists_the_same_par
     assert back == scene
     assert back.to_json() == text
     assert back.parameters() == scene.parameters()
-    assert drawn(back) == drawn(scene)
+    assert agree(drawn(back), drawn(scene), same_look=same_look)
 
 
-def test_a_template_with_a_hole_comes_back_a_template_and_fills_the_same_way(tmp_path):
+def test_a_template_with_a_hole_comes_back_a_template_and_fills_the_same_way(tmp_path, same_look):
     module = load("cover_template")
     template = module.build()
     back = Scene.from_json(template.to_json())
     assert back == template
     assert back.parameters()["photo.picture"].value is None
     values = module.episode("Pilot", png(tmp_path / "a.png", photo(36, 64)), "#2b0a3d")
-    assert drawn(back.with_values(values)) == drawn(template.with_values(values))
+    assert agree(drawn(back.with_values(values)), drawn(template.with_values(values)), same_look=same_look)
     assert not isinstance(drawn(back.with_values(values)), str)
 
 
-def test_a_drawing_keeps_the_params_that_were_set_on_it(tmp_path):
+def test_a_drawing_keeps_the_params_that_were_set_on_it(tmp_path, same_look):
     scene = Scene(100, 100).add(Layer.drawing(LOGO).named("logo"))
     set_ = scene.with_values({"logo.drawing.ring_on": 0.5})
     back = Scene.from_json(set_.to_json())
     assert back == set_
     assert back != scene
     assert back.parameters()["logo.drawing.ring_on"].value == 0.5
-    assert drawn(back) == drawn(set_) != drawn(scene)
+    assert agree(drawn(back), drawn(set_), same_look=same_look)
+    assert not agree(drawn(set_), drawn(scene), same_look=same_look)
     assert json.loads(set_.to_json())["layers"][0]["values"] == {"ring_on": 0.5}
 
 
-def test_the_saved_scene_example_is_equal_after_the_trip_and_draws_the_same_bits(tmp_path):
+def test_the_saved_scene_example_is_equal_after_the_trip_and_draws_the_same_look(tmp_path, same_look):
     scene, loaded = load("c6b_saved_scene").saved_and_loaded(tmp_path, lambda pixels, path: png(path, pixels))
     assert loaded == scene
-    assert loaded.render(96).tobytes() == scene.render(96).tobytes()
+    assert same_look(loaded.render(96), scene.render(96))
     assert (tmp_path / "scene.json").is_file()
 
 

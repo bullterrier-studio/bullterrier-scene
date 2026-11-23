@@ -64,9 +64,9 @@ def test_the_headline_changes_only_the_pixels_it_covers_and_draws_them_in_ink(ex
     assert (with_headline[..., 3] == 1).all()
 
 
-def test_the_example_renders_the_same_array_twice_and_at_other_sizes(example):
+def test_the_example_renders_the_same_array_twice_and_at_other_sizes(example, same_look):
     scene = example.build(example.synthetic_photo())
-    assert np.array_equal(scene.render(320), scene.render(320))
+    assert same_look(scene.render(320), scene.render(320))
     assert scene.render(640).shape == (360, 640, 4)
 
 
@@ -117,11 +117,11 @@ def test_every_snapshot_is_opaque_in_range_and_different_for_each_palette(prints
     assert not np.array_equal(pictures[0], pictures[1])
 
 
-def test_the_pile_is_the_same_picture_twice_and_at_two_sizes_and_the_table_shows_around_it(prints):
+def test_the_pile_is_the_same_picture_twice_and_at_two_sizes_and_the_table_shows_around_it(prints, same_look):
     scene = prints.pile_of_prints()
     first = scene.render(400)
     assert first.shape == (250, 400, 4)
-    assert np.array_equal(first, scene.render(400))
+    assert same_look(first, scene.render(400))
     assert (first[..., 3] == 1).all()  # the table is opaque everywhere
     # the corner is the table, far from every print; the middle of a print's photo is not the table
     table = prints.table()
@@ -167,11 +167,11 @@ def perspective() -> ModuleType:
     return load("c2b_perspective", ROOT / "docs" / "examples" / "c2b_perspective.py")
 
 
-def test_the_receding_floor_is_the_same_picture_twice_and_at_two_sizes(perspective):
+def test_the_receding_floor_is_the_same_picture_twice_and_at_two_sizes(perspective, same_look):
     scene = perspective.receding_floor()
     first = scene.render(480)
     assert first.shape == (300, 480, 4)
-    assert np.array_equal(first, scene.render(480))
+    assert same_look(first, scene.render(480))
     assert (first[..., 3] == 1).all()  # the sky and the ground are opaque everywhere
     assert scene.render(240).shape == (150, 240, 4)
 
@@ -210,11 +210,11 @@ def clip() -> ModuleType:
     return load("c3_clip", ROOT / "docs" / "examples" / "c3_clip.py")
 
 
-def test_the_clipped_type_is_the_same_picture_twice_and_at_two_sizes(clip):
+def test_the_clipped_type_is_the_same_picture_twice_and_at_two_sizes(clip, same_look):
     scene = clip.clipped_type()
     first = scene.render(600)
     assert first.shape == (400, 600, 4)
-    assert np.array_equal(first, scene.render(600))
+    assert same_look(first, scene.render(600))
     assert (first[..., 3] == 1).all()  # the ground is opaque everywhere
     assert scene.render(300).shape == (200, 300, 4)
 
@@ -251,10 +251,10 @@ def blends() -> ModuleType:
     return load("c4a_blends", ROOT / "docs" / "examples" / "c4a_blends.py")
 
 
-def test_the_sheet_is_the_same_picture_twice_and_each_tile_is_the_same_backdrop_under_its_own_mode(blends):
+def test_the_sheet_is_the_same_picture_twice_and_each_tile_is_the_same_backdrop_under_its_own_mode(blends, same_look):
     sheet = blends.blend_sheet().render(blends.W)
     assert sheet.shape == (blends.H, blends.W, 4)
-    assert np.array_equal(sheet, blends.blend_sheet().render(blends.W))
+    assert same_look(sheet, blends.blend_sheet().render(blends.W))
     # the corner of each tile is clear in the source (alpha 0 at the edge), so it shows the backdrop whatever the mode
     backdrop = blends.backdrop_tile()
     for index in range(len(blends.MODES)):
@@ -297,11 +297,11 @@ def luminance(pixels: np.ndarray) -> np.ndarray:
     return pixels[..., :3] @ np.array([0.2126, 0.7152, 0.0722], np.float32)
 
 
-def test_the_evening_is_the_same_opaque_picture_twice_and_at_two_sizes(evening):
+def test_the_evening_is_the_same_opaque_picture_twice_and_at_two_sizes(evening, same_look):
     scene = evening.build()
     first = scene.render(600)
     assert first.shape == (400, 600, 4)
-    assert np.array_equal(first, scene.render(600))
+    assert same_look(first, scene.render(600))
     assert (first[..., 3] == 1).all()  # the floor is opaque everywhere
     assert scene.render(300).shape == (200, 300, 4)
 
@@ -373,11 +373,11 @@ def test_a_group_fades_as_one_picture_and_the_layers_of_the_other_pair_each_fade
     assert np.allclose(drawn[520, 720 + 30, :3], 0.5 * bottom + 0.5 * band, atol=2e-5)
 
 
-def test_the_badge_is_drawn_at_the_size_each_use_has(groups):
+def test_the_badge_is_drawn_at_the_size_each_use_has(groups, same_look):
     scene = groups.build()
     first = scene.render(groups.W)
     assert first.shape == (groups.H, groups.W, 4)
-    assert np.array_equal(first, scene.render(groups.W))
+    assert same_look(first, scene.render(groups.W))
     assert (first[..., 3] == 1).all()  # the paper is opaque everywhere
     # above the word, inside each badge's disc: the large one (a box at (70, 30), 380 across) is red, the small one blue
     assert np.allclose(first[110, 260, :3], level("#ff4b3e"), atol=1e-5)

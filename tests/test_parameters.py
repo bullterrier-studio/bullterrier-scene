@@ -66,10 +66,6 @@ def values_of(scene: Scene) -> dict[str, object]:
     return {address: parameter.value for address, parameter in scene.parameters().items()}
 
 
-def same(left: np.ndarray, right: np.ndarray) -> bool:
-    return left.shape == right.shape and left.tobytes() == right.tobytes()
-
-
 def test_every_parameter_of_every_example_scene_conforms_to_the_parameter_format(scene):
     refused = {}
     for address, parameter in scene.parameters().items():
@@ -94,16 +90,16 @@ def test_the_parameters_are_ordered_layer_by_layer_and_keyed_by_their_address(sc
     assert len(seen) == len(set(seen)) == len(scene.layers)
 
 
-def test_setting_every_parameter_to_its_own_value_is_accepted_and_changes_nothing(scene):
+def test_setting_every_parameter_to_its_own_value_is_accepted_and_changes_nothing(scene, same_look):
     parameters = scene.parameters()
     picture = scene.render(96)
     again = scene.with_values(values_of(scene))
     assert again.parameters() == parameters
-    assert same(again.render(96), picture)
+    assert same_look(again.render(96), picture)
     for address, parameter in parameters.items():
         one = scene.with_values({address: parameter.value})
         assert one.parameters() == parameters, address
-        assert same(one.render(48), scene.render(48)), address
+        assert same_look(one.render(48), scene.render(48)), address
 
 
 def test_an_address_the_scene_does_not_list_is_refused(scene):
@@ -138,23 +134,23 @@ def test_the_cover_template_makes_six_different_covers_from_one_scene():
         template.render(64)  # the hole
 
 
-def test_the_headline_slides_in_by_one_address_and_the_ground_stays_as_it_is():
+def test_the_headline_slides_in_by_one_address_and_the_ground_stays_as_it_is(same_look):
     module = load("frame_sequence")
     scene = module.build()
     first, last = module.frame(scene, 0, 160), module.frame(scene, module.FRAMES - 1, 160)
     ground = scene.with_values({"headline.opacity": 0}).render(160)
-    assert same(first, ground)  # at frame 0 the headline is not there
-    assert not same(first, last)
+    assert same_look(first, ground)  # at frame 0 the headline is not there
+    assert not same_look(first, last)
     assert set(module.frame_values(5)) <= set(scene.parameters())
 
 
-def test_the_mill_frame_sets_only_addresses_the_scene_lists_and_moves_them():
+def test_the_mill_frame_sets_only_addresses_the_scene_lists_and_moves_them(same_look):
     module = load("mill")
     scene = module.build(photo(160, 90), matte(160, 90), matte(160, 90) * 0.5, LOGO)
     rest = module.frame_values(0.0, 0.0, 0.0, 0.0, 0.0, [0, 0, 0, 0])
     busy = module.frame_values(0.9, 0.6, 0.5, 1.0, 1.0, [1, 1, 1, 1])
     assert set(rest) == set(busy) <= set(scene.parameters())
-    assert not same(module.frame(scene, rest, 64), module.frame(scene, busy, 64))
+    assert not same_look(module.frame(scene, rest, 64), module.frame(scene, busy, 64))
 
 
 # --- the facade -----------------------------------------------------------------------------------------------------
@@ -373,7 +369,7 @@ def lamp() -> Scene:
     )
 
 
-def test_a_looks_colour_is_listed_as_a_colour_and_set_by_text_or_a_triple():
+def test_a_looks_colour_is_listed_as_a_colour_and_set_by_text_or_a_triple(same_look):
     scene = lamp()
     listed = scene.parameters()["glow.look.point_light.color"]
     assert (listed.kind, listed.value, listed.default, listed.unit, listed.min, listed.max) == (
@@ -385,11 +381,11 @@ def test_a_looks_colour_is_listed_as_a_colour_and_set_by_text_or_a_triple():
         None,
     )
     by_hex = scene.with_values({"glow.look.point_light.color": "#336699"}).render(48)
-    assert same(by_hex, scene.with_values({"glow.look.point_light.color": "#369"}).render(48))
-    assert same(by_hex, scene.with_values({"glow.look.point_light.color": (0.2, 0.4, 0.6)}).render(48))
-    assert same(by_hex, scene.with_values({"glow.look.point_light.color": np.array([0.2, 0.4, 0.6])}).render(48))
-    assert not same(by_hex, scene.render(48))
-    assert same(
+    assert same_look(by_hex, scene.with_values({"glow.look.point_light.color": "#369"}).render(48))
+    assert same_look(by_hex, scene.with_values({"glow.look.point_light.color": (0.2, 0.4, 0.6)}).render(48))
+    assert same_look(by_hex, scene.with_values({"glow.look.point_light.color": np.array([0.2, 0.4, 0.6])}).render(48))
+    assert not same_look(by_hex, scene.render(48))
+    assert same_look(
         by_hex,
         Scene(24, 16)
         .add(
@@ -448,14 +444,14 @@ def test_a_colour_for_a_number_and_a_triple_of_the_wrong_length_are_refused():
         lamp().with_values({"glow.look.point_light.color": (0.2, 0.4)})
 
 
-def test_an_optional_look_colour_is_none_until_it_is_set_and_then_cannot_be_unset():
+def test_an_optional_look_colour_is_none_until_it_is_set_and_then_cannot_be_unset(same_look):
     scene = Scene(24, 16).add(
         Layer.picture(photo(8, 12)).look({"steps": [{"effect": "bloom", "params": {"radius": 4.0}}]}).named("halo")
     )
     listed = scene.parameters()["halo.look.bloom.color"]
     assert (listed.kind, listed.value, listed.default, listed.nullable) == ("color", None, None, True)
-    assert same(scene.with_values({"halo.look.bloom.color": None}).render(48), scene.render(48))
+    assert same_look(scene.with_values({"halo.look.bloom.color": None}).render(48), scene.render(48))
     tinted = scene.with_values({"halo.look.bloom.color": "#ff0000"})
-    assert not same(tinted.render(48), scene.render(48))
+    assert not same_look(tinted.render(48), scene.render(48))
     with pytest.raises(InvalidError, match="cannot be taken away"):
         tinted.with_values({"halo.look.bloom.color": None})

@@ -1,5 +1,5 @@
 //! The saved scene (`Scene::to_json`, `Scene::from_json`): the oracle is the round trip (a scene read back equals the scene,
-//! draws the same bits and lists the same parameters; the text is the same twice and read-and-written again), a table of
+//! draws the same look and lists the same parameters; the text is the same twice and read-and-written again), a table of
 //! known-bad documents with the pointer and the words of each refusal, and the rules of a file (a path, its digest).
 
 use std::path::{Path, PathBuf};
@@ -122,7 +122,7 @@ pub(crate) fn rich(files: &Files) -> Result<Scene, Error> {
     Ok(scene_)
 }
 
-/// What a scene read back must be: equal, drawing the same bits, listing the same parameters; its text the same on every call,
+/// What a scene read back must be: equal, drawing the same look, listing the same parameters; its text the same on every call,
 /// and the text of the scene read back the same text.
 fn round_trips(scene_: &Scene, base: &Path, holes_filled: bool) -> Outcome {
     let text = scene_.to_json()?;
