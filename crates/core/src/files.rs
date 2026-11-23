@@ -86,7 +86,7 @@ pub(crate) fn hex_of(digest: &Fingerprint) -> String {
 /// let files = Files::given().with("photo.png", png_bytes).with("look.toml", toml_bytes);
 /// let scene = Scene::from_json_with(&text, &files, &LayerKinds::new())?;
 /// ```
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 #[must_use]
 pub struct Files {
     /// The folder a relative path is read from; `None` reads nothing from disk.
@@ -119,7 +119,10 @@ impl Files {
 
     /// No files yet: nothing on disk is read, each file comes from [`with`](Files::with).
     pub fn given() -> Self {
-        Self::default()
+        Self {
+            folder: None,
+            given: BTreeMap::new(),
+        }
     }
 
     /// These files and `bytes` as the file the document names `path`, matched exactly as written (`./dog.png` is not
