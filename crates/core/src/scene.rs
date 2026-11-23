@@ -61,11 +61,16 @@ impl Scene {
         })
     }
 
-    /// This empty scene with a cache of `bytes` bytes: what a test fills cheaply.
-    #[cfg(test)]
-    pub(crate) fn with_cache_capacity(mut self, bytes: usize) -> Self {
-        self.cache = Arc::new(Cache::with_capacity(bytes));
-        self
+    /// This scene with a new, empty cache that keeps at most `bytes` bytes of pixels, planes and decoded files (2 GiB unless
+    /// set), shared by every scene made from it: a browser or a phone sets less, `0` keeps nothing. The picture is the same
+    /// whatever the budget; a budget below what a render reuses draws again what it would have found. The cache this scene
+    /// shared is left to the scenes that hold it.
+    #[must_use]
+    pub fn with_cache_budget(&self, bytes: usize) -> Self {
+        Self {
+            cache: Arc::new(Cache::with_capacity(bytes)),
+            ..self.clone()
+        }
     }
 
     /// A scene of the same canvas with no layer, sharing this scene's cache: the start of a scene made from this one.

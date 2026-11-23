@@ -342,6 +342,22 @@ fn a_layer_that_did_not_change_is_drawn_once_however_often_the_scene_is_drawn_an
 }
 
 #[test]
+fn a_cache_budget_bounds_what_the_scene_and_the_scenes_made_from_it_keep() -> Outcome {
+    // the static layer drawn at 100 x 50 is 80,000 bytes of floats: a budget of 0 keeps nothing, one of 1 MiB keeps it
+    for (budget, draws) in [(0, 3), (1 << 20, 1)] {
+        let kind = Counting::new(0.2);
+        let first = headline_over(&kind)?.with_cache_budget(budget);
+        let cold = headline_over(&Counting::new(0.2))?.render(100)?;
+        assert!(same_look(&first.render(100)?, &cold), "a budget changes no picture");
+        let moved = first.with_values(&Values::new().set("headline.dx", 10.0))?;
+        moved.render(100)?;
+        moved.render(100)?;
+        assert_eq!(kind.draws(), draws, "budget {budget}");
+    }
+    Ok(())
+}
+
+#[test]
 fn a_layer_is_drawn_again_for_what_it_draws_from_and_not_for_the_rest() -> Outcome {
     let kind = Counting::new(0.2);
     let scene_ = headline_over(&kind)?;

@@ -559,7 +559,7 @@ mod tests {
             .look(r#"{"steps": [{"effect": "auto_levels", "params": {}}]}"#)?
             .named("photo")?;
         // the finished raster is 100 x 100 x 16 bytes; the room left is less than one plane of a band
-        let scene = Scene::new(100, 100)?.with_cache_capacity(160_000 + 1_000).add([
+        let scene = Scene::new(100, 100)?.with_cache_budget(160_000 + 1_000).add([
             looked,
             Layer::fill("#c04020")?.mask(Layer::fill("#ffffff")?.fit(
                 [10.0, 10.0, 80.0, 80.0],
@@ -594,7 +594,7 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()?;
         // a finished raster is 100 x 100 x 16 bytes: room for three
         let scene = Scene::new(100, 100)?
-            .with_cache_capacity(3 * 160_000 + 1_000)
+            .with_cache_budget(3 * 160_000 + 1_000)
             .add(layers)?;
         assert_eq!(
             looks_run_by_bands(&scene, 100, 10)?,
@@ -631,7 +631,7 @@ mod tests {
         let mut layers = vec![looked(0.1, "p0")?, looked(0.2, "p1")?, looked(0.3, "p2")?];
         layers.extend(tail);
         let scene = Scene::new(100, 100)?
-            .with_cache_capacity(3 * 160_000 + 1_000)
+            .with_cache_budget(3 * 160_000 + 1_000)
             .add(layers)?;
         let before = RAN.with(std::cell::Cell::get);
         match band_rows {
@@ -718,7 +718,7 @@ mod tests {
             })
             .collect::<Result<Vec<_>, Error>>()?;
         let scene = Scene::new(100, 100)?
-            .with_cache_capacity(room * 160_000 + 1_000)
+            .with_cache_budget(room * 160_000 + 1_000)
             .add(looked)?;
         let (mut ran, mut pixels) = (Vec::new(), Vec::new());
         for rows in plan {
