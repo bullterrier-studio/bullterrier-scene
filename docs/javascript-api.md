@@ -31,7 +31,7 @@ const { Scene } = require("./pkg/bullterrier_scene_wasm.js");
 
 | | |
 |---|---|
-| `Scene.fromJson(text, options?)` | A scene from the JSON `toJson()` or Python's `Scene.to_json()` writes. `options.files`: an object of path to `Uint8Array`. `FormatError` (with `pointer`) for a document that is not a scene, and for a `make` layer (a Python plugin) naming its kind; `ReadError` (with `path`) for a file the document names that `files` lacks; `TypeError` naming `text` or `options` for another type. |
+| `Scene.fromJson(text, options?)` | A scene from the JSON `toJson()` or Python's `Scene.to_json()` writes. `options.files`: an object of path to `Uint8Array`. `options.cacheBytes`: the most bytes the scene's cache keeps ("Memory"). `FormatError` (with `pointer`) for a document that is not a scene, and for a `make` layer (a Python plugin) naming its kind; `ReadError` (with `path`) for a file the document names that `files` lacks; `TypeError` naming `text` or `options` for another type. |
 | `scene.width`, `scene.height` | The canvas, in pixels. |
 | `scene.parameters()` | Every value that can be set: `bt-scene parameters --json`'s keys (`address`, `kind`, `meaning`, `default`, `unit`, `min`, `max`, `cyclic`, plus `choices`, `min_length`, `nullable` where they apply) and `value`, what the scene holds now (a picture's: its path, or `null` for a hole). `unit` is `null` for a kind that is not a number. |
 | `scene.withValues({ address: value })` | A new scene with those set, all or nothing; the scene itself is left as it is. A value is a number, a boolean, a text or `[r, g, b]` (three numbers). `InvalidError` (with `address`) for an address that is not there or a value its field refuses; `TypeError` naming `values.<address>` for another type. No file values: to swap a photo, write a new document and `fromJson` it. |
@@ -57,9 +57,24 @@ file, a drawing file) comes from `files`, by the path exactly as the document wr
 Every `Scene` a call returns (`fromJson`, `withValues`) holds wasm memory until `free()`. In a slider loop, free the previous
 scene after each `withValues`. A render's `data` is a copy the page owns: nothing to free.
 
-Scenes made by `withValues` share one cache (bound 2 GiB), and wasm memory never shrinks: `free()` releases the scene, not what
-it cached. Measured on a poster at 640x800: 400 MB after the first render, 1,090 MB after 20 distinct values of one slider
-(about 29 MiB per new value; repeated values add nothing). A bound the caller sets is not built yet (BTSCN-0014).
+Scenes made by `withValues` share one cache of what each layer drew, at most `cacheBytes` bytes (default 256 MiB; `0` keeps
+nothing; the native package's is 2 GiB). Wasm memory never shrinks, and `free()` releases the scene, not what it cached, so the
+module's memory is the cache's bound plus what one render holds while it draws; it stops growing there. A smaller bound
+redraws more: what does not fit is drawn again (a picture decoded again, a look run again) on the next render that needs it.
+
+Measured in headless Chrome 157 (macOS arm64) on a 6-layer poster (a 5 megapixel photo and its matte, a three-ink halftone) at
+640 x 800, 40 distinct values of the halftone's `cell`, then 10 values seen before; wasm memory (`memory.buffer.byteLength`):
+
+| `cacheBytes` | after the first render | after 40 values and 10 repeats | a new value | a value seen before |
+|---|---|---|---|---|
+| 0 | 258 MiB | 258 MiB | 2.2 s | 1.5 s |
+| 128 MiB | 354 MiB | 354 MiB | 1.9 s | 23 ms for the last 2, else 1.2 s |
+| 256 MiB (default) | 382 MiB | 456 MiB | 1.85 s | 23 ms for the last 5, else 1.2 to 5 s |
+| 512 MiB | 382 MiB | 730 MiB | 1.85 s | 23 ms for all 10 |
+| 2 GiB | 382 MiB | 1,532 MiB, still growing | 1.9 s | 3 ms |
+
+The memory stops at the bound plus 258 MiB here (what a render of this poster holds while it draws, the decoded photo and matte
+among it; it grows with the render's size and the pictures' size). A phone's tab limit is not measured yet.
 
 ## Build
 

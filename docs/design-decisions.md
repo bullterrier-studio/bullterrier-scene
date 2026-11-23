@@ -58,6 +58,13 @@ the rest is code (image, vector, the PDF and PNG writers). A split by crate is n
 `tests/wasm/` (a picture, a feathered map mask, a grade) at 400 px, median of 5, load average about 3: `fromJson` 1.1 ms, a cold
 render 6.6 ms, one value changed and rendered 5.9 ms. The spike's 13-layer poster at 1,200 px is in `docs/future.md`.
 
+*Memory* (2026-11-23): the package bounds a scene's cache at 256 MiB, not the native 2 GiB, and `fromJson`'s `cacheBytes` sets
+another (`Scene::with_cache_budget`, one knob, no other cache internals). *Reason:* wasm memory never shrinks and ends at 4 GiB, a
+phone's tab far sooner; demo 57 measured 29 MiB more per new slider value under the 2 GiB bound. At 256 MiB a new value costs
+what it costs under 2 GiB (the decoded photo, its matte and the unchanged layers stay kept) and the last five values come back
+at once; the memory stops at the bound plus what a render holds (258 MiB there). The default sits in `crates/wasm`, not the core:
+it is the browser's number. Figures: `docs/javascript-api.md`, "Memory".
+
 ## Blending in sRGB values, straight alpha at the boundary (2026-11-08)
 
 Vector blends sRGB values and returns straight alpha; the W3C spec blends the same way. *Reason:* a drawing must look the same
