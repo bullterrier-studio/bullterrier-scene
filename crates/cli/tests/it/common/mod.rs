@@ -5,6 +5,10 @@ use std::path::{Path, PathBuf};
 use bullterrier_scene::{Fit, Layer, Place, Scene, Text};
 use tempfile::TempDir;
 
+// the repository's one tolerance, the file the core's tests use
+#[path = "../../../../core/tests/it/common/looks.rs"]
+mod looks;
+
 pub(crate) type Outcome = Result<(), Box<dyn std::error::Error>>;
 
 /// What a command did.
@@ -106,4 +110,13 @@ pub(crate) fn decoded(path: &Path) -> Result<(usize, usize, Vec<u8>), Box<dyn st
 )]
 fn byte(level: f32) -> u8 {
     (level * 255.0).round() as u8
+}
+
+/// Fails naming `what` and the difference unless the PNG at `got` looks the same as the PNG at `expected` (the one tolerance).
+pub(crate) fn assert_same_picture(got: &Path, expected: &Path, what: &str) -> Outcome {
+    let ((w, h, got), (ew, eh, expected)) = (decoded(got)?, decoded(expected)?);
+    assert_eq!((w, h), (ew, eh), "{what}: size");
+    let verdict = looks::levels_look_the_same(&got, &expected);
+    assert!(verdict.is_ok(), "{what}: {}", verdict.err().unwrap_or_default());
+    Ok(())
 }

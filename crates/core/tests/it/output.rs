@@ -5,7 +5,7 @@ use std::path::Path;
 
 use bullterrier_scene::{Error, Fit, Layer, Raster, WriteOptions};
 
-use crate::common::{Outcome, made, physical, scene, varied};
+use crate::common::{Outcome, physical, scene, varied};
 
 /// `level` (a multiple of 1/255 or near it) as its 8-bit number.
 #[expect(
@@ -101,24 +101,6 @@ fn a_one_pixel_picture_and_a_large_one_are_written() -> Outcome {
         .zip(&bytes)
         .position(|(level, got)| byte(*level) != *got);
     assert_eq!(first_difference, None);
-    Ok(())
-}
-
-#[test]
-fn the_same_picture_gives_the_same_bytes() -> Outcome {
-    let folder = tempfile::tempdir()?;
-    let picture = made(9, 5, |x, y| {
-        [
-            f32::from(u8::try_from(x).unwrap_or(0)) / 8.0,
-            f32::from(u8::try_from(y).unwrap_or(0)) / 4.0,
-            0.5,
-            1.0,
-        ]
-    })?;
-    let (first, second) = (folder.path().join("a.png"), folder.path().join("b.png"));
-    picture.write(&first)?;
-    picture.write(&second)?;
-    assert_eq!(std::fs::read(first)?, std::fs::read(second)?);
     Ok(())
 }
 

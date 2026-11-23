@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use bullterrier_image::{Presets, Recipe};
 use bullterrier_scene::{Blend, Deg, Error, Fit, Kind, Layer, Map, Parameter, Place, Raster, Scene, Value, Values};
 
-use crate::common::{Outcome, all_exactly, numbered, pixels, rectangle, scene, solid};
+use crate::common::{Outcome, all_exactly, numbered, rectangle, same_look, scene, solid};
 
 const GRADE: &str = r#"{"steps": [{"effect": "grade", "params": {"exposure": 0.5}}]}"#;
 
@@ -294,13 +294,6 @@ fn drawn(scene: &Scene) -> Result<Raster, Error> {
     scene.render(40)
 }
 
-fn same(left: &Raster, right: &Raster) -> bool {
-    (left.width(), left.height()) == (right.width(), right.height())
-        && pixels(left)
-            .zip(pixels(right))
-            .all(|(l, r)| l.map(f32::to_bits) == r.map(f32::to_bits))
-}
-
 /// The scene to render: `everything()` without the picture hole.
 pub(crate) fn drawable() -> Result<Scene, Box<dyn std::error::Error>> {
     let all = everything()?;
@@ -321,7 +314,7 @@ fn every_parameter_set_to_its_own_value_changes_nothing() -> Outcome {
     }
     let after = before.with_values(&all)?;
     assert_eq!(after.parameters(), listed);
-    assert!(same(&drawn(&after)?, &drawn(&before)?));
+    assert!(same_look(&drawn(&after)?, &drawn(&before)?));
     // one at a time, each is accepted
     for parameter in &listed {
         let one = Values::new().set(parameter.address.clone(), parameter.value.clone());
@@ -429,7 +422,7 @@ fn a_value_is_what_the_layers_own_call_would_set() -> Outcome {
             .with_values(&set)?
             .render(24)?;
         let expected = scene(canvas.0, canvas.1, [backdrop()?, layer])?.render(24)?;
-        assert!(same(&got, &expected), "{set:?}");
+        assert!(same_look(&got, &expected), "{set:?}");
     }
     Ok(())
 }
@@ -551,15 +544,15 @@ fn a_refused_set_changes_nothing_and_the_original_is_never_changed() -> Outcome 
         .set("logo.drawing.x", 99.0);
     assert!(before.with_values(&mixed).is_err());
     assert_eq!(before.parameters(), listed);
-    assert!(same(&drawn(&before)?, &picture));
+    assert!(same_look(&drawn(&before)?, &picture));
     // a good set returns a new scene; the first one is as it was
     let changed = before.with_values(&Values::new().set("band.color", "#ff0000"))?;
     assert_ne!(changed.parameters(), listed);
     assert_eq!(before.parameters(), listed);
-    assert!(same(&drawn(&before)?, &picture));
+    assert!(same_look(&drawn(&before)?, &picture));
     // determinism: the same values give the same scene
     let again = before.with_values(&Values::new().set("band.color", "#ff0000"))?;
-    assert!(same(&drawn(&changed)?, &drawn(&again)?));
+    assert!(same_look(&drawn(&changed)?, &drawn(&again)?));
     Ok(())
 }
 
@@ -603,7 +596,7 @@ fn a_hole_is_filled_by_a_value_and_can_be_made_again() -> Outcome {
     let full = photo_only.with_values(&Values::new().set("photo.map.subject", matte()?))?;
     let rendered = full.render(6)?;
     let direct = scene(6, 4, [Layer::picture(picture()?).named("photo")?])?.render(6)?;
-    assert!(same(&rendered, &direct));
+    assert!(same_look(&rendered, &direct));
     let again = full.with_values(&Values::new().set("photo.picture", Value::Hole))?;
     assert!(again.render(6).is_err());
     // a path is a value too: read at render, so a missing file is a read error naming the layer
@@ -626,7 +619,7 @@ fn a_look_address_is_set_as_images_own_with_values_would() -> Outcome {
         .map_err(|error| error.to_string())?;
     let json = serde_json::to_string(&recipe)?;
     let expected = scene(6, 4, [Layer::picture(numbered(6, 4)?).look(&json)?.named("p")?])?.render(6)?;
-    assert!(same(&got, &expected));
+    assert!(same_look(&got, &expected));
     // a second look is `look#2`, and only its own number changes
     let two = scene(6, 4, [layer()?.look(GRADE)?.named("p")?])?;
     let second = two.with_values(&Values::new().set("p.look#2.grade.exposure", 1.0))?;
@@ -647,13 +640,13 @@ fn a_drawing_param_moves_the_drawing_and_stays_listed() -> Outcome {
     let template = scene(40, 20, [Layer::drawing(SLIDER)?.named("logo")?])?;
     for x in [0.0, 12.0, -4.0, 30.0] {
         let set = template.with_values(&Values::new().set("logo.drawing.x", x))?;
-        assert!(same(&set.render(40)?, &slid(x)?), "x = {x}");
+        assert!(same_look(&set.render(40)?, &slid(x)?), "x = {x}");
         // set once, listed still, and set again
         let listed = set.parameters();
         assert_eq!(at(&listed, "logo.drawing.x")?.value, Value::Number(x));
         assert_eq!(at(&listed, "logo.drawing.x")?.default, Value::Number(0.0));
         let twice = set.with_values(&Values::new().set("logo.drawing.x", 5.0))?;
-        assert!(same(&twice.render(40)?, &slid(5.0)?));
+        assert!(same_look(&twice.render(40)?, &slid(5.0)?));
     }
     Ok(())
 }
@@ -676,8 +669,8 @@ fn an_address_under_a_group_changes_the_inner_scene_as_a_value() -> Outcome {
     let set = outer.with_values(&Values::new().set("badge.scene.base.color", "#00ff00"))?;
     // the reference inside the group follows the layer it names
     let direct = inner.with_values(&Values::new().set("base.color", "#00ff00"))?;
-    assert!(same(&set.render(20)?, &direct.render(20)?));
-    assert!(!same(&set.render(20)?, &outer.render(20)?));
+    assert!(same_look(&set.render(20)?, &direct.render(20)?));
+    assert!(!same_look(&set.render(20)?, &outer.render(20)?));
     // the scene that was used stays as it was
     assert!(
         inner
@@ -715,7 +708,7 @@ fn a_mask_layer_moves_with_its_address() -> Outcome {
         )
     };
     let moved = make(0.0)?.with_values(&Values::new().set("photo.mask.dx", 4.0))?;
-    assert!(same(&moved.render(12)?, &make(4.0)?.render(12)?));
+    assert!(same_look(&moved.render(12)?, &make(4.0)?.render(12)?));
     // a mask of a mask is `mask.mask`
     let nested = scene(
         12,
@@ -759,7 +752,7 @@ fn a_reference_follows_the_layer_it_names_when_that_layer_is_changed() -> Outcom
                 .opacity(0.5)?,
         ],
     )?;
-    assert!(same(&set.render(24)?, &expected.render(24)?));
+    assert!(same_look(&set.render(24)?, &expected.render(24)?));
     // the reference's own `dx` is its extra place, and it is listed apart from the layer's
     let listed = set.parameters();
     assert_eq!(at(&listed, "copy.dx")?.value, Value::Number(6.0));

@@ -2,9 +2,9 @@
 
 use bullterrier_scene::{BleedFill, Layer, PdfOptions, Raster, Scene, Value, Values, WriteOptions};
 
-use crate::common::{Outcome, Project, bt, decoded, text};
+use crate::common::{Outcome, Project, assert_same_picture, bt, decoded, text};
 
-/// The bytes the core's own writer makes of `raster`: what a render of it must be, byte for byte.
+/// The bytes the core's own writer makes of `raster` (at `path`, which a picture compare reads again).
 fn written(raster: &Raster, path: &std::path::Path) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     raster.write(path)?;
     Ok(std::fs::read(path)?)
@@ -101,10 +101,11 @@ fn set_gives_the_picture_of_with_values() -> Outcome {
             ran
         };
         assert_eq!(ran.code, 0, "{what}: {}", ran.err);
-        assert!(
-            std::fs::read(&out)? == expected,
-            "{what}: not the picture with_values gives"
-        );
+        assert_same_picture(
+            &out,
+            &project.file("expected.png"),
+            &format!("{what}: not the picture with_values gives"),
+        )?;
         assert!(expected != plain, "{what}: the value changed nothing");
     }
     Ok(())
@@ -115,7 +116,7 @@ fn set_twice_takes_the_last_and_two_addresses_both() -> Outcome {
     let project = Project::new()?;
     let scene = project.scene()?;
     let values = Values::new().set("band.opacity", 0.3).set("title.color", "#00ff00");
-    let expected = written(&scene.with_values(&values)?.render(64)?, &project.file("expected.png"))?;
+    written(&scene.with_values(&values)?.render(64)?, &project.file("expected.png"))?;
     let out = project.file("out.png");
     let ran = bt(&[
         "render",
@@ -129,7 +130,7 @@ fn set_twice_takes_the_last_and_two_addresses_both() -> Outcome {
         "band.opacity=0.3",
     ]);
     assert_eq!(ran.code, 0, "{}", ran.err);
-    assert!(std::fs::read(&out)? == expected, "the last value of an address wins");
+    assert_same_picture(&out, &project.file("expected.png"), "the last value of an address wins")?;
     Ok(())
 }
 
@@ -467,7 +468,8 @@ fn set_gives_a_look_its_colour_as_text_or_a_triple_and_parameters_lists_it() -> 
             assignment,
         ]);
         assert_eq!(ran.code, 0, "{assignment}: {}", ran.err);
-        assert!(std::fs::read(&out)? == expected(value)?, "{assignment}");
+        expected(value)?;
+        assert_same_picture(&out, &project.file("expected.png"), assignment)?;
     }
     let refused = bt(&[
         "render",

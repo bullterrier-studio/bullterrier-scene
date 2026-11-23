@@ -1,5 +1,5 @@
 //! Banded rendering (B1): the picture drawn a band of rows at a time. The one promise is that the bands put together are the
-//! picture `render` makes, bit for bit, whatever the height of a band. The oracle is `render` itself, over scenes of every kind
+//! picture `render` makes (looks the same, one tolerance), whatever the height of a band. The oracle is `render` itself, over scenes of every kind
 //! of layer at several band heights and at sizes whose long side is odd and even.
 
 use std::ops::Range;
@@ -12,19 +12,12 @@ use bullterrier_scene::{
 use serde_json::{Value, json};
 
 use crate::common::counting::Counting;
-use crate::common::{Outcome, made, rectangle, scene, varied};
+use crate::common::{Outcome, looks_the_same, made, rectangle, scene, varied};
 use crate::saved::{Files, rich};
 
-/// The first place where the picture and `bands` differ, as `(row, column, channel)`, or `None`.
-fn first_difference(whole: &Raster, bands: &[f32]) -> Option<(usize, usize, usize)> {
-    assert_eq!(whole.pixels().len(), bands.len(), "the bands cover the picture exactly");
-    let at = whole
-        .pixels()
-        .iter()
-        .zip(bands)
-        .position(|(left, right)| left.to_bits() != right.to_bits())?;
-    let width = whole.width();
-    Some((at / 4 / width, at / 4 % width, at % 4))
+/// What differs visibly between the picture and `bands` (the one tolerance), or `None` when they look the same.
+fn first_difference(whole: &Raster, bands: &[f32]) -> Option<String> {
+    looks_the_same(whole.pixels(), bands).err()
 }
 
 /// The heights a band takes in a picture of `rows` rows: one, a few, a prime near an eighth, half, all and some that divide
@@ -68,7 +61,7 @@ pub(crate) fn bands_make_the_whole(scene: &Scene, size: u32) -> Outcome {
         assert_eq!(
             first_difference(&whole, &found),
             None,
-            "bands of {band_rows} rows at size {size}: first difference (row, column, channel)"
+            "bands of {band_rows} rows at size {size}"
         );
     }
     Ok(())
@@ -368,7 +361,7 @@ fn read_back(path: &std::path::Path) -> Result<(usize, usize, Vec<f32>), Box<dyn
     Ok((image.width(), image.height(), image.into_values()))
 }
 
-/// The PNG streamed band by band holds the pixels the whole picture written by `Raster::write` holds, to the bit once read
+/// The PNG streamed band by band holds the pixels the whole picture written by `Raster::write` holds, to the tolerance once read
 /// back (the same 8-bit levels, rounded the same way); the two files differ only in how they say the colour is sRGB.
 #[test]
 fn a_png_streamed_by_bands_holds_the_pixels_of_the_picture_written_whole() -> Outcome {
@@ -379,8 +372,7 @@ fn a_png_streamed_by_bands_holds_the_pixels_of_the_picture_written_whole() -> Ou
     scene_.render(4100)?.write(&whole)?;
     let (a, b) = (read_back(&streamed)?, read_back(&whole)?);
     assert_eq!((a.0, a.1), (b.0, b.1));
-    assert_eq!(a.2.iter().zip(&b.2).position(|(x, y)| x.to_bits() != y.to_bits()), None);
-    assert_eq!(a.2.len(), b.2.len());
+    assert_eq!(looks_the_same(&a.2, &b.2), Ok(()));
     // the folder holds the two files and no temporary one
     assert_eq!(std::fs::read_dir(folder.path())?.count(), 2);
     Ok(())

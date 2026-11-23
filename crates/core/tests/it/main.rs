@@ -35,6 +35,7 @@ mod plates;
 mod plugin;
 mod references;
 mod room;
+mod same_look;
 mod saved;
 mod structure;
 mod text;

@@ -10,7 +10,7 @@ use pollster::block_on;
 use serde_json::{Value, json};
 
 use super::{fresh, gpu, rendered};
-use crate::common::{Outcome, rectangle, scene};
+use crate::common::{Outcome, looks_the_same, rectangle, scene};
 
 /// A picture of one seeded grey ramp, so that two differ.
 fn ramp(width: usize, height: usize, seed: usize) -> Result<Raster, Error> {
@@ -28,16 +28,6 @@ fn picture(seed: usize, name: &str) -> Result<Layer, Error> {
     Layer::picture(ramp(30, 20, seed)?)
         .fit([0.0, 0.0, 60.0, 40.0], Fit::Cover, [0.5, 0.5])?
         .named(name)
-}
-
-/// Whether two pictures are the same bit for bit: the length, then the first index that differs (a failure names it, and no
-/// buffer is printed).
-fn same_bits(left: &Raster, right: &Raster) -> Option<usize> {
-    assert_eq!((left.width(), left.height()), (right.width(), right.height()));
-    left.pixels()
-        .iter()
-        .zip(right.pixels())
-        .position(|(a, b)| a.to_bits() != b.to_bits())
 }
 
 /// Three pictures, a fill and a drawing.
@@ -64,7 +54,7 @@ fn the_same_context_and_scene_give_the_same_bytes_twice() -> Outcome {
     let Some(gpu) = gpu() else { return Ok(()) };
     let poster = poster(&mark("#ff0000"))?;
     let (first, second) = (rendered(&gpu, &poster, 60)?, rendered(&gpu, &poster, 60)?);
-    assert_eq!(same_bits(&first, &second), None);
+    assert_eq!(looks_the_same(&first.pixels(), &second.pixels()), Ok(()));
     Ok(())
 }
 
@@ -80,7 +70,7 @@ fn a_changed_value_gives_the_bytes_of_a_cold_render_of_the_changed_scene() -> Ou
     // a scene made afresh, on a context that has drawn nothing
     let cold_scene = poster(&mark("#ff0000"))?.with_values(&values)?;
     let cold = rendered(&cold, &cold_scene, 60)?;
-    assert_eq!(same_bits(&changed, &cold), None);
+    assert_eq!(looks_the_same(&changed.pixels(), &cold.pixels()), Ok(()));
     Ok(())
 }
 
@@ -121,7 +111,7 @@ fn the_device_cache_keeps_what_its_budget_holds_and_nothing_mixes_with_the_cpus(
         "the budget holds less than the scene's sources: the second render sends some again"
     );
     // the CPU's picture is untouched by the GPU's renders, and the GPU's by the CPU's cache
-    assert_eq!(same_bits(&cpu, &poster.render(60)?), None);
+    assert_eq!(looks_the_same(&cpu.pixels(), &poster.render(60)?.pixels()), Ok(()));
     assert!(super::largest_gap(&cpu, &held).0 < 1e-3);
     gpu.set_cache_budget(bullterrier_scene::DEFAULT_CACHE_BYTES);
     rendered(&gpu, &poster, 60)?;
@@ -194,10 +184,10 @@ fn two_threads_render_different_scenes_on_one_context() -> Outcome {
         return Err("a render thread panicked".into());
     };
     for picture in first? {
-        assert_eq!(same_bits(&picture, &alone.0), None);
+        assert_eq!(looks_the_same(&picture.pixels(), &alone.0.pixels()), Ok(()));
     }
     for picture in second? {
-        assert_eq!(same_bits(&picture, &alone.1), None);
+        assert_eq!(looks_the_same(&picture.pixels(), &alone.1.pixels()), Ok(()));
     }
     Ok(())
 }

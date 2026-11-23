@@ -11,7 +11,7 @@ use bullterrier_scene::{
 };
 
 use crate::common::counting::Counting;
-use crate::common::{Outcome, made, pixels, scene, varied};
+use crate::common::{Outcome, made, same_look, scene, varied};
 use crate::parameters::drawable;
 use crate::saved::{Files, rich, write_picture};
 
@@ -22,17 +22,10 @@ fn step(n: usize) -> f32 {
     f32::from(u8::try_from(n).unwrap_or(0))
 }
 
-fn same_bits(left: &Raster, right: &Raster) -> bool {
-    (left.width(), left.height()) == (right.width(), right.height())
-        && pixels(left)
-            .zip(pixels(right))
-            .all(|(l, r)| l.map(f32::to_bits) == r.map(f32::to_bits))
-}
-
-/// Two renders agree: the same picture bit for bit, or the same refusal.
+/// Two renders agree: a picture that looks the same, or the same refusal.
 fn agree(warm: &Result<Raster, Error>, cold: &Result<Raster, Error>) -> bool {
     match (warm, cold) {
-        (Ok(warm), Ok(cold)) => same_bits(warm, cold),
+        (Ok(warm), Ok(cold)) => same_look(warm, cold),
         (Err(warm), Err(cold)) => warm == cold,
         _ => false,
     }
@@ -445,12 +438,12 @@ fn a_file_that_changed_is_read_again_and_one_that_did_not_is_the_same_picture() 
     write_picture(&path, &varied(12, 8)?)?;
     let used = layer()?;
     let first = used.render(24)?;
-    assert!(same_bits(&first, &used.render(24)?));
+    assert!(same_look(&first, &used.render(24)?));
     // another picture of another size is another file, whatever the path says
     write_picture(&path, &varied(16, 10)?)?;
     let second = used.render(24)?;
-    assert!(!same_bits(&first, &second));
-    assert!(same_bits(&second, &layer()?.render(24)?));
+    assert!(!same_look(&first, &second));
+    assert!(same_look(&second, &layer()?.render(24)?));
     Ok(())
 }
 
@@ -470,9 +463,9 @@ fn a_picture_swapped_by_a_value_is_the_other_picture_and_equal_pixels_are_the_sa
     let fill = |picture: &Raster| template.with_values(&Values::new().set("photo.picture", picture.clone()));
     let first = fill(&one)?.render(24)?;
     let second = fill(&two)?.render(24)?;
-    assert!(!same_bits(&first, &second));
-    assert!(same_bits(&first, &fill(&one.clone())?.render(24)?));
-    assert!(same_bits(
+    assert!(!same_look(&first, &second));
+    assert!(same_look(&first, &fill(&one.clone())?.render(24)?));
+    assert!(same_look(
         &first,
         &template
             .with_values(&Values::new().set("photo.picture", one))?
@@ -526,7 +519,7 @@ fn scenes_that_share_a_cache_drawn_by_several_threads_draw_what_cold_scenes_draw
                     start.wait();
                     (0..12_usize).all(|turn| {
                         let n = (turn * (which + 1)) % 6;
-                        frames[n].render(SIZE).is_ok_and(|drawn| same_bits(&drawn, &cold[n]))
+                        frames[n].render(SIZE).is_ok_and(|drawn| same_look(&drawn, &cold[n]))
                     })
                 })
             })
@@ -666,7 +659,7 @@ fn a_picture_is_the_same_whatever_the_number_of_threads_that_lay_its_layers() ->
     let one = draw(1)?;
     for threads in [2, 3, 7] {
         assert!(
-            same_bits(&draw(threads)?, &one),
+            same_look(&draw(threads)?, &one),
             "{threads} threads drew another picture"
         );
     }

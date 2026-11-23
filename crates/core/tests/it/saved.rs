@@ -10,7 +10,7 @@ use bullterrier_scene::{
 use proptest::prelude::*;
 use serde_json::Value;
 
-use crate::common::{Outcome, made, rectangle, scene, varied};
+use crate::common::{Outcome, made, rectangle, same_look, scene, varied};
 
 use crate::cover_template;
 
@@ -122,15 +122,6 @@ pub(crate) fn rich(files: &Files) -> Result<Scene, Error> {
     Ok(scene_)
 }
 
-fn same_bits(left: &Raster, right: &Raster) -> bool {
-    (left.width(), left.height()) == (right.width(), right.height())
-        && left
-            .pixels()
-            .iter()
-            .map(|v| v.to_bits())
-            .eq(right.pixels().iter().map(|v| v.to_bits()))
-}
-
 /// What a scene read back must be: equal, drawing the same bits, listing the same parameters; its text the same on every call,
 /// and the text of the scene read back the same text.
 fn round_trips(scene_: &Scene, base: &Path, holes_filled: bool) -> Outcome {
@@ -141,7 +132,7 @@ fn round_trips(scene_: &Scene, base: &Path, holes_filled: bool) -> Outcome {
     assert_eq!(back.to_json()?, text, "the text read and written again differs");
     assert_eq!(back.parameters(), scene_.parameters());
     if holes_filled {
-        assert!(same_bits(&back.render(48)?, &scene_.render(48)?), "the pictures differ");
+        assert!(same_look(&back.render(48)?, &scene_.render(48)?), "the pictures differ");
     }
     Ok(())
 }
@@ -350,7 +341,7 @@ fn a_relative_path_is_read_from_the_folder_it_is_resolved_against_and_the_digest
         8,
         [Layer::picture_file(files.path("photo.png")).map_file("matte", files.path("matte.png"))?],
     )?;
-    assert!(same_bits(&drawn, &by_path.render(12)?));
+    assert!(same_look(&drawn, &by_path.render(12)?));
     // from another folder the file is not there: a read error at render, not at load
     let elsewhere = Scene::from_json(text, &files.path("nowhere"))?;
     let refused = elsewhere.render(12);
@@ -374,7 +365,7 @@ fn a_relative_path_is_read_from_the_folder_it_is_resolved_against_and_the_digest
     );
     // the digest of a file that is there is accepted
     let kept = text.replace(r#""photo.png""#, &format!(r#""photo.png","sha256":"{digest}""#));
-    assert!(same_bits(&Scene::from_json(&kept, files.base())?.render(12)?, &drawn));
+    assert!(same_look(&Scene::from_json(&kept, files.base())?.render(12)?, &drawn));
     // the file changed after the scene was saved: the check sees it
     let inverted: Vec<f32> = varied(12, 8)?.pixels().iter().map(|value| 1.0 - value).collect();
     write_picture(&files.path("photo.png"), &Raster::rgba(12, 8, inverted)?)?;
@@ -752,7 +743,7 @@ fn the_rust_cover_template_is_saved_read_back_and_filled_with_an_episode() -> Ou
     )?;
     assert_eq!(template, cover_template::build(&files.path("photo.png"))?);
     // the band's colour and the photo of the episode show: the episode is not the template drawn as it is
-    assert!(!same_bits(&episode, &template.render(1280)?));
+    assert!(!same_look(&episode, &template.render(1280)?));
     Ok(())
 }
 

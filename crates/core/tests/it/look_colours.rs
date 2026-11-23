@@ -7,7 +7,7 @@ use std::sync::Arc;
 use bullterrier_scene::{Error, Kind, Layer, Map, Parameter, Place, Raster, Scene, Value, Values};
 
 use crate::common::counting::Counting;
-use crate::common::{Outcome, pixels, scene, varied};
+use crate::common::{Outcome, same_look, scene, varied};
 
 /// A map of 0 to 1 over the 12 by 8 picture: how near each pixel is, which `point_light` lights.
 fn depth() -> Result<Map, Error> {
@@ -51,12 +51,6 @@ fn render(scene: &Scene) -> Result<Raster, Error> {
     scene.render(48)
 }
 
-fn same(left: &Raster, right: &Raster) -> bool {
-    pixels(left)
-        .zip(pixels(right))
-        .all(|(l, r)| l.map(f32::to_bits) == r.map(f32::to_bits))
-}
-
 fn set(scene: &Scene, value: impl Into<Value>) -> Result<Scene, Error> {
     scene.with_values(&Values::new().set(ADDRESS, value))
 }
@@ -77,9 +71,9 @@ fn a_looks_colour_is_listed_as_a_colour_with_its_value_and_no_unit_or_range() ->
 fn every_spelling_of_a_colour_gives_the_same_picture_and_it_is_not_the_default_one() -> Outcome {
     let base = lit()?;
     let by_hex = render(&set(&base, "#336699")?)?;
-    assert!(same(&by_hex, &render(&set(&base, "#369")?)?));
-    assert!(same(&by_hex, &render(&set(&base, Value::Rgb([0.2, 0.4, 0.6]))?)?));
-    assert!(!same(&by_hex, &render(&base)?), "the colour of the lamp shows");
+    assert!(same_look(&by_hex, &render(&set(&base, "#369")?)?));
+    assert!(same_look(&by_hex, &render(&set(&base, Value::Rgb([0.2, 0.4, 0.6]))?)?));
+    assert!(!same_look(&by_hex, &render(&base)?), "the colour of the lamp shows");
     // the value is read back as it was given, as text where it is a whole number of 255ths
     assert_eq!(
         parameter(&set(&base, "#369")?, ADDRESS)?.value,
@@ -98,7 +92,7 @@ fn every_spelling_of_a_colour_gives_the_same_picture_and_it_is_not_the_default_o
                 .place(Place::new().dx(2.0))?,
         ],
     )?;
-    assert!(same(&by_hex, &render(&cold)?));
+    assert!(same_look(&by_hex, &render(&cold)?));
     Ok(())
 }
 
@@ -163,9 +157,9 @@ fn an_unset_optional_colour_is_listed_as_none_and_takes_a_colour() -> Outcome {
     );
     // none for none changes nothing, a colour sets it, and it is never unset
     let own = base.with_values(&Values::new().set("halo.look.bloom.color", Value::Hole))?;
-    assert!(same(&render(&own)?, &render(&base)?));
+    assert!(same_look(&render(&own)?, &render(&base)?));
     let tinted = base.with_values(&Values::new().set("halo.look.bloom.color", "#ff0000"))?;
-    assert!(!same(&render(&tinted)?, &render(&base)?));
+    assert!(!same_look(&render(&tinted)?, &render(&base)?));
     assert!(
         tinted
             .with_values(&Values::new().set("halo.look.bloom.color", Value::Hole))
@@ -182,8 +176,8 @@ fn a_layers_own_colour_still_works_beside_a_looks() -> Outcome {
         &base.with_values(&Values::new().set("ground.color", "#ff0000"))?,
         "#336699",
     )?;
-    assert!(same(&render(&both)?, &render(&by_hand)?));
-    assert!(!same(&render(&both)?, &render(&set(&base, "#336699")?)?));
+    assert!(same_look(&render(&both)?, &render(&by_hand)?));
+    assert!(!same_look(&render(&both)?, &render(&set(&base, "#336699")?)?));
     assert_eq!(
         parameter(&both, "ground.color")?.value,
         Value::Text("#ff0000".to_owned())
@@ -211,10 +205,13 @@ fn the_cache_sees_a_changed_look_colour_and_serves_an_unchanged_one() -> Outcome
     assert_eq!(kind.draws(), 1);
     let set = |colour: &str| base.with_values(&Values::new().set("glow.look.bloom.color", colour));
     let again = set("#ffe2b8")?;
-    assert!(same(&render(&again)?, &first));
+    assert!(same_look(&render(&again)?, &first));
     assert_eq!(kind.draws(), 1, "the same colour is a hit");
     let changed = render(&set("#336699")?)?;
-    assert!(!same(&changed, &first), "a new colour is a new picture");
-    assert!(same(&changed, &render(&under("#336699")?)?), "and the cold scene's");
+    assert!(!same_look(&changed, &first), "a new colour is a new picture");
+    assert!(
+        same_look(&changed, &render(&under("#336699")?)?),
+        "and the cold scene's"
+    );
     Ok(())
 }

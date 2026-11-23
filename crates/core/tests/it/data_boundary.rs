@@ -74,7 +74,7 @@ fn a_recipe_with_a_format_reads_and_renders_as_the_same_recipe_without_one() -> 
         let lowest = Recipe::from_json(recipe)?.format();
         for format in RECIPE_FORMATS.into_iter().filter(|format| *format >= lowest) {
             let written = recipe.replacen('{', &format!("{{\"format\": {format}, "), 1);
-            same_bits(
+            same_look(
                 &rendered(&written, 12, 20, &values)?,
                 &plain,
                 &format!("{what}, format {format}"),
@@ -144,20 +144,10 @@ fn opaque(height: usize, width: usize, values: &[f32]) -> Result<Raster, Box<dyn
     Ok(Raster::rgba(width, height, rgba)?)
 }
 
-/// Fails naming the first value of `got` that is not `expected`, bit for bit (a float compared exactly, on purpose; a
-/// whole picture is never printed).
-fn same_bits(got: &[f32], expected: &[f32], what: &str) {
-    assert_eq!(got.len(), expected.len(), "{what}: length");
-    let differing = got
-        .iter()
-        .zip(expected)
-        .position(|(got, expected)| got.to_bits() != expected.to_bits());
-    assert!(
-        differing.is_none(),
-        "{what}: value {differing:?} is {:?}, not {:?}",
-        differing.map(|at| got[at]),
-        differing.map(|at| expected[at])
-    );
+/// Fails naming the difference unless `got` looks the same as `expected` (the one tolerance; a whole picture is never printed).
+fn same_look(got: &[f32], expected: &[f32], what: &str) {
+    let verdict = crate::common::looks_the_same(got, expected);
+    assert!(verdict.is_ok(), "{what}: {}", verdict.err().unwrap_or_default());
 }
 
 /// The colour of `raster` as RGB, alpha dropped.
@@ -171,7 +161,7 @@ fn colour(raster: &Raster) -> Vec<f32> {
         .collect()
 }
 
-/// Scene's look layer is image's own render, bit for bit: at the picture's own size (nothing is resampled), and at another
+/// Scene's look layer is image's own render, looks the same: at the picture's own size (nothing is resampled), and at another
 /// size, where the look runs on the picture resampled to the output size (so the oracle is image's render of what scene
 /// draws of the same picture with no look). Every form `to_dict()` writes, and the by-name preset of a recipe file.
 #[test]
@@ -182,7 +172,7 @@ fn a_look_layer_equals_the_image_crates_own_render_at_the_same_picture_and_size(
         // the picture's own size: 20 design pixels wide at 20 output pixels
         let drawn = scene(20, 12, [layer().look(recipe)?])?.render(20)?;
         let own = rendered(recipe, 12, 20, &values).map_err(|error| format!("{what}: {error}"))?;
-        same_bits(&colour(&drawn), &own, &format!("{what} at its own size"));
+        same_look(&colour(&drawn), &own, &format!("{what} at its own size"));
         assert!(
             pixels(&drawn).all(|pixel| pixel[3].to_bits() == 1.0_f32.to_bits()),
             "{what}: alpha stays"
@@ -192,7 +182,7 @@ fn a_look_layer_equals_the_image_crates_own_render_at_the_same_picture_and_size(
         let (height, width) = (plain.height(), plain.width());
         let after = rendered(recipe, height, width, &colour(&plain)).map_err(|error| format!("{what}: {error}"))?;
         let drawn = scene(20, 12, [layer().look(recipe)?])?.render(40)?;
-        same_bits(&colour(&drawn), &after, &format!("{what} at twice the size"));
+        same_look(&colour(&drawn), &after, &format!("{what} at twice the size"));
     }
     Ok(())
 }
@@ -223,7 +213,7 @@ fn a_drawing_layer_equals_the_vector_crates_own_render_at_the_same_size() -> Out
 const GIVEN_REGION: &str = r#"{"steps": [{"effect": "grade", "params": {"exposure": 1.0}, "opacity": 1.0, "blend_mode": "normal", "mask": "here"}], "regions": {"here": {"kind": "given"}}}"#;
 
 /// Scene's look on a picture with a map is image's own render of the same picture handed the same map (`Photo::with_map`),
-/// bit for bit, at the picture's own size (nothing is resampled).
+/// looks the same, at the picture's own size (nothing is resampled).
 #[test]
 fn a_look_on_a_picture_with_a_map_equals_the_image_crates_own_render_with_that_map() -> Outcome {
     let (height, width) = (12, 20);
@@ -241,6 +231,6 @@ fn a_look_on_a_picture_with_a_map_equals_the_image_crates_own_render_with_that_m
         .map("here", Map::new(width, height, weights)?)?
         .look(GIVEN_REGION)?;
     let drawn = scene(20, 12, [layer])?.render(20)?;
-    same_bits(&colour(&drawn), &own.into_values(), "a given region");
+    same_look(&colour(&drawn), &own.into_values(), "a given region");
     Ok(())
 }

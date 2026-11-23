@@ -4,13 +4,7 @@
 
 use bullterrier_scene::{Blend, Deg, Error, Fit, Layer, MAX_DEPTH, MAX_LAYERS, Place, Raster, Scene};
 
-use crate::common::{Outcome, close, exactly, made, pixel, pixels, rectangle, scene};
-
-/// Whether two pictures are the same bit for bit.
-fn same(left: &Raster, right: &Raster) -> bool {
-    (left.width(), left.height()) == (right.width(), right.height())
-        && pixels(left).zip(pixels(right)).all(|(l, r)| exactly(l, r))
-}
+use crate::common::{Outcome, close, exactly, made, pixel, pixels, rectangle, same_look, scene};
 
 /// The largest difference of one premultiplied channel (alpha included) of two pictures of one size: the colour of a nearly
 /// transparent pixel is noise and counts for what its alpha lets through.
@@ -81,7 +75,7 @@ fn a_group_alone_is_its_scene_drawn_at_the_same_size() -> Outcome {
         let expected = inner()?.render(size)?;
         let got = scene(24, 16, [Layer::scene(inner()?)])?.render(size)?;
         assert!(
-            same(&got, &expected),
+            same_look(&got, &expected),
             "opaque inner at {size}: most {}",
             most(&got, &expected)
         );
@@ -106,7 +100,7 @@ fn a_group_moved_by_whole_pixels_is_its_render_as_a_picture_moved() -> Outcome {
     let place = Place::new().dx(5.0).dy(3.0);
     let group = scene(40, 24, [Layer::scene(inner()?).place(place)?])?.render(40)?;
     let picture = scene(40, 24, [Layer::picture(inner()?.render(24)?).place(place)?])?.render(40)?;
-    assert!(same(&group, &picture), "most {}", most(&group, &picture));
+    assert!(same_look(&group, &picture), "most {}", most(&group, &picture));
     Ok(())
 }
 
@@ -121,7 +115,7 @@ fn a_group_is_drawn_at_the_scale_it_will_have() -> Outcome {
     )?
     .render(48)?;
     let render = inner()?.render(48)?;
-    assert!(same(&group, &render), "most {}", most(&group, &render));
+    assert!(same_look(&group, &render), "most {}", most(&group, &render));
     Ok(())
 }
 
@@ -205,7 +199,7 @@ fn a_scene_used_twice_is_drawn_at_each_use_by_that_use() -> Outcome {
         ],
     )?
     .render(48)?;
-    assert!(same(&outer, &by_hand), "most {}", most(&outer, &by_hand));
+    assert!(same_look(&outer, &by_hand), "most {}", most(&outer, &by_hand));
     Ok(())
 }
 

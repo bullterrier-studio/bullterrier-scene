@@ -6,7 +6,7 @@
 use bullterrier_scene::{Blend, Deg, Error, Fit, Layer, MAX_DEPTH, MAX_LAYERS, Mask, Place, Raster, Scene, Use};
 
 use crate::common::counting::Counting;
-use crate::common::{Outcome, close, exactly, numbered, pixel, pixels, rectangle, scene};
+use crate::common::{Outcome, close, numbered, pixel, pixels, rectangle, same_look, scene};
 
 const WHITE: &str = "#ffffff";
 const CANVAS: (u32, u32) = (24, 16);
@@ -23,12 +23,6 @@ fn body() -> Result<Layer, Error> {
 
 fn drawn(layers: impl IntoIterator<Item = Layer>, size: u32) -> Result<Raster, Error> {
     scene(CANVAS.0, CANVAS.1, layers)?.render(size)
-}
-
-/// Whether two pictures are the same bit for bit.
-fn same(left: &Raster, right: &Raster) -> bool {
-    (left.width(), left.height()) == (right.width(), right.height())
-        && pixels(left).zip(pixels(right)).all(|(l, r)| exactly(l, r))
 }
 
 /// Whether two pictures are the same within `tolerance` in every channel.
@@ -104,7 +98,7 @@ fn a_reference_with_nothing_of_its_own_is_a_second_copy_of_the_body_it_names() -
         for size in SIZES {
             let by_reference = drawn([layer.clone().named("a")?, Layer::of("a")], size)?;
             let by_copy = drawn([layer.clone().named("a")?, layer.clone().named("b")?], size)?;
-            assert!(same(&by_reference, &by_copy), "{what} at {size}");
+            assert!(same_look(&by_reference, &by_copy), "{what} at {size}");
         }
     }
     Ok(())
@@ -130,7 +124,7 @@ fn a_reference_inherits_no_layer_mask_opacity_blend_or_light() -> Outcome {
         let below = Layer::fill("#336699")?;
         let by_reference = drawn([below.clone(), layer.clone(), Layer::of("a")], 24)?;
         let by_copy = drawn([below, layer, body()?.named("b")?], 24)?;
-        assert!(same(&by_reference, &by_copy), "{what}");
+        assert!(same_look(&by_reference, &by_copy), "{what}");
     }
     Ok(())
 }
@@ -147,7 +141,7 @@ fn a_reference_owns_its_opacity_blend_light_and_masks() -> Outcome {
     let named = body()?.named("a")?;
     let by_reference = drawn([Layer::fill("#336699")?, named.clone(), join(Layer::of("a"))?], 24)?;
     let by_copy = drawn([Layer::fill("#336699")?, named, join(body()?)?], 24)?;
-    assert!(same(&by_reference, &by_copy));
+    assert!(same_look(&by_reference, &by_copy));
     Ok(())
 }
 
@@ -170,14 +164,14 @@ fn a_reference_adds_its_looks_after_the_named_layers_and_masks_by_its_maps() -> 
         .look(FLAT)?
         .mask(Mask::new("m").feather(1.0).invert())?;
     for size in SIZES {
-        assert!(same(
+        assert!(same_look(
             &drawn([a.clone(), own.clone()], size)?,
             &drawn([a.clone(), copy.clone().named("b")?], size)?
         ));
     }
     // the order of the looks is the order they run in: the named layer's first
     let other = body()?.look(FLAT)?.look(PLUS_ONE_STOP)?.named("b")?;
-    assert!(!same(&drawn([a, own], 24)?, &drawn([other], 24)?));
+    assert!(!same_look(&drawn([a, own], 24)?, &drawn([other], 24)?));
     Ok(())
 }
 
@@ -190,7 +184,7 @@ fn a_reference_follows_the_layer_it_names() -> Outcome {
         let a = body()?.place(Place::new().dx(dx).rotate(Deg(10.0)))?.named("a")?;
         let by_reference = drawn([a.clone(), reference.clone()], 24)?;
         let by_copy = drawn([a.clone(), a.named("b")?.opacity(0.7)?], 24)?;
-        assert!(same(&by_reference, &by_copy), "dx {dx}");
+        assert!(same_look(&by_reference, &by_copy), "dx {dx}");
     }
     Ok(())
 }
@@ -233,7 +227,7 @@ fn a_reference_is_stacked_where_it_is_written_whichever_comes_first_in_the_call(
     let in_two_calls = scene(CANVAS.0, CANVAS.1, [a.clone()])?
         .add([Layer::of("a")])?
         .render(24)?;
-    assert!(same(&in_two_calls, &drawn([a.clone(), Layer::of("a")], 24)?));
+    assert!(same_look(&in_two_calls, &drawn([a.clone(), Layer::of("a")], 24)?));
     Ok(())
 }
 
@@ -317,7 +311,7 @@ fn an_extra_place_composes_with_the_named_layers_as_the_hand_composed_placement(
             let by_reference = drawn([a.clone(), Layer::of("a").place(row.then)?], size)?;
             let by_copy = drawn([a, body()?.place(row.together)?.named("b")?], size)?;
             if row.exact {
-                assert!(same(&by_reference, &by_copy), "{} at {size}", row.id);
+                assert!(same_look(&by_reference, &by_copy), "{} at {size}", row.id);
             } else {
                 assert!(alike(&by_reference, &by_copy, 1e-4), "{} at {size}", row.id);
             }
@@ -337,7 +331,7 @@ fn the_extra_places_of_a_chain_of_references_compose_in_order() -> Outcome {
     let second = Layer::of("first").place(Place::new().dy(3.0));
     let by_reference = drawn([a.clone(), first, second?], 24)?;
     let by_copy = drawn([a, body()?.place(Place::new().dx(3.0).dy(3.0))?.named("b")?], 24)?;
-    assert!(same(&by_reference, &by_copy));
+    assert!(same_look(&by_reference, &by_copy));
     Ok(())
 }
 
@@ -409,7 +403,7 @@ fn a_reference_as_a_mask_is_the_named_layer_drawn_on_the_canvas_with_its_own_pla
     for size in SIZES {
         let by_reference = drawn([hidden(named.clone())?, masked(Layer::of("a"))?], size)?;
         let by_copy = drawn([hidden(named.clone())?, masked(copy.clone())?], size)?;
-        assert!(same(&by_reference, &by_copy), "{size}");
+        assert!(same_look(&by_reference, &by_copy), "{size}");
     }
     // the named layer's own layer mask is not in it
     let cut = body()?
@@ -419,7 +413,7 @@ fn a_reference_as_a_mask_is_the_named_layer_drawn_on_the_canvas_with_its_own_pla
     let plain = body()?.place(Place::new().dx(2.0))?;
     let by_reference = drawn([cut.opacity(0.0)?.named("a")?, masked(Layer::of("a"))?], 24)?;
     let by_copy = drawn([body()?.opacity(0.0)?.named("a")?, masked(plain)?], 24)?;
-    assert!(same(&by_reference, &by_copy));
+    assert!(same_look(&by_reference, &by_copy));
     Ok(())
 }
 
@@ -754,11 +748,11 @@ fn a_layer_at_opacity_zero_costs_nothing_where_it_is_joined_and_its_references_s
         .opacity(0.0)?;
     let alone = drawn([base()?, hidden.clone()], 24)?;
     assert_eq!((kind.draws(), masking.draws()), (0, 0), "joined at opacity 0");
-    assert!(same(&alone, &drawn([base()?], 24)?));
+    assert!(same_look(&alone, &drawn([base()?], 24)?));
     let shown = drawn([base()?, hidden, Layer::of("source")], 24)?;
     assert_eq!(kind.draws(), 1, "its reference draws it");
     let visible = drawn([base()?, Layer::make(Counting::new(0.3))], 24)?;
-    assert!(same(&shown, &visible) && !same(&shown, &alone));
+    assert!(same_look(&shown, &visible) && !same_look(&shown, &alone));
     Ok(())
 }
 
@@ -772,7 +766,7 @@ fn a_layer_masked_to_nothing_is_not_drawn_where_it_is_joined() -> Outcome {
     let hidden = Layer::make(kind.clone()).blend(Blend::Multiply).mask(nothing()?)?;
     let alone = drawn([base()?, hidden], 24)?;
     assert_eq!(kind.draws(), 0, "masked to nothing");
-    assert!(same(&alone, &drawn([base()?], 24)?));
+    assert!(same_look(&alone, &drawn([base()?], 24)?));
     let half = Layer::make(shown.clone()).mask(Layer::fill("#ffffff")?.opacity(0.5)?)?;
     drawn([base()?, half], 24)?;
     assert_eq!(shown.draws(), 1, "masked to half");

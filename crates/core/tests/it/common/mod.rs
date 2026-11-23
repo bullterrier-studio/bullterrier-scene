@@ -2,6 +2,10 @@
 
 pub(crate) mod counting;
 
+// the one tolerance and its compare, shared with the command line's tests (`crates/cli/tests/it/common`)
+mod looks;
+pub(crate) use looks::levels_look_the_same;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -50,6 +54,33 @@ pub(crate) fn close(got: [f32; 4], expected: [f32; 4], tolerance: f32) -> bool {
     got.iter()
         .zip(expected)
         .all(|(got, expected)| (got - expected).abs() <= tolerance)
+}
+
+/// A float colour value as the level 0 to 255 an 8-bit file keeps (`value * 255 + 0.5` cut), a value outside 0 to 1 cut to it.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "clamped to 0 to 255 first"
+)]
+fn level(value: f32) -> u8 {
+    (value * 255.0 + 0.5).clamp(0.0, 255.0) as u8
+}
+
+/// `Ok` when float samples `got` look the same as `expected` ([`levels_look_the_same`] after rounding to 8 bits); a value
+/// that is not a number is a difference.
+pub(crate) fn looks_the_same(got: &[f32], expected: &[f32]) -> Result<(), String> {
+    if let Some(at) = got.iter().chain(expected).position(|value| !value.is_finite()) {
+        return Err(format!("not a number at {at}"));
+    }
+    levels_look_the_same(
+        &got.iter().copied().map(level).collect::<Vec<_>>(),
+        &expected.iter().copied().map(level).collect::<Vec<_>>(),
+    )
+}
+
+/// Whether two pictures look the same ([`looks_the_same`]).
+pub(crate) fn same_look(got: &Raster, expected: &Raster) -> bool {
+    looks_the_same(got.pixels(), expected.pixels()).is_ok()
 }
 
 /// A `width` by `height` picture of one colour.
