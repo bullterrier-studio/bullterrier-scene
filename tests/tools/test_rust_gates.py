@@ -221,6 +221,12 @@ OFFENCES = {
         replaced("license.workspace = true", 'license = "GPL-3.0-only"'),
         ["rejected", "GPL-3.0-only"],
     ),
+    "an API the browser build lacks": (
+        "rust-wasm",
+        CORE,
+        appended("\nuse std::os::unix::ffi::OsStrExt;\n"),
+        ["unix", CORE],
+    ),
     # only the probe runs (a test filter): the proof is that `rust-test` fails on a failing test, not the suite again
     "a failing Rust test": (
         "rust-test probe::fails",

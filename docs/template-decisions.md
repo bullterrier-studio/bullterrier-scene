@@ -21,9 +21,9 @@ rules themselves are in `rules.md`; this project's own decisions are in `design-
 
 ## The core is pure Rust
 
-`crates/core` has no PyO3 and no numpy (`deny.toml` bans them outside the bindings, an architecture test scans `src/`) and
-forbids unsafe code. *Reason:* the logic runs without Python or the GIL and is tested without an interpreter; the bindings
-are a mapping that can be read in minutes.
+`crates/core` has no PyO3 and no numpy (`deny.toml` bans them outside the bindings, an architecture test scans `src/`), forbids
+unsafe code, and builds for `wasm32-unknown-unknown` (`rust-wasm`). *Reason:* the logic runs without Python or the GIL, in a
+browser, and is tested without an interpreter; the bindings are a mapping that can be read in minutes.
 
 ## The core's tests are one binary, black-box by default
 
