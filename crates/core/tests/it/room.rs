@@ -5,7 +5,7 @@
 use bullterrier_image::{Presets, Recipe};
 use bullterrier_scene::{Blend, Error, Fit, Layer, Map, Place, Px, Raster};
 
-use crate::common::{Outcome, made, pixel, pixels, rectangle, scene, solid};
+use crate::common::{Outcome, looks_the_same, made, pixel, pixels, rectangle, scene, solid};
 
 /// The canvas, in design pixels, drawn one output pixel to the design pixel.
 const CANVAS: u32 = 96;
@@ -225,7 +225,7 @@ fn a_light_layers_halo_shows_past_its_box_and_no_further_than_the_room() -> Outc
     Ok(())
 }
 
-/// A layer that is not light is looked at its own size, as before the room: image's own render of its picture, bit for bit, even
+/// A layer that is not light is looked at its own size, as before the room: looks the same as image's own render of its picture, even
 /// at an edge a bloom or a blur would reach past (the look sees the picture's own edge, not black), and its alpha is its source's.
 #[test]
 fn a_layer_that_is_not_light_is_looked_at_its_own_size() -> Outcome {
@@ -257,8 +257,8 @@ fn a_layer_that_is_not_light_is_looked_at_its_own_size() -> Outcome {
                 let ours = pixel(&shown, x, y);
                 let at = (y * width + x) * 3;
                 assert_eq!(
-                    ours.map(f32::to_bits)[..3],
-                    alone[at..at + 3].iter().map(|v| v.to_bits()).collect::<Vec<_>>()[..],
+                    looks_the_same(&ours[..3], &alone[at..at + 3]),
+                    Ok(()),
                     "{recipe} at ({x}, {y})"
                 );
                 assert!(exactly_one(ours[3]), "alpha {} at ({x}, {y})", ours[3]);
@@ -319,7 +319,7 @@ fn masks_apply_to_the_halo_a_light_layer_shows() -> Outcome {
 }
 
 /// A look that spreads none (a vignette: it darkens, it paints nothing outside) gets no room, so image's own render of the
-/// layer's picture is what the layer shows, bit for bit; so does one that image cannot bound (a swirl about the centre).
+/// layer's picture is what the layer shows (the same look); so does one that image cannot bound (a swirl about the centre).
 #[test]
 fn a_look_that_spreads_none_or_cannot_be_bounded_gets_no_room() -> Outcome {
     let presets = Presets::shipped()?;

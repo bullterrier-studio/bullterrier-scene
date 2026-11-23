@@ -1,4 +1,4 @@
-//! What a context keeps and counts: the same bytes twice, a changed value against a cold render, what crosses to the device,
+//! What a context keeps and counts: the same look twice, a changed value against a cold render, what crosses to the device,
 //! the device cache's budget, two threads on one context, and the refusals.
 
 use std::sync::mpsc::{Receiver, Sender, channel};

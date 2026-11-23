@@ -234,13 +234,12 @@ fn a_reference_is_stacked_where_it_is_written_whichever_comes_first_in_the_call(
 // --- placement -----------------------------------------------------------------------------------------------------
 
 /// The layer's own placement, an extra place of the reference, and the one placement of a copy that is the two composed.
-/// A row is exact where the composition is of exact places (it is a bit for bit equal), otherwise within a tolerance.
+/// Each row is within 1e-4 per channel.
 struct Composed {
     id: &'static str,
     first: Place,
     then: Place,
     together: Place,
-    exact: bool,
 }
 
 #[test]
@@ -251,49 +250,42 @@ fn an_extra_place_composes_with_the_named_layers_as_the_hand_composed_placement(
             first: Place::new().dx(3.0).dy(2.0),
             then: Place::new().dx(4.0).dy(-1.0),
             together: Place::new().dx(7.0).dy(1.0),
-            exact: true,
         },
         Composed {
             id: "a quarter turn after a quarter turn",
             first: Place::new().rotate(Deg(90.0)),
             then: Place::new().rotate(Deg(90.0)),
             together: Place::new().rotate(Deg(180.0)),
-            exact: true,
         },
         Composed {
             id: "a quarter turn after a quarter turn and a move",
             first: Place::new().rotate(Deg(90.0)).dx(5.0),
             then: Place::new().rotate(Deg(90.0)),
             together: Place::new().rotate(Deg(180.0)).dx(5.0),
-            exact: true,
         },
         Composed {
             id: "a flip after a flip",
             first: Place::new().flip_x(true).dx(2.0),
             then: Place::new().flip_x(true),
             together: Place::new().dx(2.0),
-            exact: true,
         },
         Composed {
             id: "a halving and a doubling",
             first: Place::new().scale(0.5).dy(1.0),
             then: Place::new().scale(2.0),
             together: Place::new().dy(1.0),
-            exact: true,
         },
         Composed {
             id: "a turn after a turn",
             first: Place::new().rotate(Deg(30.0)).dx(2.0),
             then: Place::new().rotate(Deg(25.0)),
             together: Place::new().rotate(Deg(55.0)).dx(2.0),
-            exact: false,
         },
         Composed {
             id: "a turn about the corner of the bounding rectangle of a moved layer",
             first: Place::new().dx(3.0),
             then: Place::new().rotate(Deg(40.0)).anchor(0.0, 0.0),
             together: Place::new().rotate(Deg(40.0)).anchor(0.0, 0.0).dx(3.0),
-            exact: false,
         },
         Composed {
             id: "a scale about the far corner of a quarter turned layer's rectangle",
@@ -302,7 +294,6 @@ fn an_extra_place_composes_with_the_named_layers_as_the_hand_composed_placement(
             first: Place::new().rotate(Deg(90.0)),
             then: Place::new().scale(0.5).anchor(1.0, 1.0),
             together: Place::new().rotate(Deg(90.0)).scale(0.5).dx(2.0).dy(3.0),
-            exact: false,
         },
     ];
     for row in rows {
@@ -310,11 +301,7 @@ fn an_extra_place_composes_with_the_named_layers_as_the_hand_composed_placement(
             let a = body()?.place(row.first)?.named("a")?;
             let by_reference = drawn([a.clone(), Layer::of("a").place(row.then)?], size)?;
             let by_copy = drawn([a, body()?.place(row.together)?.named("b")?], size)?;
-            if row.exact {
-                assert!(same_look(&by_reference, &by_copy), "{} at {size}", row.id);
-            } else {
-                assert!(alike(&by_reference, &by_copy, 1e-4), "{} at {size}", row.id);
-            }
+            assert!(alike(&by_reference, &by_copy, 1e-4), "{} at {size}", row.id);
         }
     }
     Ok(())

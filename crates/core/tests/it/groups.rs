@@ -67,7 +67,7 @@ fn inner() -> Result<Scene, Error> {
     )
 }
 
-/// A group with no place, blend, opacity or mask is its inner scene drawn at the size the outer canvas gives it: bit for bit
+/// A group with no place, blend, opacity or mask is its inner scene drawn at the size the outer canvas gives it: the same look
 /// where the picture is opaque, and a translucent one within the float's step (the group's raster is straight alpha).
 #[test]
 fn a_group_alone_is_its_scene_drawn_at_the_same_size() -> Outcome {
@@ -93,7 +93,7 @@ fn a_group_alone_is_its_scene_drawn_at_the_same_size() -> Outcome {
     Ok(())
 }
 
-/// A group moved by whole pixels is the inner render put there as a picture, bit for bit at one output pixel to a design
+/// A group moved by whole pixels is the inner render put there as a picture, the same look at one output pixel to a design
 /// pixel.
 #[test]
 fn a_group_moved_by_whole_pixels_is_its_render_as_a_picture_moved() -> Outcome {
@@ -105,7 +105,7 @@ fn a_group_moved_by_whole_pixels_is_its_render_as_a_picture_moved() -> Outcome {
 }
 
 /// The group is drawn at the density it will have, so a scaled group is sharp where the picture of its render is resampled:
-/// a group twice as large equals the inner scene rendered at twice the size, as a picture, bit for bit.
+/// a group twice as large equals the inner scene rendered at twice the size, as a picture, the same look.
 #[test]
 fn a_group_is_drawn_at_the_scale_it_will_have() -> Outcome {
     let group = scene(

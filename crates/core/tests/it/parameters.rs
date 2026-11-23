@@ -303,7 +303,7 @@ pub(crate) fn drawable() -> Result<Scene, Box<dyn std::error::Error>> {
 }
 
 /// The round trip: every parameter set to the value it holds is accepted and changes nothing: the parameters are the same
-/// and the render is bit for bit the same. An address that is not listed is refused.
+/// and the render looks the same. An address that is not listed is refused.
 #[test]
 fn every_parameter_set_to_its_own_value_changes_nothing() -> Outcome {
     let before = drawable()?;

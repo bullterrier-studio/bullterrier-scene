@@ -1,6 +1,6 @@
 //! The cache (C7): what a layer drew is kept, and asked for again only when something it depends on changed. The one
 //! promise is that the cache changes no picture. Its oracle is a cold scene (one built afresh, sharing no cache): every
-//! address of the scenes below is changed on a scene whose cache has been used, and the picture is compared bit for bit with
+//! address of the scenes below is changed on a scene whose cache has been used, and the picture must look the same as
 //! the cold scene's. A counting layer kind shows what is not drawn again.
 
 use std::path::Path;

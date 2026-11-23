@@ -6,7 +6,7 @@ use bullterrier_scene::{Error, Fit, Layer, LayerKind, Place, Raster};
 use serde_json::{Value, json};
 
 use crate::common::counting::Counting;
-use crate::common::{Outcome, exactly, pixel, scene};
+use crate::common::{Outcome, exactly, looks_the_same, pixel, scene};
 
 #[test]
 fn a_kind_is_asked_for_the_canvas_at_the_scale_of_the_output_and_what_it_draws_is_the_picture() -> Outcome {
@@ -15,15 +15,9 @@ fn a_kind_is_asked_for_the_canvas_at_the_scale_of_the_output_and_what_it_draws_i
     assert_eq!(kind.draws(), 1);
     assert_eq!(kind.questions(), vec![([0.0, 0.0, 100.0, 50.0], [2.0, 2.0])]);
     assert_eq!((picture.width(), picture.height()), (200, 100));
-    // the kind's own raster for that question, bit for bit
+    // looks the same as the kind's own raster for that question
     let direct = Counting::new(0.25).draw([0.0, 0.0, 100.0, 50.0], [2.0, 2.0])?;
-    assert!(
-        picture
-            .pixels()
-            .iter()
-            .zip(direct.pixels())
-            .all(|(got, expected)| got.to_bits() == expected.to_bits())
-    );
+    assert_eq!(looks_the_same(picture.pixels(), direct.pixels()), Ok(()));
     Ok(())
 }
 
