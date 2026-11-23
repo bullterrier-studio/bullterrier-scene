@@ -516,6 +516,12 @@ impl Layer {
         wrap(py, masked(&self.0, mask, uses, feather, invert)).map(Self)
     }
 
+    /// The name the layer was given, or `None`.
+    #[getter]
+    fn name(&self) -> Option<&str> {
+        self.0.name()
+    }
+
     /// This layer called `name`.
     fn named(&self, py: Python<'_>, name: &str) -> PyResult<Self> {
         wrap(py, self.0.clone().named(name)).map(Self)
@@ -619,6 +625,17 @@ impl Scene {
     #[expect(clippy::needless_pass_by_value, reason = "pyo3 hands the extracted list over")]
     fn add(&self, py: Python<'_>, layers: Vec<PyRef<'_, Layer>>) -> PyResult<Self> {
         wrap(py, self.0.add(layers.iter().map(|layer| layer.0.clone()))).map(Self)
+    }
+
+    /// A scene of this canvas with `layers` as its stack, sharing this scene's cache.
+    #[expect(clippy::needless_pass_by_value, reason = "pyo3 hands the extracted list over")]
+    fn with_layers(&self, py: Python<'_>, layers: Vec<PyRef<'_, Layer>>) -> PyResult<Self> {
+        wrap(py, self.0.with_layers(layers.iter().map(|layer| layer.0.clone()))).map(Self)
+    }
+
+    /// The address of the topmost layer that shows at the pixel (`x`, `y`) of the picture at `size`, or `None`.
+    fn layer_at(&self, py: Python<'_>, x: i128, y: i128, size: i128) -> PyResult<Option<String>> {
+        wrap(py, py.detach(|| self.0.layer_at(x, y, size)))
     }
 
     /// The layers, bottom first.

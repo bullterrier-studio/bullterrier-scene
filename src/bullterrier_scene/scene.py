@@ -70,6 +70,31 @@ class Scene:
                 )
         return self._of(self._core.add([layer._core for layer in layers]))  # noqa: SLF001  (the layers' own module)
 
+    def with_layers(self, *layers: Layer) -> Self:
+        """A scene of this canvas with `layers` as its stack, bottom first, sharing this scene's cache.
+
+        An editor's change to the tree of layers (add, remove, reorder, regroup into a `Layer.scene`) is a new
+        list, from `layers`; a layer that did not change is not drawn again. A named layer keeps its addresses
+        wherever it goes (`x.<field>`, or `g.scene.x.<field>` inside the group `g`); one without a name is
+        `layer<n>` by its new place. The errors of `add` on an empty canvas; this scene is left as it is.
+        """
+        for layer in layers:
+            if not isinstance(layer, Layer):
+                raise TypeError(f"with_layers takes layers, got {type(layer).__name__}")
+        return self._of(self._core.with_layers([layer._core for layer in layers]))  # noqa: SLF001  (the layers' own module)
+
+    def layer_at(self, x: int, y: int, size: int) -> str | None:
+        """The address of the topmost layer that shows at the pixel (`x`, `y`) of `render(size)`, or `None`.
+
+        The address is the start of the layer's `parameters()` addresses: its name, `layer<n>` for one without,
+        and `group.scene.inner` inside a group (the topmost inner layer that shows there alone, else the group). A
+        layer shows where, drawn alone as the render draws it, it leaves alpha an 8-bit picture keeps (at least
+        0.5 / 255): a blend mode changes its colour, not where it is; opacity 0 or a mask that hides it is not
+        there; a mask layer is never the answer. `InvalidError` naming `x` or `y` for a pixel outside the picture,
+        `size` as for `render`.
+        """
+        return self._core.layer_at(x, y, size)
+
     @property
     def layers(self) -> tuple[Layer, ...]:
         """The layers, bottom first."""

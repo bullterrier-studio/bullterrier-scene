@@ -257,3 +257,57 @@ def test_a_scene_as_a_layer_takes_a_scene():
         Layer.scene(swatch("#ff0000"))  # type: ignore[arg-type]  # a wrong type, on purpose
     with pytest.raises(TypeError, match=r"Layer\.scene"):
         Scene(2, 2).add(Scene(2, 2))  # type: ignore[arg-type]  # a wrong type, on purpose
+
+
+def _boxed(color: str, box: tuple[float, float, float, float]) -> Layer:
+    return Layer.fill(color).fit(box, "stretch")
+
+
+def _laid_out() -> Scene:
+    """100 by 100: paper, a red card (10..50), a green badge (30..70) masked to x 30..50, a group moved 50 right
+    holding `a` (0..10 by 80..90)."""
+    group = Scene(100, 100).add(_boxed("#ff00ff", (0, 80, 10, 10)).named("a"))
+    return Scene(100, 100).add(
+        Layer.fill("#ffffff").named("paper"),
+        _boxed("#ff0000", (10, 10, 40, 40)).named("card"),
+        _boxed("#00ff00", (30, 30, 40, 40)).mask(_boxed("#ffffff", (30, 30, 20, 40))).named("badge"),
+        Layer.scene(group).place(dx=50).named("g"),
+    )
+
+
+@pytest.mark.parametrize(
+    ("x", "y", "expected"),
+    [
+        pytest.param(5, 5, "paper", id="the-paper-where-nothing-else-is"),
+        pytest.param(20, 20, "card", id="the-topmost-layer-there"),
+        pytest.param(40, 40, "badge", id="inside-its-box-and-its-mask"),
+        pytest.param(60, 40, "paper", id="inside-its-box-outside-its-mask"),
+        pytest.param(52, 82, "g.scene.a", id="inside-a-moved-group"),
+    ],
+)
+def test_layer_at_is_the_address_of_the_topmost_layer_that_shows_at_the_pixel(x: int, y: int, expected: str):
+    assert _laid_out().layer_at(x, y, 100) == expected
+
+
+def test_layer_at_is_none_where_nothing_shows_and_refuses_a_pixel_outside_the_picture():
+    bare = Scene(100, 50).add(_boxed("#ff0000", (0, 0, 10, 10)))
+    assert bare.layer_at(5, 5, 100) == "layer1"
+    assert bare.layer_at(50, 25, 100) is None
+    with pytest.raises(InvalidError, match="x"):
+        bare.layer_at(100, 0, 100)
+
+
+def test_with_layers_is_a_new_stack_that_keeps_each_named_layers_addresses_and_draws_as_one_made_afresh(same_look):
+    scene = _laid_out().with_values({"card.dx": 3.0})
+    assert [layer.name for layer in scene.layers] == ["paper", "card", "badge", "g"]
+    assert Layer.fill("#ffffff").name is None
+    *rest, top = scene.layers
+    moved = scene.with_layers(top, *rest)
+    assert [layer.name for layer in moved.layers] == ["g", "paper", "card", "badge"]
+    assert moved.parameters().keys() == scene.parameters().keys()
+    assert moved.parameters()["card.dx"].value == 3.0
+    assert same_look(moved.render(100), Scene(100, 100).add(top, *rest).render(100))
+    without = scene.with_layers(*(layer for layer in scene.layers if layer.name != "badge"))
+    gone = scene.parameters().keys() - without.parameters().keys()
+    assert gone == {address for address in scene.parameters() if address.startswith("badge.")}
+    assert len(scene.layers) == 4, "the scene itself is left as it is"

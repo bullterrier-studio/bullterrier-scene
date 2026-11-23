@@ -260,6 +260,11 @@ class Layer:
             )
         return cls(_core.Layer.of(name))
 
+    @property
+    def name(self) -> str | None:
+        """The name the layer was given (`named`), or `None`: such a layer is `layer1`, `layer2`... by its place."""
+        return self._core.name
+
     def named(self, name: str) -> Self:
         """This layer called `name`: letters, digits and `_`, starting with a letter, unique in its scene.
 
