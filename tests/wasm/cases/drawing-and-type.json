@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "canvas": { "width": 300, "height": 300 },
+  "layers": [
+    { "name": "paper", "fill": "#f4e8d0" },
+    {
+      "name": "block",
+      "drawing": {
+        "version": 1,
+        "root": [
+          { "stack": { "items": [[{ "path": "M30 40 L250 60 L220 260 L50 230 Z" }]], "size": [300, 300] } },
+          { "fill": { "color": "#2a6fdb" } }
+        ]
+      },
+      "opacity": 0.85
+    },
+    {
+      "name": "title",
+      "text": "Scene",
+      "font": "bricolage_grotesque",
+      "color": "#e0402a",
+      "options": { "size": 64, "axes": { "wght": 800 } },
+      "place": { "dx": 40, "dy": 170 },
+      "blend": "multiply"
+    },
+    {
+      "name": "mark",
+      "text": "B",
+      "font": { "path": "marks.ttf" },
+      "color": "#ffd000",
+      "options": { "size": 48 },
+      "place": { "dx": 220, "dy": 270 },
+      "blend": "screen"
+    }
+  ]
+}

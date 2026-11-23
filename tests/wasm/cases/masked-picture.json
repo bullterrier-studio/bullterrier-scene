@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "canvas": { "width": 320, "height": 200 },
+  "layers": [
+    { "name": "ground", "fill": "#203040" },
+    {
+      "name": "photo",
+      "picture": { "path": "photo.png" },
+      "maps": { "matte": { "path": "maps/matte.png" } },
+      "fit": { "box": [20, 10, 280, 180], "how": "cover" },
+      "masks": [{ "map": "matte", "feather": 6 }],
+      "looks": [{ "recipe": { "steps": [{ "effect": "grade", "params": { "exposure": 0.6 } }] } }]
+    }
+  ]
+}

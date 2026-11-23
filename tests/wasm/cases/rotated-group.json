@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "canvas": { "width": 400, "height": 250 },
+  "layers": [
+    { "name": "ground", "fill": "#101820" },
+    {
+      "name": "card",
+      "scene": {
+        "version": 1,
+        "canvas": { "width": 200, "height": 150 },
+        "layers": [
+          { "name": "back", "fill": "#e8e2d4" },
+          {
+            "name": "tile",
+            "picture": { "path": "tile.jpg" },
+            "fit": { "box": [20, 20, 160, 110], "how": "contain" },
+            "place": { "rotate": 15, "anchor": [0.5, 0.5], "scale": 0.9 }
+          }
+        ]
+      },
+      "fit": { "box": [100, 40, 200, 150] },
+      "place": { "rotate": -8, "anchor": [0.5, 0.5] },
+      "opacity": 0.9
+    }
+  ]
+}

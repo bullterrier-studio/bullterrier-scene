@@ -20,3 +20,6 @@ dist/
 target/
 src/bullterrier_scene/_native/_core*.so
 src/bullterrier_scene/_native/_core*.pyd
+
+# the WebAssembly package `poe wasm-test` builds, and the oracle it is compared with
+pkg/

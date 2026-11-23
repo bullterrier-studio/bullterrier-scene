@@ -151,9 +151,18 @@ look = { cmd = "python tools/look.py", help = "Render the example scene to dist/
 # Opt-in: a project with a hand-written API reference adds `[tool.api-doc] file = "docs/api.md"` (tools/check_api_doc.py says what it
 # checks); without the table the task says it is not configured and passes
 api-doc = { cmd = "python tools/check_api_doc.py", help = "Check the API reference ([tool.api-doc] file) against the package's exports" }
+# The WebAssembly package (crates/wasm): a release build (simd128 for this build step only, never a config file or a native
+# build), the glue (`wasm-bindgen`, pinned in Cargo.toml) into the ignored pkg/, then Node runs tests/wasm against what the
+# Python package renders (tests/wasm/oracle.py): the same size, pixels that look the same. Needs `node` (22 or later) on the PATH.
+wasm-test = { sequence = [
+    { cmd = "cargo build -p bullterrier-scene-wasm --target wasm32-unknown-unknown --release --locked --quiet", env = { RUSTFLAGS = "-C target-feature=+simd128" } },
+    "wasm-bindgen --target nodejs --out-dir pkg ${CARGO_TARGET_DIR:-target}/wasm32-unknown-unknown/release/bullterrier_scene_wasm.wasm",
+    "uv run python tests/wasm/oracle.py pkg",
+    "node --max-old-space-size=2048 --test --test-reporter=spec \"tests/wasm/*.test.mjs\"",  # a runaway test dies at 2 GB of JavaScript heap, not at the machine's
+], default_item_type = "cmd", help = "Build the WebAssembly package (simd128), run it in Node and compare it with the Python package's render" }
 # The project's own gates and the steps only `full` runs: the template ships these two lines as no-ops and never changes
 # them again, so a project replaces each with a sequence of its tasks without a conflict at the next update
-project-gates = { cmd = "python -c pass", help = "The project's own gates, run last by check and full (none yet)" }
+project-gates = { sequence = [{ ref = "wasm-test" }], default_item_type = "cmd", help = "The project's own gates, run last by check and full: the WebAssembly package renders as the Python package does" }
 project-full = { cmd = "python -c pass", help = "The project's own steps that only full runs (none yet)" }
 # The steps `check` and `full` share, cheapest first, stopping at the first failure
 gates = { sequence = ["ruff format --check .", { ref = "rust-fmt" }, "ruff check .", { ref = "rust-lint" }, { ref = "lint-workflows" }, { ref = "dead-code" }, { ref = "api-doc" }, { ref = "rust-doc" }, "deptry .", { ref = "rust-tools" }, { ref = "rust-test-layout" }, { ref = "rust-shear" }, { ref = "rust-deny" }, { ref = "rust-wasm" }, "mypy", { ref = "stubtest" }, { ref = "rust-test" }, { ref = "rust-test-gpu" }, { ref = "test" }, { ref = "project-gates" }], default_item_type = "cmd", help = "Every gate except the proofs that each gate can fail (format, lint, workflows, dead code, the API reference, docs, dependencies, types, tests, the project's own)" }
@@ -182,6 +191,10 @@ scope-pattern = "^[a-z0-9][a-z0-9/_-]*$"
 # RSS, the largest process 2.5 GB; the Rust tests alone at 2.7 GB. The cap is the proofs' peak plus half again.
 [tool.run-capped]
 cap-mb = 8000
+
+# Commands the project's tasks run besides its dev dependencies and cargo's tools: Node runs the WebAssembly tests (`poe wasm-test`)
+[tool.project-wiring]
+system-commands = ["node"]
 
 # Read by tools/check_rust_test_layout.py: the Rust test files that are binaries of their own (path -> why they need a
 # process to themselves). Every other integration test is a module of tests/it/.

@@ -271,6 +271,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "bullterrier-scene-wasm"
+version = "0.0.0"
+dependencies = [
+ "bullterrier-scene",
+ "js-sys",
+ "serde_json",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "bullterrier-vector"
 version = "0.0.0"
 source = "git+https://github.com/bullterrier-studio/bullterrier-vector?rev=beff47d0e604cfe71b6e5023a2a9c0eb61d2aa11#beff47d0e604cfe71b6e5023a2a9c0eb61d2aa11"
