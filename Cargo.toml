@@ -24,7 +24,7 @@ bullterrier-vector = { git = "https://github.com/bullterrier-studio/bullterrier-
 js-sys = "0.3"  # the bindings of JavaScript's own objects (`crates/wasm`)
 clap = { version = "4", default-features = false, features = ["std", "string", "derive", "help", "usage", "error-context", "suggestions"] }  # the command line (`crates/cli`)
 miniz_oxide = "0.9"  # the Flate encoder of a PDF's picture (already in the tree through png): `docs/design-decisions.md`, "PDF output"
-moxcms = "0.8"  # RGB to a caller's CMYK profile (already in the tree through image)
+moxcms = "0.9"  # RGB to a caller's CMYK profile (already in the tree through image)
 numpy = "0.30"
 pollster = "0.4"  # blocking on the core's async GPU calls at the native edge: the Python bindings, the command line and the core's GPU tests (feature `gpu`)
 pdf-writer = "0.15"  # writes the page's content stream; pdf.rs writes the objects
