@@ -41,7 +41,7 @@ serde = "1"  # the strict reader of a saved scene (a key written twice is refuse
 # the GPU compositor (`crates/core/src/gpu/`, feature `gpu`): compute shaders in WGSL on Metal (and Vulkan, for CI's software adapter); the one wgpu major of every sibling package, the one image builds with
 wgpu = { version = "30", default-features = false, features = ["std", "wgsl", "metal", "vulkan", "dx12"] }
 wasm-bindgen = "=0.2.130"  # exactly the version of the `wasm-bindgen` command below: generated glue must match it
-sha2 = "0.10"  # the digest of a file a saved scene names (docs/design-decisions.md, "A saved scene")
+sha2 = "0.11"  # the digest of a file a saved scene names (docs/design-decisions.md, "A saved scene")
 
 # Warnings, not errors, so a newer compiler's new lint never breaks a user's install; the gate (`poe check`) runs clippy
 # and rustdoc with `-D warnings`, so every one fails it.
