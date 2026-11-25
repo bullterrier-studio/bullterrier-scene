@@ -17,7 +17,8 @@ uv run pytest tests/test_scene.py -n 0   # the tests near your change, while you
 cargo test -p bullterrier-scene --test it compose::  # one Rust area (inline: cargo test -p bullterrier-scene --lib raster::)
 uv run poe look                      # render the example scenes to dist/look/ and the gallery pieces, and print the first path
 uv run poe fast                      # the inner loop, as often as you like: format, lint, types, quick tests
-uv run poe check                     # the gate, before you report or merge (then `uv run lint-imports`)
+uv run poe check                     # the gate, before you report or merge (then `uv run lint-imports`); skipped in seconds when only docs differ from main
+uv run poe check-all                 # the gate with no docs-only skip (the push hook runs this)
 uv run poe full                      # `check` and the gate proofs: before a tag (`poe release` runs it) and in CI
 ```
 
