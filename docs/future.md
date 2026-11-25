@@ -6,7 +6,7 @@ Set 2026-11-14, kept as the record of what was built on top of the core: the ani
 
 | Direction | What scene must provide | Status |
 |---|---|---|
-| Animated posters | `scene.with_values({...}).render(size)` per frame (built with C6a); the per-layer cache C7; a fast path for layers that only move; bands B1 for large frames. Video owns the clock, the signal mapping and the encode | cache and fast path built (C7); bands built (B1: looks are drawn whole, below) |
+| Animated posters | `scene.with_values({...}).render(size)` per frame (built with C6a); the per-layer cache C7; a fast path for layers that only move; bands B1 for large frames. Video owns the clock, the signal mapping and the encode | cache and fast path built (C7); bands built (B1, below) |
 
 **The move-only fast path (built, C7).** `dx`, `dy`, `rotate`, `skew`, `flip`, `aspect`, `opacity` and `blend` only re-warp a kept raster of the layer; `scale` draws the source and runs its look again (a look's pixels follow the density). A drawing, a text and a group drawn at a fraction of a pixel also draw again when that fraction changes (the pixel phase is in their key); measured cheap in the mill (with the other values held, a logo moved by whole pixels takes 0.025 s a frame, by a fraction of a pixel 0.029 s), and the wow loop's dog is a picture, which has no phase.
 
@@ -35,14 +35,14 @@ vector) is 8.9 MB after `wasm-opt`, 2.5 MB brotli. **Built 2026-11-23:** `crates
 5. ~~**P1** the Rust command line, `bt-scene render`~~ done: `docs/cli.md`.
 6. ~~Print output for dither, halftone and spot-ink pieces (plates, mirrored bleed, DPI, a white underbase)~~ done 2026-11-17: [dither-and-print.md](dither-and-print.md).
 
-Room for light layers is built (C5c), and B1 with banded looks; what still renders whole is stated in "B1 completion" below.
+Room for light layers is built (C5c), and B1 with banded looks; what renders whole is stated in "B1 completion" below.
 
-## B1: what banded rendering still lacks (2026-11-14)
+## B1: what banded rendering lacked (2026-11-14), all done 2026-11-15
 
 Built: `render_bands`, `render_to_png`, `render_to_pdf`, a banded `bt-scene render` ("Banded rendering (B1)" in `design-decisions.md`).
-What remains, with its evidence:
+What it lacked, with its evidence:
 
-| What | Why it is not built | What would build it |
+| What | Evidence | Built from |
 |---|---|---|
 | ~~**Banded looks.**~~ **Done 2026-11-15** (step 3 below): what stays whole is a looked layer whose recipe image cannot band, a layer not the canvas's size, a light layer; image answers only for recipes that band to the bit, so a Fourier-summed blur or `grain` past its switch stays whole (a banded render equals the whole one within the one tolerance) | | |
 | ~~**Grain is banded within one float step.**~~ **Done 2026-11-15** (lesson L21): image's `band_margin` is exact-only (`4997d954`), scene's own 16-pixel guard is deleted, and the oracle runs a canvas of 3,900 pixels and a fractional shift far from the top. Was: **Grain is banded within one float step.** `grain` blurs its noise by a Fourier transform from a clump of about 8 working pixels (a picture of about 3,800 pixels on its long side at the default size: an A3 at 300 dpi), but its footprint is a pixel, so image reports margin 0 and the 16-pixel guard does not see it | measured 2026-11-15 on a 3,508 by 4,961 picture: banded render and whole render differ by at most 1.2e-7 (one float step) in 7 to 21 million values of the picture; a picture of 1,000 pixels is within the one tolerance (the oracle's sizes sum the noise tap by tap) | image's exact-only `Recipe::band_margin`, which must also answer for a step whose own blur is Fourier (Needs from others) | 
@@ -52,9 +52,9 @@ What remains, with its evidence:
 | ~~**Reducing a picture shrunk past 2x once.**~~ **Done 2026-11-15:** a band lands from the average, made once and kept in the cache (`reduced`); only a map whose footprint is a rectangle along the axes averages first | | |
 | ~~**Scan-resistant cache for banded renders.**~~ **Done 2026-11-15:** the plane of a band is kept as expendable (`Cache::fetch_expendable`): only where it costs no finished layer, and the first to go. What else a band keeps that no other band reads is not measured | | |
 
-### B1 completion: unblocked on 2026-11-15; steps 1 to 5 done the same day, step 6 measured (`design-decisions.md`)
+### B1 completion (2026-11-15; `design-decisions.md`)
 
-The two blockers in the first two rows above are lifted in the siblings; the scene side is the next batch:
+The two blockers in the first two rows above were lifted in the siblings; the scene side:
 
 1. **Bump the pins (done)** (image and vector), as a commit of its own with the data-boundary tests green.
 2. **Drawings by window. Done 2026-11-15.** Vector's window render now equals the crop of the whole render within the one tolerance (its V10e note says so; a window near its 65,000-pixel side limit, or one cutting a blurred shape too big to hold, is refused with a `ParameterError` naming `window`; one rare path, a gradient whose first two stops share offset 0, is not proven exact). In the drawing adapter, ask for the band's window instead of drawing whole; keep the C3 wrapper (frame exactly the raster, phase) so the window is a crop of that raster. The existing bit-exact band oracle (`render_bands` equals `render`, heights 1, 7, prime, half, full, non-dividing; sizes odd and even) is the proof; a window vector refuses (a side past 65,000 pixels, 2^27 in all) is a raster its whole render refuses too, so there is no whole fallback.
@@ -83,41 +83,4 @@ Each item has the evidence that found it. Fix by the usual rule: reproduce at th
 | 12 | ~~A look's `px` cannot be given in output pixels or as a share of the canvas: a look carried over from a picture of another size is rescaled by hand (`480 / long side`), and inside a group by the group's size again~~ **Done** (270cb54, 0bd8e7c: a look's `px="canvas"`, `Px::Canvas`; `design-decisions.md`, "A look's `px` in canvas pixels") | the mill (`PX = 480 / max(W, H)`), the wow poster's story group (looks scaled by `H / h`) |
 | 13 | ~~ Worked answers missing in `api.md`: a halo only (the glow masked by its inverted source), one look on the whole scene (a group round everything), `aspect` squashing toward the anchor (the shadow's `dy`), stroke widths under `perspective` (drawn flat, so near lines grow)~~ **Done** (91fe1fb, 28436eb, 80bbc90, e57f877) | M2, the mill |
 | 14 | ~~Stale text: rows 2 to 8 are answered (`api.md` recipes, commits d1597b2, 58386bf, 9132201) but not marked done; `design-decisions.md` still calls a look's `px` a canvas pixel in two places; `roadmap.md` says vector's V10e is not built~~ **Done** (this batch) | checked 2026-11-15 |
-| 17 | The next image pin brings the dither methods and the halftone batch (2026-11-16). **Pinned 2026-11-17** (image `59ed56e9`, with its vectorised pixel loops and sampler fast path): the one test that read halftone's `cell` as a whole number now reads bloom's `octaves`; demos 06, 09 and 10 re-rendered the same day (09 is byte-identical, it has no halftone; 06's dots and 10's line screen print a little lighter, as tone-true halftones should): every halftone picture changes tone (the round dot printed about pi/2 x the tone; separations solved by density printed too light: both now tone-true), dither's `separation="inks"` is now `"spot"`, and `cell` is fractional, so demo 10's night halftone can move to `px="canvas"`. `tests/it/data_boundary.rs` will name the changes; re-render demos 06, 09 and 10 after the bump | image `docs/design-decisions.md` (this batch) |
-
-## Context for an agent starting here
-
-- Read `CLAUDE.md`, `docs/api.md` (the code API and what is built) and `docs/design-decisions.md` (why).
-- **What exists:** the whole core roadmap through C7, O1 and P1 (`roadmap.md`): layers of picture, drawing, text, fill, scene
-  and plugin kinds (C8); `fit`, `place`, `perspective`; masks, maps, references, groups; looks on every layer; the sixteen
-  blends and light; parameters and `with_values`; the saved scene; the cache; PNG and raster PDF output; `bt-scene`.
-- **The pieces** are in `bullterrier-demos` and use scene as a library from a checkout (`BT_SCENE_SRC`, the sibling's
-  `src/`): 06 the two-ink poster, 07 the composed world, 08 the Conan poster, 09 the wow poster (a loop with a value set per
-  frame: `with_values` then `render`), 10 the mill video. Its `feedback/scene-*.md` are the evidence of every polish row.
-  Each demo builds one `Scene` from a function and renders it at several sizes; a frame loop reuses one scene, so the cache works.
-- **The owner's rules:** speed over ceremony (`poe fast` per commit, one `poe check` per batch, a few hand mutants, no
-  independent review unless asked); a gap found in image, vector or control while building a piece is fixed in that repository
-  by its own rules without asking; pushes to the other repositories are authorised; no pushes of this one unless asked.
-- The per-batch plans were written in the git-ignored `.superpowers/plans/`, which may be absent. The decisions are in
-  `design-decisions.md`.
-
-## The GPU compositor: what is left (BTSCN-0010, 2026-11-22)
-
-Built: warps, area average, footprint, masks, feather, the sixteen blends, light, a picture's looks through image's executor, the
-device cache, `Gpu`, Python `Gpu` and `render(gpu=)`, `bt-scene render --gpu`. Speed evidence: `api.md`, "Limits, measured" (a layer low
-in the stack changed: 4.5 to 7 times the CPU's time at 1,920; a repeat the CPU's kept joins answer in 3 to 9 ms is 19 to 35 ms on the
-device). Not built, in the order they pay:
-
-1. **Joins kept on the device** (the CPU keeps the join after every other layer): a repeat and a top-layer slider would be one blend.
-2. **Per-dispatch cost:** a uniform buffer and a bind group are made for each of the roughly three kernels a layer takes; a pool of
-   them, or one bind group of the layer's parameters, would cut the recording.
-3. **Groups, and layers the CPU draws, on the device:** a group recurses on the CPU and is sent; text and drawings wait for vector's
-   GPU path (`BTVEC-0014`).
-4. **Bands on the device** (`render_to_png` with a GPU, a picture past what the device binds): bands sized from the device's limit
-   through `render_bands`.
-5. **A light layer's looks and a look that uses a map** on the device (room, `render_from` with maps).
-6. **Image's resample kernel** (`BTIMG-0012`): upload the decoded file once and `render_from`, instead of the CPU framing and resizing
-   a picture before it is sent.
-7. **The recording asynchronous**, for the browser (`BTSCN-0011`): image's calls are polled once now and are ready on native.
-8. **The footprint of a perspective in 32-bit floats** differs from the CPU's where a footprint's length is just over a whole number
-   (a tap more or fewer): the bound is 1e-2; a table of the singular values worked out on the CPU would make it exact.
+| 17 | The next image pin brings the dither methods and the halftone batch (2026-11-16). **Pinned 2026-11-17** (image `59ed56e9`, with its vectorised pixel loops and sampler fast path): the one test that read halftone's `cell` as a whole number now reads bloom's `octaves`; demos 06, 09 and 10 re-rendered the same day (09 is byte-identical, it has no halftone; 06's dots and 10's line screen print a little lighter, as tone-true halftones should): every halftone picture changes tone (the round dot printed about pi/2 x the tone; separations solved by density printed too light: both now tone-true), dither's `separation="inks"` is now `"spot"`, and `cell` is fractional, so demo 10's night halftone can move to `px="canvas"`. | image `docs/design-decisions.md` (this batch) |

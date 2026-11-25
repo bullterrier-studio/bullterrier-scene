@@ -94,7 +94,7 @@ Image and vector each made sensible choices alone; a scene puts their output sid
    renders (the working picture's long side over 480) and carries it in the frame; a layer on a larger canvas needs image's
    `Options::with_canvas` (additive, asked for by C5).
 2. **Blending in sRGB values**, as vector and the W3C Compositing and Blending spec do, so a drawing looks the same alone and
-   in a scene. Linear-light blending is a later option, never a silent default.
+   in a scene. Linear-light blending is not offered.
 3. **Straight alpha at every boundary**, premultiplied inside. Open: a look on an already transparent layer moves the colour
    but not the alpha until image carries alpha through effects that move pixels; until then a layer's look runs before its
    cut-out, and light a look adds past the shape shows only on a layer whose `alpha` is `light` ([api.md](api.md), "Looks").
@@ -161,5 +161,5 @@ that needs a newer one. The first batch to need each is in the roadmap table.
 
 2. ~~How a scene refers to image looks and vector drawings.~~ Settled in A1: embedded data is the default and the saved form; a
    path is read-only convenience ([api.md](api.md), "Data in").
-3. Print colour (CMYK, ICC, bleed, PDF) is output and belongs here: built as a raster PDF (O1); a PDF that keeps vectors is not planned.
+3. Print colour (CMYK, ICC, bleed, PDF) is output and belongs here: built as a raster PDF (O1); the PDF keeps no vectors.
 4. ~~Command line in Rust or Python.~~ Settled in A1: a Rust command line that the Python console script runs, as image does (P1).

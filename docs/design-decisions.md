@@ -1007,10 +1007,10 @@ bands and the cache are CPU promises; a GPU render is held to a bound). Why this
   (an affine map's is worked out in 64-bit floats on the CPU and handed to the kernel, a perspective's per pixel in 32), the sixteen
   blend modes, light, masks and their planes, the three box passes of the feather on the line padded as the CPU pads it. Forms:
   a layer's raster as image holds a picture (straight RGBA, `vec4<f32>`: so a look's picture is a layer's raster with no
-  conversion), the join premultiplied as the CPU's is (deviation from the ticket's "layer pixels premultiplied": the warp's maths
-  is written on straight values and premultiplies inline, so premultiplied layers would cost a conversion for nothing).
+  conversion), the join premultiplied as the CPU's is (layers are not premultiplied: the warp's maths is written on straight values and
+  premultiplies inline, so premultiplied layers would cost a conversion for nothing).
 * **What stays on the CPU, and is sent once:** fills, drawings, text, plugin kinds and groups (a group is drawn by the CPU's
-  recursion and sent as one raster; a recursion on the device is a later step), a picture with no look, a look that uses a map or
+  recursion and sent as one raster), a picture with no look, a look that uses a map or
   makes a plate, a light layer's looks (its room), and a recipe `render_from` does not take (it resamples): looked on the CPU as before.
   A raster crosses once, under the key the CPU cache keeps it under (or the digest of its pixels where the CPU holds the picture as it
   is, not in its cache), in a cache of its own. **A CPU raster never feeds a render on the device, nor the reverse**: separate
@@ -1025,8 +1025,7 @@ bands and the cache are CPU promises; a GPU render is held to a bound). Why this
   holding buffers; its budget is settable (`set_cache_budget`, default 1 GiB; the CPU's `MAX_BYTES` is unchanged). A render that fails
   after recording into it empties it, since what it recorded was never submitted.
 * **Sizes:** whole renders only. `Gpu::fits` and every buffer check the device's binding limit and name the size and the CPU; bands
-  on the device, `render_to_png` with a GPU and a PDF with a GPU are not built: `bt-scene render --gpu` refuses them by name
-  (`future.md`).
+  on the device, `render_to_png` with a GPU and a PDF with a GPU are not built: `bt-scene render --gpu` refuses them by name.
 * **Bounds, not bytes** (the determinism note's interim numbers): see `api.md`, "On the GPU". The first green run met each bound at
   once on Metal; a mutant of the blend, the feather and the warp each fails the suite (`tests/it/gpu/`).
 * **Cost:** two implementations of each piece (Rust and WGSL), the parity tests, and a feature (`gpu`, off by default for pure

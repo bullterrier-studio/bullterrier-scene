@@ -11,7 +11,7 @@ independent review done. Sizes: **S** one working session, **M** two or three, *
 
 Owner's decision, 2026-11-08: no work on scene starts until image's E4 and vector's V10 are finished, merged and pushed. State on
 2026-11-13: **met.** Image finished its Rust port (E1 to E7, with effect footprints and a banded render) on 2026-11-11; vector
-finished V10 and V10d (gradients, the full separable blend set, clip groups, soft masks) and V16 (SVG import, trimmed). Vector's V10e (window render, B1) is built; V10f (text runs, M1 needs it if mixed fonts are wanted) is not. Scene pins image and vector at a revision, so
+finished V10 and V10d (gradients, the full separable blend set, clip groups, soft masks) and V16 (SVG import, trimmed). Vector's V10e (window render, B1) is built. Scene pins image and vector at a revision, so
 their later changes cannot break it; a bump of the pin is a reviewed commit, and the adapter files (`source/picture.rs`,
 `source/drawing.rs`) take the change.
 
@@ -117,5 +117,4 @@ Real objects over mocks: the sibling crates are real, used through their public 
 | O1, P1 | a PNG and `bt-scene render scene.json out.png`: [cli.md](cli.md), `docs/gallery/p1-cli.png`; a print PDF with bleed and crop marks: [cli.md](cli.md) |
 
 Order: C1 is the first batch that uses image and vector. M1 is the milestone that shows whether the layer model is right and
-can start once C4 and vector's V10d exist. B1 is built within what image and vector give today (their needs are in "Needs from others"); a layer with a look
-renders whole.
+can start once C4 and vector's V10d exist. B1 draws a looked layer by band where image can band its looks, else whole once and cut.
