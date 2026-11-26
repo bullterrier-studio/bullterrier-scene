@@ -19,7 +19,8 @@ uv run poe look                      # render the example scenes to dist/look/ a
 uv run poe fast                      # the inner loop, as often as you like: format, lint, types, quick tests
 uv run poe check                     # the gate, before you report or merge (then `uv run lint-imports`); skipped in seconds when only docs differ from main
 uv run poe check-all                 # the gate with no docs-only skip (the push hook runs this)
-uv run poe full                      # `check` and the gate proofs: before a tag (`poe release` runs it) and in CI
+uv run poe gate-tests                # the gate proofs and the tools' own tests: after changing a gate or a tool (CI runs them)
+uv run poe full                      # `check`, the build and the gate proofs: before a tag (`poe release` runs it) and in CI
 ```
 
 | To ... | Look at |
